@@ -1,0 +1,126 @@
+import { createSupabaseServerClient } from "../supabase/server";
+
+type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+export async function applySessionUsage({
+  supabase,
+  sessionId,
+  actorId,
+  source,
+  markSessionCompleted = false
+}: {
+  supabase: SupabaseClient;
+  sessionId: string;
+  actorId: string;
+  source: "whatsapp_import" | "session_completed";
+  markSessionCompleted?: boolean;
+}) {
+  const { data: session, error: sessionError } = await supabase
+    .from("sessions")
+    .select("id,season_id,price_per_session,seasons(price_per_session)")
+    .eq("id", sessionId)
+    .single();
+  if (sessionError) throw new Error(sessionError.message);
+
+  const effectivePrice = Number(session.price_per_session ?? (session.seasons as any)?.price_per_session ?? 0);
+
+  const { data: attendance, error: attendanceError } = await supabase
+    .from("attendance")
+    .select("player_id,status")
+    .eq("session_id", sessionId)
+    .in("status", ["confirmed", "played", "replacement"]);
+  if (attendanceError) throw new Error(attendanceError.message);
+
+  const confirmedPlayerIds = (attendance ?? [])
+    .filter((row) => row.status === "confirmed")
+    .map((row) => row.player_id);
+
+  if (confirmedPlayerIds.length) {
+    const { error } = await supabase
+      .from("attendance")
+      .update({ status: "played" })
+      .eq("session_id", sessionId)
+      .in("player_id", confirmedPlayerIds);
+    if (error) throw new Error(error.message);
+  }
+
+  const newCharges = [];
+  for (const row of attendance ?? []) {
+    const { data: charge, error } = await supabase
+      .from("session_player_charges")
+      .insert({
+        season_id: session.season_id,
+        player_id: row.player_id,
+        session_id: sessionId,
+        amount: effectivePrice,
+        sessions_count: 1,
+        source,
+        created_by: actorId
+      })
+      .select("id,player_id")
+      .single();
+
+    if (error) {
+      if (isUniqueViolation(error)) continue;
+      throw new Error(error.message);
+    }
+
+    newCharges.push({ chargeId: charge.id, playerId: charge.player_id, status: row.status });
+  }
+
+  const ledgerRows = newCharges.map((charge) => ({
+      season_id: session.season_id,
+      player_id: charge.playerId,
+      session_id: sessionId,
+      type: "session_used",
+      amount: effectivePrice,
+      sessions_count: 1,
+      description: `${source === "whatsapp_import" ? "WhatsApp session import" : "Session completed"}. Status: ${
+        charge.status === "confirmed" ? "played" : charge.status
+      }.`,
+      created_by: actorId
+    }));
+
+  if (ledgerRows.length) {
+    const { data: insertedLedger, error } = await supabase.from("ledger_entries").insert(ledgerRows).select("id,player_id");
+    if (error) throw new Error(error.message);
+
+    for (const ledgerEntry of insertedLedger ?? []) {
+      const charge = newCharges.find((row) => row.playerId === ledgerEntry.player_id);
+      if (!charge) continue;
+      await supabase
+        .from("session_player_charges")
+        .update({ ledger_entry_id: ledgerEntry.id })
+        .eq("id", charge.chargeId);
+    }
+  }
+
+  if (markSessionCompleted) {
+    const { error } = await supabase.from("sessions").update({ status: "completed" }).eq("id", sessionId);
+    if (error) throw new Error(error.message);
+  }
+
+  await supabase.from("audit_logs").insert({
+    actor_id: actorId,
+    action: source === "whatsapp_import" ? "session_usage_imported" : "session_completed",
+    entity_type: "sessions",
+    entity_id: sessionId,
+    new_data: {
+      charged_players: ledgerRows.length,
+      skipped_existing_charges: (attendance ?? []).length - newCharges.length,
+      price_per_session: effectivePrice,
+      confirmed_changed_to_played: confirmedPlayerIds.length
+    }
+  });
+
+  return {
+    chargedPlayers: ledgerRows.length,
+    skippedExistingCharges: (attendance ?? []).length - newCharges.length,
+    confirmedChangedToPlayed: confirmedPlayerIds.length,
+    effectivePrice
+  };
+}
+
+function isUniqueViolation(error: { code?: string; message?: string }) {
+  return error.code === "23505" || /duplicate key value violates unique constraint/i.test(error.message ?? "");
+}

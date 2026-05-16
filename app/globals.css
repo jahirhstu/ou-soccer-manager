@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: #f4f7f4;
+  --surface: #ffffff;
+  --surface-soft: #f8faf8;
+  --border: #dce5df;
+  --text: #14201b;
+  --muted: #65746d;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(15, 122, 74, 0.08), transparent 30rem),
+    linear-gradient(180deg, #f8faf8 0%, var(--background) 42%, #eef4f0 100%);
+  color: var(--text);
+  font-feature-settings: "tnum";
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .input {
+    @apply min-h-10 rounded-md border border-line bg-white px-3 text-sm text-ink shadow-sm outline-none transition placeholder:text-slate-400 focus:border-pitch focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+  }
+
+  .panel {
+    @apply rounded-lg border border-line bg-white shadow-sm;
+  }
+
+  .page-title {
+    @apply text-3xl font-semibold tracking-tight text-ink;
+  }
+
+  .section-title {
+    @apply text-base font-semibold tracking-tight text-ink;
+  }
+
+  .btn-primary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-pitch px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60;
+  }
+}
