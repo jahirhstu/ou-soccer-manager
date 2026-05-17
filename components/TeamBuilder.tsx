@@ -127,27 +127,6 @@ export function TeamBuilder({
 
   return (
     <div className="grid gap-5">
-      <section className="panel p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="section-title">Registered players</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {players.length} registered. Capacity: {totalCapacity}. Extra players stay in waitlist.
-            </p>
-          </div>
-          {!canEdit ? (
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-              View only
-            </span>
-          ) : null}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {players.map((player) => (
-            <PlayerChip key={player.id} player={player} />
-          ))}
-        </div>
-      </section>
-
       <section className="panel grid gap-3 p-4 md:grid-cols-[180px_180px_1fr]">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Teams
@@ -167,7 +146,7 @@ export function TeamBuilder({
           />
         </label>
         <div className="rounded-md border border-line bg-slate-50 p-3 text-sm text-slate-600">
-          Drag players from waitlist into teams. A team stops accepting players when it reaches the selected size.
+          {players.length} registered. Capacity: {totalCapacity}. Players not assigned to a team remain in the draft pool as waitlist.
         </div>
       </section>
 
@@ -176,9 +155,21 @@ export function TeamBuilder({
         onDragOver={(event) => canEdit && event.preventDefault()}
         onDrop={(event) => canEdit && onDrop(event, "pool")}
       >
-        <div className="mb-3 flex items-center gap-2">
-          <Users className="h-4 w-4 text-slate-500" />
-          <h2 className="section-title">Waitlist / available</h2>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-slate-500" />
+              <h2 className="section-title">Draft pool</h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Players not yet assigned to a team. Extras can remain here as waitlist.
+            </p>
+          </div>
+          {!canEdit ? (
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+              View only
+            </span>
+          ) : null}
         </div>
         <div className="flex min-h-12 flex-wrap gap-2">
           {poolPlayers.map((player) => (
@@ -197,7 +188,7 @@ export function TeamBuilder({
                   }}
                   value=""
                 >
-                  <option value="">Move to</option>
+                  <option value="">Assign</option>
                   {teams.map((team) => (
                     <option disabled={team.playerIds.length >= playersPerTeam} key={team.key} value={team.key}>
                       {team.name}
@@ -305,7 +296,6 @@ function PlayerChip({
       onDragStart={onDragStart}
     >
       {player.name}
-      {player.status ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">{player.status}</span> : null}
     </span>
   );
 }
