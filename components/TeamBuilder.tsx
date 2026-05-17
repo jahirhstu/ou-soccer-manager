@@ -165,18 +165,18 @@ export function TeamBuilder({
   }
 
   return (
-    <div className="grid gap-5">
-      <section className="panel grid gap-4 p-4 md:grid-cols-[180px_180px_1fr] md:items-end">
-        <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+    <div className="grid gap-3 sm:gap-5">
+      <section className="panel grid grid-cols-2 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-[180px_180px_1fr] md:items-end">
+        <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
           Teams
-          <select className="input" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
+          <select className="input min-h-9" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
             {[2, 3, 4].map((count) => <option key={count} value={count}>{count} teams</option>)}
           </select>
         </label>
-        <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+        <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
           Players per team
           <input
-            className="input"
+            className="input min-h-9"
             disabled={!canEdit}
             min="1"
             onChange={(event) => setPlayersPerTeam(Math.max(1, Number(event.target.value) || 1))}
@@ -184,28 +184,28 @@ export function TeamBuilder({
             value={playersPerTeam}
           />
         </label>
-        <div className="grid gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900">
-          <div className="flex flex-wrap gap-2">
+        <div className="col-span-2 grid gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-2 text-xs text-emerald-900 sm:p-3 sm:text-sm md:col-span-1">
+          <div className="flex flex-wrap gap-1.5">
             <Metric label="Registered" value={players.length} />
             <Metric label="Capacity" value={totalCapacity} />
-            <Metric label="In draft pool" value={poolPlayers.length} />
+            <Metric label="Pool" value={poolPlayers.length} />
           </div>
           <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
         </div>
       </section>
 
       <section
-        className="rounded-lg border border-dashed border-emerald-300 bg-white p-4 shadow-sm"
+        className="rounded-lg border border-dashed border-emerald-300 bg-white p-2 shadow-sm sm:p-4"
         onDragOver={(event) => canEdit && event.preventDefault()}
         onDrop={(event) => canEdit && onDrop(event, "pool")}
       >
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-2 sm:mb-3 sm:gap-3">
           <div>
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-pitch" />
               <h2 className="section-title">Draft pool</h2>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
               Players not yet assigned to a team stay here for the next pick or as extras.
             </p>
           </div>
@@ -215,7 +215,7 @@ export function TeamBuilder({
             </span>
           ) : null}
         </div>
-        <div className="flex min-h-16 flex-wrap gap-2 rounded-md bg-slate-50 p-3">
+        <div className="flex min-h-12 flex-wrap gap-1.5 rounded-md bg-slate-50 p-2 sm:min-h-16 sm:gap-2 sm:p-3">
           {poolPlayers.map((player) => (
             <div className="inline-flex flex-wrap items-center gap-1.5" key={player.id}>
               <PlayerChip
@@ -225,7 +225,7 @@ export function TeamBuilder({
               />
               {canEdit ? (
                 <select
-                  className="input min-h-9 w-28 px-2 text-xs"
+                  className="input min-h-8 w-24 px-2 text-xs"
                   onChange={(event) => {
                     if (event.target.value) movePlayer(player.id, event.target.value);
                     event.target.value = "";
@@ -246,21 +246,21 @@ export function TeamBuilder({
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
         {teams.map((team, index) => {
           const isFull = team.playerIds.length >= playersPerTeam;
           const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
           return (
             <article
               className={cn(
-                "grid gap-3 overflow-hidden rounded-lg border bg-white shadow-sm",
+                "grid gap-2 overflow-hidden rounded-lg border bg-white shadow-sm sm:gap-3",
                 isFull ? "border-emerald-200" : "border-line"
               )}
               key={team.key}
               onDragOver={(event) => canEdit && !isFull && event.preventDefault()}
               onDrop={(event) => canEdit && !isFull && onDrop(event, team.key)}
             >
-              <div className={cn("border-b p-4", isFull ? "border-emerald-100 bg-emerald-50" : "border-line bg-slate-50")}>
+              <div className={cn("border-b p-2 sm:p-4", isFull ? "border-emerald-100 bg-emerald-50" : "border-line bg-slate-50")}>
                 <div className="flex items-center justify-between gap-2 text-xs font-semibold uppercase text-slate-500">
                   <span>Team {index + 1}</span>
                   <span className={cn("rounded px-2 py-0.5", isFull ? "bg-emerald-100 text-emerald-800" : "bg-white text-slate-600")}>
@@ -268,7 +268,7 @@ export function TeamBuilder({
                   </span>
                 </div>
                 <input
-                  className="mt-2 w-full rounded-md border border-transparent bg-transparent px-0 text-lg font-semibold text-ink outline-none transition focus:border-line focus:bg-white focus:px-3"
+                  className="mt-1 w-full rounded-md border border-transparent bg-transparent px-0 text-base font-semibold text-ink outline-none transition focus:border-line focus:bg-white focus:px-2 sm:mt-2 sm:text-lg sm:focus:px-3"
                   disabled={!canEdit}
                   onChange={(event) => updateTeam(team.key, { name: event.target.value })}
                   value={team.name}
@@ -282,11 +282,11 @@ export function TeamBuilder({
                   <p className="mt-1 text-xs text-slate-500">Captain not selected</p>
                 )}
               </div>
-              <div className="grid gap-3 px-4">
-                <label className="grid gap-1.5 text-xs font-semibold uppercase text-slate-500">
+              <div className="grid gap-2 px-2 sm:gap-3 sm:px-4">
+                <label className="grid gap-1 text-[11px] font-semibold uppercase text-slate-500 sm:gap-1.5 sm:text-xs">
                   Captain
                   <select
-                    className="input"
+                    className="input min-h-8 text-xs sm:min-h-10 sm:text-sm"
                     disabled={!canEdit}
                     onChange={(event) => updateTeam(team.key, { captainPlayerId: event.target.value })}
                     value={team.captainPlayerId}
@@ -299,19 +299,19 @@ export function TeamBuilder({
                   </select>
                 </label>
               </div>
-              <div className="grid min-h-44 content-start gap-2 px-4 pb-4">
+              <div className="grid min-h-28 content-start gap-1.5 px-2 pb-2 sm:min-h-44 sm:gap-2 sm:px-4 sm:pb-4">
                 {team.playerIds.map((playerId) => {
                   const player = playersById.get(playerId);
                   if (!player) return null;
                   return (
-                    <div className="flex flex-wrap items-center gap-1.5" key={player.id}>
+                    <div className="grid gap-1" key={player.id}>
                       <PlayerChip
                         draggable={canEdit}
                         onDragStart={(event) => onDragStart(event, { playerId: player.id, from: "team", teamKey: team.key })}
                         player={player}
                       />
                       {canEdit ? (
-                        <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => movePlayer(player.id, "pool")} type="button">
+                        <button className="btn-secondary min-h-7 px-2 text-[11px]" onClick={() => movePlayer(player.id, "pool")} type="button">
                           <Undo2 className="h-3.5 w-3.5" />
                           Draft pool
                         </button>
@@ -320,7 +320,7 @@ export function TeamBuilder({
                   );
                 })}
                 {!team.playerIds.length ? (
-                  <div className="grid min-h-28 place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-sm text-slate-500">
+                  <div className="grid min-h-20 place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 p-2 text-center text-xs text-slate-500 sm:min-h-28 sm:p-3 sm:text-sm">
                     <div>
                       <UserPlus className="mx-auto mb-2 h-5 w-5 text-slate-400" />
                       Drop players here.
@@ -334,10 +334,10 @@ export function TeamBuilder({
       </section>
 
       {canEdit ? (
-        <form action={action} className="flex flex-wrap items-center gap-3">
+        <form action={action} className="sticky bottom-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-white/95 p-2 shadow-sm backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
           <input name="sessionId" type="hidden" value={sessionId} />
           <input name="teamsJson" type="hidden" value={JSON.stringify(savePayload)} />
-          <button className="btn-primary" disabled={pending || Boolean(overfilledTeam)}>
+          <button className="btn-primary min-h-9" disabled={pending || Boolean(overfilledTeam)}>
             <Save className="h-4 w-4" />
             {pending ? "Saving..." : "Save teams"}
           </button>
@@ -360,7 +360,7 @@ function PlayerChip({
   return (
     <span
       className={cn(
-        "inline-flex min-h-9 select-none items-center gap-2 rounded-md border border-line bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50",
+        "inline-flex min-h-8 select-none items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:px-3 sm:py-1.5 sm:text-sm",
         draggable && "cursor-grab active:cursor-grabbing"
       )}
       draggable={draggable}
@@ -373,7 +373,7 @@ function PlayerChip({
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">
+    <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-100 sm:gap-1.5 sm:px-2.5 sm:text-xs">
       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
       {label}: {value}
     </span>
