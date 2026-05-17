@@ -1,5 +1,7 @@
-import { Activity, CircleDollarSign, Search, ShieldCheck, Trophy, Users, type LucideIcon } from "lucide-react";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import Link from "next/link";
+import { Activity, CircleDollarSign, LayoutDashboard, Search, ShieldCheck, Trophy, Users, type LucideIcon } from "lucide-react";
+import { hasPermission } from "@/lib/permissions";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
 
 type PublicPlayerReportRow = {
@@ -25,7 +27,11 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("public_player_report");
+  const [{ data, error }, profile] = await Promise.all([
+    supabase.rpc("public_player_report"),
+    getCurrentProfile()
+  ]);
+  const showDashboardLink = hasPermission(profile?.role, "manage_attendance");
   const rows = ((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
     if (filters.q && !String(row.player_name ?? "").toLowerCase().includes(filters.q.toLowerCase())) return false;
     if (filters.season && row.season_id !== filters.season) return false;
@@ -50,9 +56,17 @@ export default async function PublicPlayerReportPage({
         <header className="panel overflow-hidden">
           <div className="grid gap-5 bg-white p-5 sm:p-6 md:grid-cols-[1fr_auto] md:items-center">
             <div className="min-w-0">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Public team report
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Public team report
+                </span>
+                {showDashboardLink ? (
+                  <Link className="btn-secondary min-h-8 px-3 py-1 text-xs" href="/dashboard">
+                    <LayoutDashboard className="h-3.5 w-3.5" />
+                    Dashboard
+                  </Link>
+                ) : null}
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer balances and stats</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
