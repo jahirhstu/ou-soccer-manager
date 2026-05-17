@@ -30,6 +30,16 @@ create table public.profiles (
   updated_at timestamptz default now()
 );
 
+create table public.playgrounds (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  address text,
+  notes text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 create table public.seasons (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -47,6 +57,7 @@ create table public.seasons (
 create table public.sessions (
   id uuid primary key default gen_random_uuid(),
   season_id uuid not null references public.seasons(id) on delete cascade,
+  playground_id uuid references public.playgrounds(id) on delete set null,
   name text,
   session_date date not null,
   location text,
@@ -195,8 +206,10 @@ create table public.audit_logs (
 
 create index profiles_role_idx on public.profiles(role);
 create index profiles_player_id_idx on public.profiles(player_id);
+create index playgrounds_name_idx on public.playgrounds(name);
 create index seasons_status_idx on public.seasons(status);
 create index sessions_season_id_idx on public.sessions(season_id);
+create index sessions_playground_id_idx on public.sessions(playground_id);
 create index sessions_session_date_idx on public.sessions(session_date);
 create index sessions_name_idx on public.sessions(name);
 create index payments_season_player_idx on public.payments(season_id, player_id);
@@ -219,6 +232,7 @@ create index whatsapp_imports_status_idx on public.whatsapp_imports(status);
 
 create trigger players_updated_at before update on public.players for each row execute function public.set_updated_at();
 create trigger profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
+create trigger playgrounds_updated_at before update on public.playgrounds for each row execute function public.set_updated_at();
 create trigger seasons_updated_at before update on public.seasons for each row execute function public.set_updated_at();
 create trigger sessions_updated_at before update on public.sessions for each row execute function public.set_updated_at();
 create trigger session_teams_updated_at before update on public.session_teams for each row execute function public.set_updated_at();
@@ -285,6 +299,69 @@ left join public.goals g on g.scorer_id = p.id and g.session_id = ss.id
 left join public.goals ga on ga.assist_player_id = p.id and ga.session_id = ss.id
 group by p.id, p.display_name, s.id, s.name;
 
+create or replace view public.player_playground_stats_summary
+with (security_invoker = true) as
+with playground_metrics as (
+  select
+    a.player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    0::integer goals,
+    0::integer assists,
+    count(distinct a.session_id) filter (where a.status in ('played','replacement'))::integer appearances
+  from public.attendance a
+  join public.sessions ss on ss.id = a.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  group by a.player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+  union all
+  select
+    g.scorer_id player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    coalesce(sum(g.goal_count),0)::integer goals,
+    0::integer assists,
+    0::integer appearances
+  from public.goals g
+  join public.sessions ss on ss.id = g.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  group by g.scorer_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+  union all
+  select
+    g.assist_player_id player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    0::integer goals,
+    count(g.id)::integer assists,
+    0::integer appearances
+  from public.goals g
+  join public.sessions ss on ss.id = g.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  where g.assist_player_id is not null
+  group by g.assist_player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+),
+summarized as (
+  select
+    player_id,
+    playground_id,
+    playground_name,
+    sum(goals)::integer goals,
+    sum(assists)::integer assists,
+    sum(appearances)::integer appearances
+  from playground_metrics
+  group by player_id, playground_id, playground_name
+)
+select
+  p.id player_id,
+  p.display_name player_name,
+  s.playground_id,
+  s.playground_name,
+  s.goals,
+  s.assists,
+  s.appearances,
+  case when s.appearances > 0 then round(s.goals::numeric / s.appearances, 2) else 0 end goals_per_appearance
+from summarized s
+join public.players p on p.id = s.player_id;
+
 create or replace function public.attendance_report()
 returns table(player_id uuid, player_name text, sessions_played bigint, sessions_missed bigint, dropped_sessions bigint, replacement_sessions bigint)
 language sql security definer set search_path = public as $$
@@ -323,6 +400,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 alter table public.profiles enable row level security;
 alter table public.players enable row level security;
+alter table public.playgrounds enable row level security;
 alter table public.seasons enable row level security;
 alter table public.sessions enable row level security;
 alter table public.payments enable row level security;
@@ -342,6 +420,9 @@ create policy "profiles_admin_all" on public.profiles for all using (public.app_
 
 create policy "players_select" on public.players for select using (public.app_role() in ('admin','captain') or id = public.current_player_id());
 create policy "players_admin_all" on public.players for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
+
+create policy "playgrounds_select" on public.playgrounds for select using (auth.uid() is not null);
+create policy "playgrounds_admin_all" on public.playgrounds for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 
 create policy "seasons_select" on public.seasons for select using (auth.uid() is not null);
 create policy "seasons_admin_all" on public.seasons for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');

@@ -9,7 +9,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
   const [{ data: session }, { data: attendance }, { data: dropouts }, { data: goals }, { data: teams }] = await Promise.all([
-    supabase.from("sessions").select("*,seasons(name)").eq("id", id).single(),
+    supabase.from("sessions").select("*,seasons(name),playgrounds(name)").eq("id", id).single(),
     supabase.from("attendance").select("*,players(display_name)").eq("session_id", id),
     supabase.from("dropouts").select("*,original:players!dropouts_original_player_id_fkey(display_name),replacement:players!dropouts_replacement_player_id_fkey(display_name)").eq("session_id", id),
     supabase.from("goals").select("*,session_teams(name),scorer:players!goals_scorer_id_fkey(display_name),assist:players!goals_assist_player_id_fkey(display_name)").eq("session_id", id),
@@ -27,7 +27,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
             {session?.name ? <span>{session.session_date}</span> : null}
             <span>{(session as any)?.seasons?.name}</span>
-            <span>{session?.location ?? "-"}</span>
+            <span>{(session as any)?.playgrounds?.name ?? session?.location ?? "-"}</span>
             <span>{session?.price_per_session == null ? "Season default price" : `${money(session.price_per_session)} session price`}</span>
             {session?.status ? <StatusBadge status={session.status} /> : null}
             <span>Score: {session?.team_a_score ?? "-"}-{session?.team_b_score ?? "-"}</span>

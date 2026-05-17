@@ -9,7 +9,7 @@ export default async function SeasonDetailPage({ params }: { params: Promise<{ i
   const supabase = await createSupabaseServerClient();
   const [{ data: season }, { data: sessions }, { data: payments }, { data: stats }] = await Promise.all([
     supabase.from("seasons").select("*").eq("id", id).single(),
-    supabase.from("sessions").select("*").eq("season_id", id).order("session_date"),
+    supabase.from("sessions").select("*,playgrounds(name)").eq("season_id", id).order("session_date"),
     supabase.from("player_season_payment_summary").select("*").eq("season_id", id),
     supabase.from("player_season_stats_summary").select("*").eq("season_id", id)
   ]);
@@ -28,7 +28,7 @@ export default async function SeasonDetailPage({ params }: { params: Promise<{ i
           <h2 className="section-title">Sessions</h2>
           <DataTable rows={sessions ?? []} columns={[
             { header: "Date", cell: (row) => row.session_date },
-            { header: "Location", cell: (row) => row.location ?? "-" },
+            { header: "Playground", cell: (row: any) => row.playgrounds?.name ?? row.location ?? "-" },
             { header: "Price", cell: (row) => row.price_per_session == null ? "Season default" : money(row.price_per_session) },
             { header: "Status", cell: (row) => <StatusBadge status={row.status} /> }
           ]} />

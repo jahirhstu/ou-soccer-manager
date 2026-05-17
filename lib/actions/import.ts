@@ -344,7 +344,20 @@ async function resolveTargetSeasonId({
   actorId: string;
 }) {
   if (!requestedSeasonId) return undefined;
-  if (requestedSeasonId !== "__create__") return requestedSeasonId;
+  if (requestedSeasonId !== "__create__") {
+    const { error } = await supabase
+      .from("seasons")
+      .update({
+        name: formValue(formData, "createSeasonName") || parsed.season?.name || "Imported season",
+        start_date: nullableFormValue(formData, "createSeasonStartDate"),
+        end_date: nullableFormValue(formData, "createSeasonEndDate"),
+        total_planned_sessions: numberValue(formData, "createSeasonTotalSessions") ?? null,
+        price_per_session: numberValue(formData, "createSeasonPricePerSession") ?? parsed.season?.pricePerSession ?? parsed.session?.pricePerSession ?? 0
+      })
+      .eq("id", requestedSeasonId);
+    if (error) throw new Error(error.message);
+    return requestedSeasonId;
+  }
 
   const name = formValue(formData, "createSeasonName") || parsed.season?.name || "Imported season";
   const pricePerSession = numberValue(formData, "createSeasonPricePerSession") ?? parsed.season?.pricePerSession ?? parsed.session?.pricePerSession ?? 0;
@@ -383,20 +396,46 @@ async function resolveTargetSessionId({
   actorId: string;
 }) {
   if (!requestedSessionId) return undefined;
-  if (requestedSessionId !== "__create__") return requestedSessionId;
+  if (requestedSessionId !== "__create__") {
+    const location = nullableFormValue(formData, "createSessionLocation");
+    const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId) : null;
+    const sessionDate = formValue(formData, "createSessionDate") || parsed.session?.date;
+    if (!sessionDate) throw new Error("Parsed session needs a date before it can be updated.");
+    const duration = formValue(formData, "createSessionDuration");
+    const updatePayload: Record<string, unknown> = {
+      playground_id: playgroundId,
+      name: nullableFormValue(formData, "createSessionName"),
+      session_date: sessionDate,
+      location,
+      start_time: nullableFormValue(formData, "createSessionStartTime"),
+      end_time: nullableFormValue(formData, "createSessionEndTime"),
+      price_per_session: numberValue(formData, "createSessionPricePerSession") ?? null
+    };
+    if (seasonId) updatePayload.season_id = seasonId;
+    if (duration) updatePayload.notes = `Duration: ${duration}. Updated from WhatsApp import.`;
+    const { error } = await supabase
+      .from("sessions")
+      .update(updatePayload)
+      .eq("id", requestedSessionId);
+    if (error) throw new Error(error.message);
+    return requestedSessionId;
+  }
   if (!seasonId) throw new Error("Choose or create a target season before creating a session.");
 
   const sessionDate = formValue(formData, "createSessionDate") || parsed.session?.date;
   if (!sessionDate) throw new Error("Parsed session needs a date before it can be created.");
 
   const duration = formValue(formData, "createSessionDuration") || parsed.session?.duration;
+  const location = formValue(formData, "createSessionLocation") || parsed.session?.location || null;
+  const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId) : null;
   const { data, error } = await supabase
     .from("sessions")
     .insert({
       season_id: seasonId,
+      playground_id: playgroundId,
       name: formValue(formData, "createSessionName") || parsed.session?.name || null,
       session_date: sessionDate,
-      location: formValue(formData, "createSessionLocation") || parsed.session?.location || null,
+      location,
       start_time: formValue(formData, "createSessionStartTime") || parsed.session?.startTime || null,
       end_time: formValue(formData, "createSessionEndTime") || parsed.session?.endTime || null,
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? parsed.session?.pricePerSession ?? null,
@@ -415,11 +454,39 @@ function formValue(formData: FormData, key: string) {
   return value || undefined;
 }
 
+function nullableFormValue(formData: FormData, key: string) {
+  const value = String(formData.get(key) ?? "").trim();
+  return value || null;
+}
+
 function numberValue(formData: FormData, key: string) {
   const value = formValue(formData, key);
   if (value == null) return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+async function findOrCreatePlayground(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  name: string,
+  actorId: string
+) {
+  const cleaned = name.trim();
+  const { data: existing, error: existingError } = await supabase
+    .from("playgrounds")
+    .select("id")
+    .ilike("name", cleaned)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing) return existing.id;
+
+  const { data, error } = await supabase
+    .from("playgrounds")
+    .insert({ name: cleaned, created_by: actorId })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  return data.id;
 }
 
 async function getEffectiveSessionPrice(

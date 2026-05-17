@@ -24,7 +24,8 @@ const nav = [
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { href: "/import-whatsapp", label: "WhatsApp", icon: MessageSquareText },
-  { href: "/reports/payments", label: "Reports", icon: BarChart3 },
+  { href: "/reports/payments", label: "Payments report", icon: BarChart3 },
+  { href: "/reports/playground-stats", label: "Field stats", icon: Trophy },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 

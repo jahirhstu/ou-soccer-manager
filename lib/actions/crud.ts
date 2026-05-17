@@ -27,7 +27,8 @@ export async function saveSession(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = sessionSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("sessions").insert({ ...parsed, created_by: profile.id });
+  const playgroundId = parsed.playground_id ?? (parsed.location ? await findOrCreatePlayground(supabase, parsed.location, profile.id) : undefined);
+  const { error } = await supabase.from("sessions").insert({ ...parsed, playground_id: playgroundId, created_by: profile.id });
   if (error) throw new Error(error.message);
   revalidatePath("/sessions");
   redirect("/sessions");
@@ -138,4 +139,28 @@ function formDataToObject(formData: FormData) {
   return Object.fromEntries(
     Array.from(formData.entries()).map(([key, value]) => [key, value === "" ? null : value])
   );
+}
+
+async function findOrCreatePlayground(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  name: string,
+  actorId: string
+) {
+  const cleaned = name.trim();
+  if (!cleaned) return undefined;
+  const { data: existing, error: existingError } = await supabase
+    .from("playgrounds")
+    .select("id")
+    .ilike("name", cleaned)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing) return existing.id;
+
+  const { data, error } = await supabase
+    .from("playgrounds")
+    .insert({ name: cleaned, created_by: actorId })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  return data.id;
 }

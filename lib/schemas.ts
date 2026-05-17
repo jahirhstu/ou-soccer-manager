@@ -20,6 +20,7 @@ export const seasonSchema = z.object({
 
 export const sessionSchema = z.object({
   season_id: z.string().uuid(),
+  playground_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   name: z.string().optional().nullable(),
   session_date: z.string().min(8),
   location: z.string().optional().nullable(),

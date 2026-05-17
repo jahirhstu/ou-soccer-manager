@@ -37,6 +37,13 @@ export type Player = {
   notes: string | null;
 };
 
+export type Playground = {
+  id: string;
+  name: string;
+  address: string | null;
+  notes: string | null;
+};
+
 export type Season = {
   id: string;
   name: string;
@@ -51,6 +58,7 @@ export type Season = {
 export type Session = {
   id: string;
   season_id: string;
+  playground_id: string | null;
   name: string | null;
   session_date: string;
   location: string | null;

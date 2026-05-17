@@ -13,7 +13,7 @@ export default async function PaymentReportPage({
   const supabase = await createSupabaseServerClient();
   const [{ data }, { data: sessions }, { data: sessionAttendance }] = await Promise.all([
     supabase.from("player_season_payment_summary").select("*"),
-    supabase.from("sessions").select("id,name,session_date,location").order("session_date", { ascending: false }),
+    supabase.from("sessions").select("id,name,session_date,location,playgrounds(name)").order("session_date", { ascending: false }),
     filters.sessionId
       ? supabase.from("attendance").select("player_id").eq("session_id", filters.sessionId)
       : Promise.resolve({ data: null })
@@ -55,11 +55,14 @@ export default async function PaymentReportPage({
         <input className="input" defaultValue={filters.player ?? ""} name="player" placeholder="Filter by player" />
         <select className="input" defaultValue={filters.sessionId ?? ""} name="sessionId">
           <option value="">All sessions</option>
-          {(sessions ?? []).map((session) => (
-            <option key={session.id} value={session.id}>
-              {session.session_date} {session.name ? `- ${session.name}` : ""} {session.location ? `- ${session.location}` : ""}
-            </option>
-          ))}
+          {(sessions ?? []).map((session) => {
+            const playgroundName = (session as any).playgrounds?.name ?? session.location;
+            return (
+              <option key={session.id} value={session.id}>
+                {session.session_date} {session.name ? `- ${session.name}` : ""} {playgroundName ? `- ${playgroundName}` : ""}
+              </option>
+            );
+          })}
         </select>
         <select className="input" defaultValue={filters.status ?? "all"} name="status">
           <option value="all">All statuses</option>

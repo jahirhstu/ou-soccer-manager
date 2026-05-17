@@ -1,5 +1,5 @@
 import { Calendar, DollarSign } from "lucide-react";
-import type { Player, Season, Session } from "@/lib/types";
+import type { Player, Playground, Season, Session } from "@/lib/types";
 
 export function MoneyInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -71,6 +71,25 @@ export function PlayerSelect({
   );
 }
 
+export function PlaygroundSelect({
+  playgrounds,
+  name = "playground_id",
+  defaultValue,
+  required = false
+}: {
+  playgrounds: Playground[];
+  name?: string;
+  defaultValue?: string;
+  required?: boolean;
+}) {
+  return (
+    <select className="input" defaultValue={defaultValue} name={name} required={required}>
+      <option value="">Select playground</option>
+      {playgrounds.map((playground) => <option key={playground.id} value={playground.id}>{playground.name}</option>)}
+    </select>
+  );
+}
+
 export function SessionSelect({
   sessions,
   name = "session_id",
@@ -90,7 +109,7 @@ export function SessionSelect({
     <select className="input" defaultValue={defaultValue} name={name} required={required}>
       <option value="">Select session</option>
       {allowCreate ? <option value="__create__">{createLabel}</option> : null}
-      {sessions.map((session) => <option key={session.id} value={session.id}>{session.session_date} {session.name ? `- ${session.name}` : ""} {session.location ? `- ${session.location}` : ""}</option>)}
+      {sessions.map((session: any) => <option key={session.id} value={session.id}>{session.session_date} {session.name ? `- ${session.name}` : ""} {session.playgrounds?.name ?? session.location ? `- ${session.playgrounds?.name ?? session.location}` : ""}</option>)}
     </select>
   );
 }

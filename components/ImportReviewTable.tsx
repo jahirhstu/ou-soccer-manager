@@ -1,12 +1,24 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import";
-import type { ParsedWhatsAppImport, Player, Season, Session } from "@/lib/types";
-import { PlayerSelect, SeasonSelect, SessionSelect } from "./FormControls";
+import type { ParsedWhatsAppImport, Player, Playground, Season, Session } from "@/lib/types";
+import { PlayerSelect } from "./FormControls";
 
-export function ImportReviewTable({ players, seasons, sessions }: { players: Player[]; seasons: Season[]; sessions: Session[] }) {
+type SessionWithPlayground = Session & { playgrounds?: { name?: string | null } | null };
+
+export function ImportReviewTable({
+  players,
+  playgrounds,
+  seasons,
+  sessions
+}: {
+  players: Player[];
+  playgrounds: Playground[];
+  seasons: Season[];
+  sessions: SessionWithPlayground[];
+}) {
   const [state, action, pending] = useActionState(parseWhatsAppAction, null as { parsed?: ParsedWhatsAppImport; error?: string } | null);
   const [confirmState, confirmAction, confirmPending] = useActionState(
     confirmWhatsAppImport,
@@ -46,6 +58,13 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
         parsedSeasonName
       })
     : [];
+  const defaultSeasonId = matchedSeason?.id ?? (shouldOfferSeasonCreate ? "__create__" : "");
+  const defaultSessionId = matchedSession?.id ?? (shouldOfferSessionCreate && parsed?.importType === "session_update" ? "__create__" : "");
+  const [selectedSeasonId, setSelectedSeasonId] = useState(defaultSeasonId);
+  const [selectedSessionId, setSelectedSessionId] = useState(defaultSessionId);
+  const selectedSeason = seasons.find((season) => season.id === selectedSeasonId);
+  const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const selectedPlayground = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
 
   useEffect(() => {
     if (confirmState?.success) {
@@ -55,6 +74,11 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
       toast.error(confirmState.error);
     }
   }, [confirmState]);
+
+  useEffect(() => {
+    setSelectedSeasonId(defaultSeasonId);
+    setSelectedSessionId(defaultSessionId);
+  }, [defaultSeasonId, defaultSessionId, parsed?.rawText]);
 
   return (
     <div className="grid gap-5">
@@ -80,24 +104,35 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
             <div className="grid gap-3 md:grid-cols-2">
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Target season
-                <SeasonSelect
-                  allowCreate={shouldOfferSeasonCreate}
-                  createLabel={`Create season: ${parsedSeasonName ?? "parsed season"}`}
-                  defaultValue={matchedSeason?.id ?? (shouldOfferSeasonCreate ? "__create__" : undefined)}
+                <select
+                  className="input"
                   name="seasonId"
-                  seasons={seasons}
-                />
+                  onChange={(event) => setSelectedSeasonId(event.target.value)}
+                  required
+                  value={selectedSeasonId}
+                >
+                  <option value="">Select season</option>
+                  {shouldOfferSeasonCreate ? <option value="__create__">Create season: {parsedSeasonName ?? "parsed season"}</option> : null}
+                  {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+                </select>
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Target session {parsed.importType === "season_signup" ? "(optional)" : ""}
-                <SessionSelect
-                  allowCreate={shouldOfferSessionCreate}
-                  createLabel={`Create session: ${parsedSessionName ?? parsed.session?.date ?? "parsed session"}`}
-                  defaultValue={matchedSession?.id ?? (shouldOfferSessionCreate && parsed.importType === "session_update" ? "__create__" : undefined)}
+                <select
+                  className="input"
                   name="sessionId"
+                  onChange={(event) => setSelectedSessionId(event.target.value)}
                   required={parsed.importType === "session_update"}
-                  sessions={sessions}
-                />
+                  value={selectedSessionId}
+                >
+                  <option value="">Select session</option>
+                  {shouldOfferSessionCreate ? <option value="__create__">Create session: {parsedSessionName ?? parsed.session?.date ?? "parsed session"}</option> : null}
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.session_date} {session.name ? `- ${session.name}` : ""} {session.playgrounds?.name ?? session.location ? `- ${session.playgrounds?.name ?? session.location}` : ""}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             {parsedSeasonName || parsed.season ? (
@@ -122,7 +157,7 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
             <div>
               <h2 className="text-sm font-semibold text-amber-900">Review and fix parsed details</h2>
               <p className="mt-1 text-sm text-amber-800">
-                These fields are used if you choose a create option above. Correct anything the parser missed before confirming.
+                These fields create new season/session records or update the selected existing records. Correct anything the parser missed before confirming.
               </p>
             </div>
             {fixWarnings.length ? (
@@ -135,43 +170,46 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
             <div className="grid gap-3 md:grid-cols-2">
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Season name
-                <input className="input bg-white" defaultValue={parsedSeasonName ?? ""} name="createSeasonName" placeholder="Season name" />
+                <input className="input bg-white" defaultValue={selectedSeason?.name ?? parsedSeasonName ?? ""} key={`season-name-${selectedSeasonId}-${parsed.rawText.length}`} name="createSeasonName" placeholder="Season name" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Season price per session
-                <input className="input bg-white" defaultValue={parsed.season?.pricePerSession ?? parsed.session?.pricePerSession ?? ""} min="0" name="createSeasonPricePerSession" placeholder="0.00" step="0.01" type="number" />
+                <input className="input bg-white" defaultValue={selectedSeason?.price_per_session ?? parsed.season?.pricePerSession ?? parsed.session?.pricePerSession ?? ""} key={`season-price-${selectedSeasonId}-${parsed.rawText.length}`} min="0" name="createSeasonPricePerSession" placeholder="0.00" step="0.01" type="number" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Season start date
-                <input className="input bg-white" defaultValue={parsed.season?.startDate ?? parsed.session?.date ?? ""} name="createSeasonStartDate" type="date" />
+                <input className="input bg-white" defaultValue={selectedSeason?.start_date ?? parsed.season?.startDate ?? parsed.session?.date ?? ""} key={`season-start-${selectedSeasonId}-${parsed.rawText.length}`} name="createSeasonStartDate" type="date" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Season end date
-                <input className="input bg-white" defaultValue={parsed.season?.endDate ?? ""} name="createSeasonEndDate" type="date" />
+                <input className="input bg-white" defaultValue={selectedSeason?.end_date ?? parsed.season?.endDate ?? ""} key={`season-end-${selectedSeasonId}-${parsed.rawText.length}`} name="createSeasonEndDate" type="date" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Planned sessions
-                <input className="input bg-white" defaultValue={parsed.season?.totalSessions ?? parsed.session?.totalSessions ?? ""} min="0" name="createSeasonTotalSessions" type="number" />
+                <input className="input bg-white" defaultValue={selectedSeason?.total_planned_sessions ?? parsed.season?.totalSessions ?? parsed.session?.totalSessions ?? ""} key={`season-total-${selectedSeasonId}-${parsed.rawText.length}`} min="0" name="createSeasonTotalSessions" type="number" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Session name
-                <input className="input bg-white" defaultValue={parsedSessionName ?? ""} name="createSessionName" placeholder="Session name" />
+                <input className="input bg-white" defaultValue={selectedSession?.name ?? parsedSessionName ?? ""} key={`session-name-${selectedSessionId}-${parsed.rawText.length}`} name="createSessionName" placeholder="Session name" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Session date
-                <input className="input bg-white" defaultValue={parsed.session?.date ?? ""} name="createSessionDate" type="date" />
+                <input className="input bg-white" defaultValue={selectedSession?.session_date ?? parsed.session?.date ?? ""} key={`session-date-${selectedSessionId}-${parsed.rawText.length}`} name="createSessionDate" type="date" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Playground / location
-                <input className="input bg-white" defaultValue={parsed.session?.location ?? ""} name="createSessionLocation" placeholder="Location" />
+                <input className="input bg-white" defaultValue={selectedPlayground} key={`session-location-${selectedSessionId}-${parsed.rawText.length}`} list="playground-options" name="createSessionLocation" placeholder="Location" />
+                <datalist id="playground-options">
+                  {playgrounds.map((playground) => <option key={playground.id} value={playground.name} />)}
+                </datalist>
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Start time
-                <input className="input bg-white" defaultValue={parsed.session?.startTime ?? ""} name="createSessionStartTime" type="time" />
+                <input className="input bg-white" defaultValue={selectedSession?.start_time ?? parsed.session?.startTime ?? ""} key={`session-start-${selectedSessionId}-${parsed.rawText.length}`} name="createSessionStartTime" type="time" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 End time
-                <input className="input bg-white" defaultValue={parsed.session?.endTime ?? ""} name="createSessionEndTime" type="time" />
+                <input className="input bg-white" defaultValue={selectedSession?.end_time ?? parsed.session?.endTime ?? ""} key={`session-end-${selectedSessionId}-${parsed.rawText.length}`} name="createSessionEndTime" type="time" />
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Duration note
@@ -179,7 +217,7 @@ export function ImportReviewTable({ players, seasons, sessions }: { players: Pla
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Session price override
-                <input className="input bg-white" defaultValue={parsed.session?.pricePerSession ?? ""} min="0" name="createSessionPricePerSession" placeholder="Optional" step="0.01" type="number" />
+                <input className="input bg-white" defaultValue={selectedSession?.price_per_session ?? parsed.session?.pricePerSession ?? ""} key={`session-price-${selectedSessionId}-${parsed.rawText.length}`} min="0" name="createSessionPricePerSession" placeholder="Optional" step="0.01" type="number" />
               </label>
             </div>
           </section>
@@ -289,14 +327,15 @@ function guessSeasonName(parsed?: ParsedWhatsAppImport) {
   return firstLine && /\bseason\b/i.test(firstLine) ? firstLine : undefined;
 }
 
-function findMatchingSession(parsed: ParsedWhatsAppImport, sessions: Session[]) {
+function findMatchingSession(parsed: ParsedWhatsAppImport, sessions: SessionWithPlayground[]) {
   const parsedDate = parsed.session?.date;
   const parsedLocation = parsed.session?.location;
   const parsedName = parsed.session?.name;
   return sessions.find((session) => {
     if (parsedDate && session.session_date !== parsedDate) return false;
     if (parsedName && session.name && normalizeName(session.name) === normalizeName(parsedName)) return true;
-    if (parsedLocation && session.location && normalizeName(session.location) === normalizeName(parsedLocation)) return true;
+    const sessionLocation = session.playgrounds?.name ?? session.location;
+    if (parsedLocation && sessionLocation && normalizeName(sessionLocation) === normalizeName(parsedLocation)) return true;
     return Boolean(parsedDate && !parsedName && !parsedLocation);
   });
 }

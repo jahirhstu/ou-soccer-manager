@@ -1,13 +1,17 @@
 import { DataTable } from "@/components/DataTable";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
+import Link from "next/link";
 
 export default async function StatsReportPage() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.from("player_season_stats_summary").select("*").order("goals", { ascending: false });
   return (
     <AppShell>
-      <h1 className="page-title mb-5">Stats report</h1>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="page-title">Stats report</h1>
+        <Link className="btn-secondary" href="/reports/playground-stats">Playground stats</Link>
+      </div>
       <DataTable rows={data ?? []} columns={[
         { header: "Player", cell: (row) => row.player_name ?? "-" },
         { header: "Season", cell: (row) => row.season_name ?? "-" },

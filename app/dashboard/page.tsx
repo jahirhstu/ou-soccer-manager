@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }] = await Promise.all([
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
-    supabase.from("sessions").select("*").order("session_date", { ascending: false }).limit(5),
+    supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
     supabase.from("payments").select("amount,payment_date,players(display_name)").order("created_at", { ascending: false }).limit(5),
     supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
@@ -46,7 +46,7 @@ export default async function DashboardPage() {
           <h2 className="section-title">Recent sessions</h2>
           <DataTable compact rows={sessions ?? []} columns={[
             { header: "Date", cell: (row) => row.session_date },
-            { header: "Location", cell: (row) => row.location ?? "-" },
+            { header: "Playground", cell: (row: any) => row.playgrounds?.name ?? row.location ?? "-" },
             { header: "Status", cell: (row) => <StatusBadge status={row.status} /> }
           ]} />
         </section>
