@@ -4,6 +4,7 @@ import { completeSession, updateSessionPrice } from "@/lib/actions/crud";
 import { money } from "@/lib/utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
+import Link from "next/link";
 
 export default async function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -45,13 +46,20 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             <button className="btn-secondary">Update price</button>
           </form>
           {session?.status !== "completed" ? (
-            <form action={completeSession} className="mt-3">
-              <input name="session_id" type="hidden" value={id} />
-              <button className="btn-primary">
-                Mark session completed
-              </button>
-            </form>
-          ) : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>Build teams</Link>
+              <form action={completeSession}>
+                <input name="session_id" type="hidden" value={id} />
+                <button className="btn-primary">
+                  Mark session completed
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View team builder</Link>
+            </div>
+          )}
         </section>
         <section className="grid gap-3">
           <h2 className="section-title">Teams</h2>

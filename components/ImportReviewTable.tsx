@@ -242,23 +242,31 @@ export function ImportReviewTable({
             <h2 className="mb-3 text-sm font-semibold">Match names</h2>
             <div className="grid gap-2 md:grid-cols-2">
               {[...parsed.players]
-                .sort((a, b) => Number(Boolean(getSuggestedPlayerId(a.name, players, playersByName, aliasesByName))) - Number(Boolean(getSuggestedPlayerId(b.name, players, playersByName, aliasesByName))))
+                .sort((a, b) => matchPriority(a.name, players, playersByName, aliasesByName) - matchPriority(b.name, players, playersByName, aliasesByName))
                 .map((player) => {
                   const exactPlayerId = playersByName.get(normalizeName(player.name));
                   const suggestion = getPlayerSuggestion(player.name, players, playersByName, aliasesByName);
                   const matchedPlayerId = exactPlayerId ?? suggestion?.playerId;
                   const suggestedPlayer = matchedPlayerId ? playersById.get(matchedPlayerId) : undefined;
                   const isSuggested = !exactPlayerId && Boolean(suggestion);
+                  const statusStyles = matchStatusStyles({ exactPlayerId, matchedPlayerId });
                   return (
-                <div className={`grid gap-2 rounded-md border p-3 text-sm ${exactPlayerId ? "border-emerald-200 bg-emerald-50" : matchedPlayerId ? "border-sky-200 bg-sky-50" : "border-amber-200 bg-amber-50"}`} key={player.name}>
-                  <div className={exactPlayerId ? "font-medium text-emerald-800" : matchedPlayerId ? "font-medium text-sky-800" : "font-medium text-amber-800"}>
-                    {player.name} {exactPlayerId ? "matched" : matchedPlayerId ? "suggested" : "unmatched"}
+                <div className={`grid gap-2 rounded-md border p-3 text-sm ${statusStyles.card}`} key={player.name}>
+                  <div className={`flex flex-wrap items-center justify-between gap-2 font-medium ${statusStyles.text}`}>
+                    <span>{player.name}</span>
+                    <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase ${statusStyles.badge}`}>
+                      {exactPlayerId ? "Good" : matchedPlayerId ? "Warning" : "Critical"}
+                    </span>
                   </div>
                   {isSuggested && suggestedPlayer ? (
-                    <p className="text-xs text-sky-700">
+                    <p className="text-xs text-amber-800">
                       Suggested: {suggestedPlayer.display_name} {suggestion?.reason ? `(${suggestion.reason})` : ""}
                     </p>
-                  ) : null}
+                  ) : !matchedPlayerId ? (
+                    <p className="text-xs text-rose-700">No match found. Choose an existing player, ignore this row, or allow a new player to be created.</p>
+                  ) : (
+                    <p className="text-xs text-emerald-700">Exact player name match found.</p>
+                  )}
                   <PlayerSelect
                     defaultValue={matchedPlayerId}
                     emptyLabel="Create new player if not matched"
@@ -299,13 +307,44 @@ function normalizeAliasKey(name: string) {
   return normalizeName(name).replace(/[^a-z0-9]/g, "");
 }
 
-function getSuggestedPlayerId(
+function matchPriority(
   name: string,
   players: Player[],
   playersByName: Map<string, string>,
   aliasesByName: Map<string, PlayerAlias>
 ) {
-  return getPlayerSuggestion(name, players, playersByName, aliasesByName)?.playerId;
+  const exactPlayerId = playersByName.get(normalizeName(name));
+  if (exactPlayerId) return 3;
+  if (getPlayerSuggestion(name, players, playersByName, aliasesByName)) return 1;
+  return 2;
+}
+
+function matchStatusStyles({
+  exactPlayerId,
+  matchedPlayerId
+}: {
+  exactPlayerId?: string;
+  matchedPlayerId?: string;
+}) {
+  if (exactPlayerId) {
+    return {
+      card: "border-emerald-200 bg-emerald-50",
+      text: "text-emerald-800",
+      badge: "bg-emerald-100 text-emerald-800"
+    };
+  }
+  if (matchedPlayerId) {
+    return {
+      card: "border-amber-200 bg-amber-50",
+      text: "text-amber-900",
+      badge: "bg-amber-100 text-amber-800"
+    };
+  }
+  return {
+    card: "border-rose-200 bg-rose-50",
+    text: "text-rose-900",
+    badge: "bg-rose-100 text-rose-800"
+  };
 }
 
 function getPlayerSuggestion(
