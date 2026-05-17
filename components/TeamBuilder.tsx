@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, Crown, Save, Undo2, UserPlus, Users } from "lucide-react";
 import { saveSessionTeamBuilder } from "@/lib/actions/team-builder";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 export type TeamBuilderPlayer = {
@@ -55,8 +57,11 @@ export function TeamBuilder({
   data: TeamBuilderData;
   sessionId: string;
 }) {
+  const router = useRouter();
+  const lastLocalSaveAt = useRef(0);
   const players = data.players ?? [];
   const existingTeams = data.teams ?? [];
+  const serverTeamSignature = useMemo(() => JSON.stringify(existingTeams), [existingTeams]);
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, maxExistingTeamSize(existingTeams) || 8));
   const [teams, setTeams] = useState<DraftTeam[]>(() => initialTeams(existingTeams, 2));
@@ -72,9 +77,43 @@ export function TeamBuilder({
   const totalCapacity = teams.length * playersPerTeam;
 
   useEffect(() => {
-    if (state?.success) toast.success(state.message ?? "Teams saved successfully.");
+    if (state?.success) {
+      lastLocalSaveAt.current = Date.now();
+      toast.success(state.message ?? "Teams saved successfully.");
+    }
     if (state?.error) toast.error(state.error);
   }, [state]);
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    const channel = supabase
+      .channel(`session-team-updates-${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "session_team_update_events",
+          filter: `session_id=eq.${sessionId}`
+        },
+        () => {
+          router.refresh();
+          if (Date.now() - lastLocalSaveAt.current > 3000) {
+            toast.success("Teams updated live.");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [router, sessionId]);
+
+  useEffect(() => {
+    setTeams((current) => initialTeams(existingTeams, current.length || 2));
+    setPlayersPerTeam((current) => Math.max(1, maxExistingTeamSize(existingTeams) || current));
+  }, [existingTeams, serverTeamSignature]);
 
   function setTeamCount(count: number) {
     setTeams((current) => {

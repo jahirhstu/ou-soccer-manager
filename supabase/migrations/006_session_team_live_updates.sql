@@ -1,60 +1,28 @@
-create or replace function public.public_session_team_builder(p_session_id uuid)
-returns jsonb
-language sql stable security definer set search_path = public as $$
-  select jsonb_build_object(
-    'session', jsonb_build_object(
-      'id', ss.id,
-      'name', ss.name,
-      'sessionDate', ss.session_date,
-      'location', coalesce(pg.name, ss.location),
-      'status', ss.status,
-      'seasonName', seasons.name
-    ),
-    'players', coalesce((
-      select jsonb_agg(
-        jsonb_build_object(
-          'id', p.id,
-          'name', p.display_name,
-          'status', a.status
-        )
-        order by p.display_name
-      )
-      from public.attendance a
-      join public.players p on p.id = a.player_id
-      where a.session_id = ss.id
-        and a.status in ('confirmed','played','replacement','waitlisted')
-    ), '[]'::jsonb),
-    'teams', coalesce((
-      select jsonb_agg(
-        jsonb_build_object(
-          'id', st.id,
-          'name', st.name,
-          'captainPlayerId', st.captain_player_id,
-          'score', st.score,
-          'players', coalesce((
-            select jsonb_agg(
-              jsonb_build_object(
-                'id', p.id,
-                'name', p.display_name
-              )
-              order by p.display_name
-            )
-            from public.session_team_players stp
-            join public.players p on p.id = stp.player_id
-            where stp.session_team_id = st.id
-          ), '[]'::jsonb)
-        )
-        order by st.name
-      )
-      from public.session_teams st
-      where st.session_id = ss.id
-    ), '[]'::jsonb)
-  )
-  from public.sessions ss
-  join public.seasons seasons on seasons.id = ss.season_id
-  left join public.playgrounds pg on pg.id = ss.playground_id
-  where ss.id = p_session_id;
-$$;
+create table if not exists public.session_team_update_events (
+  session_id uuid primary key references public.sessions(id) on delete cascade,
+  version integer not null default 1,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id)
+);
+
+create index if not exists session_team_update_events_updated_at_idx on public.session_team_update_events(updated_at);
+
+alter table public.session_team_update_events enable row level security;
+
+drop policy if exists "session_team_update_events_public_select" on public.session_team_update_events;
+create policy "session_team_update_events_public_select" on public.session_team_update_events for select using (true);
+
+grant select on table public.session_team_update_events to anon;
+grant all on table public.session_team_update_events to authenticated, service_role;
+
+alter table public.session_team_update_events replica identity full;
+do $$
+begin
+  alter publication supabase_realtime add table public.session_team_update_events;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
 
 create or replace function public.save_session_team_builder(p_session_id uuid, p_teams jsonb)
 returns void
@@ -111,5 +79,4 @@ begin
 end;
 $$;
 
-grant execute on function public.public_session_team_builder(uuid) to anon, authenticated, service_role;
 grant execute on function public.save_session_team_builder(uuid, jsonb) to authenticated, service_role;

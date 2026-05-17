@@ -176,6 +176,13 @@ create table public.session_team_players (
   unique(session_id, player_id)
 );
 
+create table public.session_team_update_events (
+  session_id uuid primary key references public.sessions(id) on delete cascade,
+  version integer not null default 1,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id)
+);
+
 create table public.goals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions(id) on delete cascade,
@@ -238,6 +245,7 @@ create index session_teams_captain_player_id_idx on public.session_teams(captain
 create index session_team_players_session_id_idx on public.session_team_players(session_id);
 create index session_team_players_team_id_idx on public.session_team_players(session_team_id);
 create index session_team_players_player_id_idx on public.session_team_players(player_id);
+create index session_team_update_events_updated_at_idx on public.session_team_update_events(updated_at);
 create index goals_session_id_idx on public.goals(session_id);
 create index goals_scorer_id_idx on public.goals(scorer_id);
 create index goals_assist_player_id_idx on public.goals(assist_player_id);
@@ -569,6 +577,14 @@ begin
       on conflict (session_id, player_id) do nothing;
     end loop;
   end loop;
+
+  insert into public.session_team_update_events(session_id, version, updated_at, updated_by)
+  values (p_session_id, 1, now(), actor_id)
+  on conflict (session_id) do update
+  set
+    version = public.session_team_update_events.version + 1,
+    updated_at = now(),
+    updated_by = excluded.updated_by;
 end;
 $$;
 
@@ -607,6 +623,7 @@ alter table public.ledger_entries enable row level security;
 alter table public.session_player_charges enable row level security;
 alter table public.session_teams enable row level security;
 alter table public.session_team_players enable row level security;
+alter table public.session_team_update_events enable row level security;
 alter table public.goals enable row level security;
 alter table public.whatsapp_imports enable row level security;
 alter table public.audit_logs enable row level security;
@@ -657,6 +674,8 @@ create policy "session_team_players_admin_all" on public.session_team_players fo
 create policy "session_team_players_captain_write" on public.session_team_players for insert with check (public.app_role() = 'captain');
 create policy "session_team_players_captain_update" on public.session_team_players for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
 
+create policy "session_team_update_events_public_select" on public.session_team_update_events for select using (true);
+
 create policy "goals_select" on public.goals for select using (public.app_role() in ('admin','captain') or scorer_id = public.current_player_id() or assist_player_id = public.current_player_id());
 create policy "goals_admin_all" on public.goals for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 create policy "goals_captain_write" on public.goals for insert with check (public.app_role() = 'captain');
@@ -668,6 +687,7 @@ create policy "audit_admin_insert" on public.audit_logs for insert with check (p
 
 grant usage on schema public to anon, authenticated, service_role;
 grant all on all tables in schema public to authenticated, service_role;
+grant select on table public.session_team_update_events to anon;
 grant all on all routines in schema public to authenticated, service_role;
 grant execute on function public.public_player_report() to anon, authenticated, service_role;
 grant execute on function public.public_session_team_builder(uuid) to anon, authenticated, service_role;
@@ -677,3 +697,12 @@ grant all on all sequences in schema public to authenticated, service_role;
 alter default privileges in schema public grant all on tables to authenticated, service_role;
 alter default privileges in schema public grant all on routines to authenticated, service_role;
 alter default privileges in schema public grant all on sequences to authenticated, service_role;
+
+alter table public.session_team_update_events replica identity full;
+do $$
+begin
+  alter publication supabase_realtime add table public.session_team_update_events;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
