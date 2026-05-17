@@ -149,7 +149,7 @@ function normalizeSessionDate(session: ParsedWhatsAppImport["session"]) {
 }
 
 function normalizeDate(value: string | null | undefined) {
-  if (!value) return value;
+  if (!value) return undefined;
   return parseSessionDate(value) ?? value;
 }
 
