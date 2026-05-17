@@ -5,8 +5,9 @@ import { MessageSquareText } from "lucide-react";
 
 export default async function ImportWhatsAppPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: players }, { data: seasons }, { data: sessions }, { data: playgrounds }] = await Promise.all([
+  const [{ data: players }, { data: aliases }, { data: seasons }, { data: sessions }, { data: playgrounds }] = await Promise.all([
     supabase.from("players").select("*").order("display_name"),
+    supabase.from("player_aliases").select("*").order("match_count", { ascending: false }),
     supabase.from("seasons").select("*").order("name"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }),
     supabase.from("playgrounds").select("*").order("name")
@@ -22,7 +23,7 @@ export default async function ImportWhatsAppPage() {
           <p className="text-sm text-slate-500">Parse roster, payments, teams, scores, and attendance before confirming changes.</p>
         </div>
       </div>
-      <ImportReviewTable players={players ?? []} playgrounds={playgrounds ?? []} seasons={seasons ?? []} sessions={sessions ?? []} />
+      <ImportReviewTable aliases={aliases ?? []} players={players ?? []} playgrounds={playgrounds ?? []} seasons={seasons ?? []} sessions={sessions ?? []} />
     </AppShell>
   );
 }

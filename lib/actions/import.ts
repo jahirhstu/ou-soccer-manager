@@ -36,13 +36,18 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     ensureSentPaymentsAreParsed(parsed);
     const matches = new Map<string, string>();
     const ignoredNames = new Set<string>();
+    const updatePlayerNames = new Set<string>();
     for (const [key, value] of formData.entries()) {
-      if (!key.startsWith("match_") || !value) continue;
-      const parsedName = key.replace("match_", "");
-      if (value === "__ignore__") {
-        ignoredNames.add(parsedName);
-      } else {
-        matches.set(parsedName, String(value));
+      if (key.startsWith("match_") && value) {
+        const parsedName = key.replace("match_", "");
+        if (value === "__ignore__") {
+          ignoredNames.add(parsedName);
+        } else {
+          matches.set(parsedName, String(value));
+        }
+      }
+      if (key.startsWith("update_name_") && value === "yes") {
+        updatePlayerNames.add(key.replace("update_name_", ""));
       }
     }
     removeIgnoredRows(parsed, ignoredNames);
@@ -69,7 +74,9 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     const playerIds = await resolveImportedPlayers({
       supabase,
       parsedPlayers: parsed.players ?? [],
-      matches
+      matches,
+      updatePlayerNames,
+      actorId: profile.id
     });
 
     for (const collection of [parsed.players, parsed.payments, parsed.attendance, parsed.goals]) {
@@ -826,23 +833,45 @@ function hasSessionRows(parsed: any) {
 async function resolveImportedPlayers({
   supabase,
   parsedPlayers,
-  matches
+  matches,
+  updatePlayerNames,
+  actorId
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   parsedPlayers: Array<{ name: string; matchedPlayerId?: string }>;
   matches: Map<string, string>;
+  updatePlayerNames: Set<string>;
+  actorId: string;
 }) {
   const playerIds = new Map<string, string>();
-  const { data: existingPlayers, error } = await supabase.from("players").select("id,display_name");
+  const [{ data: existingPlayers, error }, { data: aliases, error: aliasError }] = await Promise.all([
+    supabase.from("players").select("id,display_name"),
+    supabase.from("player_aliases").select("player_id,alias_name,normalized_alias")
+  ]);
   if (error) throw new Error(error.message);
+  if (aliasError) throw new Error(aliasError.message);
 
   const existingByName = new Map(
     (existingPlayers ?? []).map((player) => [normalizePlayerName(player.display_name), player.id])
   );
+  const existingByAlias = new Map((aliases ?? []).map((alias) => [alias.normalized_alias, alias.player_id]));
 
   for (const player of parsedPlayers) {
     if (matches.has(player.name)) {
-      setPlayerId(playerIds, player.name, matches.get(player.name)!);
+      const matchedPlayerId = matches.get(player.name)!;
+      await rememberPlayerAlias({
+        supabase,
+        playerId: matchedPlayerId,
+        aliasName: player.name,
+        actorId
+      });
+      if (updatePlayerNames.has(player.name)) {
+        const displayName = normalizePlayerName(player.name);
+        const { error: updateError } = await supabase.from("players").update({ display_name: displayName }).eq("id", matchedPlayerId);
+        if (updateError) throw new Error(updateError.message);
+        existingByName.set(displayName, matchedPlayerId);
+      }
+      setPlayerId(playerIds, player.name, matchedPlayerId);
       continue;
     }
 
@@ -850,6 +879,18 @@ async function resolveImportedPlayers({
     const existingId = existingByName.get(normalizedName);
     if (existingId) {
       setPlayerId(playerIds, player.name, existingId);
+      continue;
+    }
+
+    const aliasId = existingByAlias.get(normalizeNameKey(player.name));
+    if (aliasId) {
+      await rememberPlayerAlias({
+        supabase,
+        playerId: aliasId,
+        aliasName: player.name,
+        actorId
+      });
+      setPlayerId(playerIds, player.name, aliasId);
       continue;
     }
 
@@ -861,9 +902,61 @@ async function resolveImportedPlayers({
     if (createError) throw new Error(createError.message);
     setPlayerId(playerIds, player.name, created.id);
     existingByName.set(normalizedName, created.id);
+    await rememberPlayerAlias({
+      supabase,
+      playerId: created.id,
+      aliasName: player.name,
+      actorId
+    });
   }
 
   return playerIds;
+}
+
+async function rememberPlayerAlias({
+  supabase,
+  playerId,
+  aliasName,
+  actorId
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  playerId: string;
+  aliasName: string;
+  actorId: string;
+}) {
+  const normalizedAlias = normalizeNameKey(aliasName);
+  const { data: existing, error: existingError } = await supabase
+    .from("player_aliases")
+    .select("id,match_count")
+    .eq("normalized_alias", normalizedAlias)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+
+  if (existing) {
+    const { error } = await supabase
+      .from("player_aliases")
+      .update({
+        player_id: playerId,
+        alias_name: normalizePlayerName(aliasName),
+        match_count: Number(existing.match_count ?? 0) + 1,
+        last_used_at: new Date().toISOString(),
+        created_by: actorId
+      })
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("player_aliases")
+    .insert({
+      player_id: playerId,
+      alias_name: normalizePlayerName(aliasName),
+      normalized_alias: normalizedAlias,
+      created_by: actorId,
+      last_used_at: new Date().toISOString()
+    });
+  if (error) throw new Error(error.message);
 }
 
 function setPlayerId(playerIds: Map<string, string>, name: string, id: string) {
@@ -943,9 +1036,9 @@ function teamMemberNames(team: { captainName?: string; players?: string[] }) {
 }
 
 function resolvePlayerId(playerIds: Map<string, string>, playerName: string) {
-  return playerIds.get(playerName) ?? playerIds.get(normalizePlayerName(playerName));
+  return playerIds.get(playerName) ?? playerIds.get(normalizePlayerName(playerName)) ?? playerIds.get(normalizeNameKey(playerName));
 }
 
 function normalizeNameKey(name: string) {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
+  return name.trim().replace(/\s+/g, " ").toLowerCase().replace(/[^a-z0-9]/g, "");
 }

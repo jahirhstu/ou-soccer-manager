@@ -18,6 +18,7 @@ const cleanupTables = [
   "sessions",
   "seasons",
   "playgrounds",
+  "player_aliases",
   "players"
 ] as const;
 

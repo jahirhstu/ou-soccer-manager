@@ -37,6 +37,14 @@ export type Player = {
   notes: string | null;
 };
 
+export type PlayerAlias = {
+  id: string;
+  player_id: string;
+  alias_name: string;
+  normalized_alias: string;
+  match_count: number;
+};
+
 export type Playground = {
   id: string;
   name: string;

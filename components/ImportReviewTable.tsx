@@ -3,17 +3,19 @@
 import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import";
-import type { ParsedWhatsAppImport, Player, Playground, Season, Session } from "@/lib/types";
+import type { ParsedWhatsAppImport, Player, PlayerAlias, Playground, Season, Session } from "@/lib/types";
 import { PlayerSelect } from "./FormControls";
 
 type SessionWithPlayground = Session & { playgrounds?: { name?: string | null } | null };
 
 export function ImportReviewTable({
+  aliases,
   players,
   playgrounds,
   seasons,
   sessions
 }: {
+  aliases: PlayerAlias[];
   players: Player[];
   playgrounds: Playground[];
   seasons: Season[];
@@ -26,6 +28,8 @@ export function ImportReviewTable({
   );
   const parsed = state?.parsed;
   const playersByName = new Map(players.map((player) => [normalizeName(player.display_name), player.id]));
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const aliasesByName = new Map(aliases.map((alias) => [alias.normalized_alias, alias]));
   const parsedSeasonName = parsed?.season?.name ?? guessSeasonName(parsed);
   const parsedSessionName = parsed?.session?.name;
   const parsedSessionDate = parsed?.session?.date;
@@ -238,14 +242,23 @@ export function ImportReviewTable({
             <h2 className="mb-3 text-sm font-semibold">Match names</h2>
             <div className="grid gap-2 md:grid-cols-2">
               {[...parsed.players]
-                .sort((a, b) => Number(Boolean(playersByName.get(normalizeName(a.name)))) - Number(Boolean(playersByName.get(normalizeName(b.name)))))
+                .sort((a, b) => Number(Boolean(getSuggestedPlayerId(a.name, players, playersByName, aliasesByName))) - Number(Boolean(getSuggestedPlayerId(b.name, players, playersByName, aliasesByName))))
                 .map((player) => {
-                  const matchedPlayerId = playersByName.get(normalizeName(player.name));
+                  const exactPlayerId = playersByName.get(normalizeName(player.name));
+                  const suggestion = getPlayerSuggestion(player.name, players, playersByName, aliasesByName);
+                  const matchedPlayerId = exactPlayerId ?? suggestion?.playerId;
+                  const suggestedPlayer = matchedPlayerId ? playersById.get(matchedPlayerId) : undefined;
+                  const isSuggested = !exactPlayerId && Boolean(suggestion);
                   return (
-                <label className={`grid gap-1 rounded-md border p-3 text-sm ${matchedPlayerId ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`} key={player.name}>
-                  <span className={matchedPlayerId ? "font-medium text-emerald-800" : "font-medium text-amber-800"}>
-                    {player.name} {matchedPlayerId ? "matched" : "unmatched"}
-                  </span>
+                <div className={`grid gap-2 rounded-md border p-3 text-sm ${exactPlayerId ? "border-emerald-200 bg-emerald-50" : matchedPlayerId ? "border-sky-200 bg-sky-50" : "border-amber-200 bg-amber-50"}`} key={player.name}>
+                  <div className={exactPlayerId ? "font-medium text-emerald-800" : matchedPlayerId ? "font-medium text-sky-800" : "font-medium text-amber-800"}>
+                    {player.name} {exactPlayerId ? "matched" : matchedPlayerId ? "suggested" : "unmatched"}
+                  </div>
+                  {isSuggested && suggestedPlayer ? (
+                    <p className="text-xs text-sky-700">
+                      Suggested: {suggestedPlayer.display_name} {suggestion?.reason ? `(${suggestion.reason})` : ""}
+                    </p>
+                  ) : null}
                   <PlayerSelect
                     defaultValue={matchedPlayerId}
                     emptyLabel="Create new player if not matched"
@@ -254,7 +267,16 @@ export function ImportReviewTable({
                     players={players}
                     required={false}
                   />
-                </label>
+                  {!exactPlayerId ? (
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                      <input className="h-4 w-4 rounded border-line" name={`update_name_${player.name}`} type="checkbox" value="yes" />
+                      Update selected player's name to "{player.name}"
+                    </label>
+                  ) : null}
+                  {matchedPlayerId ? (
+                    <p className="text-xs text-slate-500">Confirming this match will remember "{player.name}" as an alias for future imports.</p>
+                  ) : null}
+                </div>
                   );
                 })}
             </div>
@@ -271,6 +293,68 @@ export function ImportReviewTable({
 
 function normalizeName(name: string) {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeAliasKey(name: string) {
+  return normalizeName(name).replace(/[^a-z0-9]/g, "");
+}
+
+function getSuggestedPlayerId(
+  name: string,
+  players: Player[],
+  playersByName: Map<string, string>,
+  aliasesByName: Map<string, PlayerAlias>
+) {
+  return getPlayerSuggestion(name, players, playersByName, aliasesByName)?.playerId;
+}
+
+function getPlayerSuggestion(
+  name: string,
+  players: Player[],
+  playersByName: Map<string, string>,
+  aliasesByName: Map<string, PlayerAlias>
+) {
+  const normalized = normalizeName(name);
+  const exactPlayerId = playersByName.get(normalized);
+  if (exactPlayerId) return { playerId: exactPlayerId, reason: "exact name" };
+
+  const alias = aliasesByName.get(normalizeAliasKey(name));
+  if (alias) return { playerId: alias.player_id, reason: `previous match: ${alias.alias_name}` };
+
+  let best: { playerId: string; score: number; reason: string } | undefined;
+  for (const player of players) {
+    const playerName = normalizeName(player.display_name);
+    const score = nameSimilarity(normalized, playerName);
+    if (!best || score > best.score) {
+      best = { playerId: player.id, score, reason: `${Math.round(score * 100)}% similar to ${player.display_name}` };
+    }
+  }
+
+  return best && best.score >= 0.58 ? best : undefined;
+}
+
+function nameSimilarity(a: string, b: string) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a))) {
+    return Math.min(a.length, b.length) / Math.max(a.length, b.length) + 0.25;
+  }
+  const distance = levenshtein(a, b);
+  return 1 - distance / Math.max(a.length, b.length);
+}
+
+function levenshtein(a: string, b: string) {
+  const rows = Array.from({ length: a.length + 1 }, (_, index) => [index, ...Array(b.length).fill(0)]);
+  for (let column = 1; column <= b.length; column++) rows[0][column] = column;
+  for (let row = 1; row <= a.length; row++) {
+    for (let column = 1; column <= b.length; column++) {
+      rows[row][column] =
+        a[row - 1] === b[column - 1]
+          ? rows[row - 1][column - 1]
+          : Math.min(rows[row - 1][column - 1], rows[row][column - 1], rows[row - 1][column]) + 1;
+    }
+  }
+  return rows[a.length][b.length];
 }
 
 function buildFixWarnings({

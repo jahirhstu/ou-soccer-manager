@@ -30,6 +30,18 @@ create table public.profiles (
   updated_at timestamptz default now()
 );
 
+create table public.player_aliases (
+  id uuid primary key default gen_random_uuid(),
+  player_id uuid not null references public.players(id) on delete cascade,
+  alias_name text not null,
+  normalized_alias text not null unique,
+  match_count integer not null default 1,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  last_used_at timestamptz default now()
+);
+
 create table public.playgrounds (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -206,6 +218,8 @@ create table public.audit_logs (
 
 create index profiles_role_idx on public.profiles(role);
 create index profiles_player_id_idx on public.profiles(player_id);
+create index player_aliases_player_id_idx on public.player_aliases(player_id);
+create index player_aliases_normalized_alias_idx on public.player_aliases(normalized_alias);
 create index playgrounds_name_idx on public.playgrounds(name);
 create index seasons_status_idx on public.seasons(status);
 create index sessions_season_id_idx on public.sessions(season_id);
@@ -231,6 +245,7 @@ create index goals_session_team_id_idx on public.goals(session_team_id);
 create index whatsapp_imports_status_idx on public.whatsapp_imports(status);
 
 create trigger players_updated_at before update on public.players for each row execute function public.set_updated_at();
+create trigger player_aliases_updated_at before update on public.player_aliases for each row execute function public.set_updated_at();
 create trigger profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 create trigger playgrounds_updated_at before update on public.playgrounds for each row execute function public.set_updated_at();
 create trigger seasons_updated_at before update on public.seasons for each row execute function public.set_updated_at();
@@ -400,6 +415,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 alter table public.profiles enable row level security;
 alter table public.players enable row level security;
+alter table public.player_aliases enable row level security;
 alter table public.playgrounds enable row level security;
 alter table public.seasons enable row level security;
 alter table public.sessions enable row level security;
@@ -420,6 +436,9 @@ create policy "profiles_admin_all" on public.profiles for all using (public.app_
 
 create policy "players_select" on public.players for select using (public.app_role() in ('admin','captain') or id = public.current_player_id());
 create policy "players_admin_all" on public.players for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
+
+create policy "player_aliases_select" on public.player_aliases for select using (auth.uid() is not null);
+create policy "player_aliases_admin_all" on public.player_aliases for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 
 create policy "playgrounds_select" on public.playgrounds for select using (auth.uid() is not null);
 create policy "playgrounds_admin_all" on public.playgrounds for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
