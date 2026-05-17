@@ -20,6 +20,17 @@ describe("RuleBasedWhatsAppParser", () => {
     expect(result.goals).toHaveLength(2);
   });
 
+  it("uses the current year when a month/day date has no year", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Game May 27
+      Naveed - Sent
+      Score 8-6
+    `);
+
+    expect(result.session?.date).toBe(`${new Date().getFullYear()}-05-27`);
+  });
+
   it("extracts numbered season signup rows with inline payments", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`

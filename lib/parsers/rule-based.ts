@@ -306,18 +306,7 @@ function parseBalanceLeft(line: string) {
 }
 
 function parseMonthDay(value: string) {
-  const match = value.match(/([A-Za-z]+)\s+(\d{1,2})/);
-  if (!match) return undefined;
-  const month = monthNumber(match[1]);
-  if (!month) return undefined;
-  return `${new Date().getFullYear()}-${month}-${match[2].padStart(2, "0")}`;
-}
-
-function monthNumber(month: string) {
-  const index = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"].findIndex((name) =>
-    name.startsWith(month.toLowerCase())
-  );
-  return index === -1 ? undefined : String(index + 1).padStart(2, "0");
+  return parseSessionDate(value);
 }
 
 function normalizeTime(value: string) {

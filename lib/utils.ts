@@ -31,7 +31,22 @@ export function parseSessionDate(input: string) {
     const year = numeric[3] ?? new Date().getFullYear().toString();
     return `${year}-${numeric[1].padStart(2, "0")}-${numeric[2].padStart(2, "0")}`;
   }
+  const monthDay = input.match(/\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b/i);
+  if (monthDay) {
+    const month = monthNumber(monthDay[1]);
+    if (month) {
+      const year = monthDay[3] ?? new Date().getFullYear().toString();
+      return `${year}-${month}-${monthDay[2].padStart(2, "0")}`;
+    }
+  }
   return undefined;
+}
+
+function monthNumber(month: string) {
+  const index = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"].findIndex((name) =>
+    name.startsWith(month.toLowerCase())
+  );
+  return index === -1 ? undefined : String(index + 1).padStart(2, "0");
 }
 
 export function detectPaymentIntent(input: string) {

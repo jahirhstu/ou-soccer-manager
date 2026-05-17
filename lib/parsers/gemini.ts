@@ -1,4 +1,5 @@
 import type { ParsedWhatsAppImport } from "../types";
+import { parseSessionDate } from "../utils";
 import { RuleBasedWhatsAppParser } from "./rule-based";
 import type { WhatsAppParser } from "./types";
 
@@ -94,6 +95,7 @@ export async function listGeminiModels(apiKey = process.env.GEMINI_API_KEY) {
 }
 
 function parserInstructions() {
+  const currentYear = new Date().getFullYear();
   return `Parse this WhatsApp message for a small recurring soccer group and return only JSON matching the schema.
 
 Classify importType:
@@ -117,7 +119,8 @@ Rules:
 - Drop-in/session-only payment with no session count should use sessionsCovered 1.
 - Use confidence low/medium/high per extracted row.
 - Add warnings for ambiguity.
-- Clean names, e.g. "rocky bhai" -> "Rocky Bhai".`;
+- Clean names, e.g. "rocky bhai" -> "Rocky Bhai".
+- Return dates as YYYY-MM-DD. If a date has month/day but no year, use current year ${currentYear}.`;
 }
 
 function extractGeminiText(payload: any) {
@@ -130,8 +133,8 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     rawText,
     importType: parsed.importType ?? "session_update",
     confidence: parsed.confidence ?? "medium",
-    season: parsed.season,
-    session: parsed.session,
+    season: normalizeSeasonDates(parsed.season),
+    session: normalizeSessionDate(parsed.session),
     players: parsed.players ?? [],
     payments: parsed.payments ?? [],
     attendance: parsed.attendance ?? [],
@@ -141,6 +144,28 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     goals: parsed.goals ?? [],
     warnings: parsed.warnings ?? []
   };
+}
+
+function normalizeSeasonDates(season: ParsedWhatsAppImport["season"]) {
+  if (!season) return season;
+  return {
+    ...season,
+    startDate: normalizeDate(season.startDate),
+    endDate: normalizeDate(season.endDate)
+  };
+}
+
+function normalizeSessionDate(session: ParsedWhatsAppImport["session"]) {
+  if (!session) return session;
+  return {
+    ...session,
+    date: normalizeDate(session.date)
+  };
+}
+
+function normalizeDate(value: string | null | undefined) {
+  if (!value) return value;
+  return parseSessionDate(value) ?? value;
 }
 
 function normalizeTeams(teams: ParsedWhatsAppImport["teams"]) {

@@ -1,4 +1,5 @@
 import type { ParsedWhatsAppImport } from "../types";
+import { parseSessionDate } from "../utils";
 import { RuleBasedWhatsAppParser } from "./rule-based";
 import type { WhatsAppParser } from "./types";
 
@@ -65,6 +66,7 @@ export class OpenAIWhatsAppParser implements WhatsAppParser {
 }
 
 function parserInstructions() {
+  const currentYear = new Date().getFullYear();
   return `You parse WhatsApp messages for a small recurring soccer group.
 
 Return only data that is explicitly present or strongly implied.
@@ -89,7 +91,8 @@ Important rules:
 - "left", "remaining", or "balance" means balanceOwed, not amount paid.
 - Drop-in/session-only payment with no sessions count should use sessionsCovered 1.
 - Mark uncertain extraction with confidence low or medium and add warnings.
-- Keep names human-clean, e.g. "Rocky bhai" -> "Rocky Bhai".`;
+- Keep names human-clean, e.g. "Rocky bhai" -> "Rocky Bhai".
+- Return dates as YYYY-MM-DD. If a date has month/day but no year, use current year ${currentYear}.`;
 }
 
 function extractResponseText(payload: any) {
@@ -108,8 +111,8 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     rawText,
     importType: parsed.importType ?? "session_update",
     confidence: parsed.confidence ?? "medium",
-    season: parsed.season,
-    session: parsed.session,
+    season: normalizeSeasonDates(parsed.season),
+    session: normalizeSessionDate(parsed.session),
     players: parsed.players ?? [],
     payments: parsed.payments ?? [],
     attendance: parsed.attendance ?? [],
@@ -119,6 +122,28 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     goals: parsed.goals ?? [],
     warnings: parsed.warnings ?? []
   };
+}
+
+function normalizeSeasonDates(season: ParsedWhatsAppImport["season"]) {
+  if (!season) return season;
+  return {
+    ...season,
+    startDate: normalizeDate(season.startDate),
+    endDate: normalizeDate(season.endDate)
+  };
+}
+
+function normalizeSessionDate(session: ParsedWhatsAppImport["session"]) {
+  if (!session) return session;
+  return {
+    ...session,
+    date: normalizeDate(session.date)
+  };
+}
+
+function normalizeDate(value: string | null | undefined) {
+  if (!value) return value;
+  return parseSessionDate(value) ?? value;
 }
 
 function normalizeTeams(teams: ParsedWhatsAppImport["teams"]) {
