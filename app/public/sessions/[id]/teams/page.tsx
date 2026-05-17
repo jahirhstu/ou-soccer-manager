@@ -25,7 +25,7 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                     <ShieldCheck className="h-3.5 w-3.5" />
-                    Public session teams
+                    Team builder
                   </span>
                   {canEdit ? (
                     <Link className="btn-secondary min-h-8 px-3 py-1 text-xs" href="/dashboard">
@@ -35,7 +35,7 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
                   ) : null}
                 </div>
                 <h1 className="truncate text-xl font-semibold tracking-tight text-ink sm:text-3xl">
-                  {report?.session?.name ?? report?.session?.sessionDate ?? "Session teams"}
+                  {report?.session?.name ?? report?.session?.sessionDate ?? "Team builder"}
                 </h1>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600 sm:text-sm">
                   {report?.session?.sessionDate ? (
