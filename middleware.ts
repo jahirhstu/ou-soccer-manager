@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
+const publicRoutePrefixes = ["/public"];
 
 type CookieToSet = {
   name: string;
@@ -34,7 +35,9 @@ export async function middleware(request: NextRequest) {
     }
   );
   const { data } = await supabase.auth.getUser();
-  const isPublic = publicRoutes.includes(request.nextUrl.pathname);
+  const isPublic =
+    publicRoutes.includes(request.nextUrl.pathname) ||
+    publicRoutePrefixes.some((prefix) => request.nextUrl.pathname === prefix || request.nextUrl.pathname.startsWith(`${prefix}/`));
   if (!data.user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }

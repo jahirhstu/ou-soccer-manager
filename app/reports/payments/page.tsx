@@ -1,8 +1,9 @@
 import { DataTable } from "@/components/DataTable";
-import { money } from "@/lib/utils";
+import { cn, money } from "@/lib/utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import { Download } from "lucide-react";
+import Link from "next/link";
 
 export default async function PaymentReportPage({
   searchParams
@@ -44,12 +45,15 @@ export default async function PaymentReportPage({
   ].join("\n");
   return (
     <AppShell>
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">Payment report</h1>
-        <a className="btn-secondary" download="payment-report.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`}>
-          <Download className="h-4 w-4" />
-          Export CSV
-        </a>
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn-secondary" href="/public/report">Public report</Link>
+          <a className="btn-secondary" download="payment-report.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`}>
+            <Download className="h-4 w-4" />
+            Export CSV
+          </a>
+        </div>
       </div>
       <form className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_1fr_180px_auto]">
         <input className="input" defaultValue={filters.player ?? ""} name="player" placeholder="Filter by player" />
@@ -76,15 +80,15 @@ export default async function PaymentReportPage({
       <DataTable rows={filteredRows} columns={[
         { header: "Player", cell: (row) => row.player_name ?? "-" },
         { header: "Season", cell: (row) => row.season_name ?? "-" },
-        { header: "Status", cell: (row) => paymentStatusLabel(paymentStatus(row)) },
+        { header: "Status", cell: (row) => <BalanceBadge status={paymentStatus(row)} /> },
         { header: "Amount paid", cell: (row) => money(row.total_paid_amount) },
         { header: "Paid sessions", cell: (row) => row.total_paid_sessions ?? 0 },
         { header: "Played sessions", cell: (row) => row.total_played_sessions ?? 0 },
         { header: "Remaining sessions", cell: (row) => row.remaining_sessions ?? 0 },
         { header: "Used", cell: (row) => money(row.estimated_used_amount) },
-        { header: "Credit", cell: (row) => money(row.credit_amount) },
+        { header: "Credit", cell: (row) => <MoneyPill amount={row.credit_amount} tone={Number(row.credit_amount ?? 0) > 0 ? "credit" : "neutral"} /> },
         { header: "Refund due", cell: (row) => money(row.refund_due_amount) },
-        { header: "Owes", cell: (row) => money(row.owes_money) }
+        { header: "Owes", cell: (row) => <MoneyPill amount={row.owes_money} tone={Number(row.owes_money ?? 0) > 0 ? "owes" : "neutral"} /> }
       ]} />
     </AppShell>
   );
@@ -102,4 +106,35 @@ function paymentStatusLabel(status: string) {
   if (status === "credit") return "Has credit";
   if (status === "no_payment") return "No payment";
   return "Settled";
+}
+
+function BalanceBadge({ status }: { status: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
+        status === "owes" && "bg-rose-100 text-rose-800",
+        status === "credit" && "bg-emerald-100 text-emerald-800",
+        status === "settled" && "bg-slate-100 text-slate-700",
+        status === "no_payment" && "bg-amber-100 text-amber-800"
+      )}
+    >
+      {paymentStatusLabel(status)}
+    </span>
+  );
+}
+
+function MoneyPill({ amount, tone }: { amount: number | string | null | undefined; tone: "credit" | "owes" | "neutral" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
+        tone === "credit" && "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+        tone === "owes" && "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
+        tone === "neutral" && "bg-slate-50 text-slate-600 ring-1 ring-slate-200"
+      )}
+    >
+      {money(Number(amount ?? 0))}
+    </span>
+  );
 }
