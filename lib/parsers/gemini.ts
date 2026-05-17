@@ -136,7 +136,7 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     season: normalizeSeasonDates(parsed.season),
     session: normalizeSessionDate(parsed.session),
     players: parsed.players ?? [],
-    payments: parsed.payments ?? [],
+    payments: normalizePayments(parsed.payments ?? []),
     attendance: parsed.attendance ?? [],
     dropouts: parsed.dropouts ?? [],
     score: parsed.score,
@@ -144,6 +144,13 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     goals: parsed.goals ?? [],
     warnings: parsed.warnings ?? []
   };
+}
+
+function normalizePayments(payments: ParsedWhatsAppImport["payments"]) {
+  return payments.map((payment) => ({
+    ...payment,
+    paymentMethod: payment.paymentMethod || "e-transfer"
+  }));
 }
 
 function normalizeSeasonDates(season: ParsedWhatsAppImport["season"]) {

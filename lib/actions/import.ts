@@ -167,7 +167,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         playerId: payment.matchedPlayerId,
         amount: paymentAmount,
         sessionsCovered,
-        paymentMethod: payment.paymentMethod,
+        paymentMethod: payment.paymentMethod || "e-transfer",
         note: payment.note,
         importId: importRow?.id,
         actorId: profile.id
@@ -478,7 +478,7 @@ async function importPaymentOnce({
       player_id: playerId,
       amount,
       sessions_covered: sessionsCovered,
-      payment_method: paymentMethod,
+      payment_method: paymentMethod || "e-transfer",
       reference_note: `WhatsApp import ${importId}: ${note ?? ""}`,
       created_by: actorId
     })

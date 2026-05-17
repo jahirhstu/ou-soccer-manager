@@ -53,7 +53,10 @@ export const paymentSchema = z.object({
   payment_date: z.string().min(8),
   amount: z.coerce.number().positive(),
   sessions_covered: optionalNumber,
-  payment_method: z.string().optional().nullable(),
+  payment_method: z.preprocess(
+    (value) => (value === "" || value == null ? "e-transfer" : value),
+    z.string()
+  ),
   reference_note: z.string().optional().nullable()
 });
 

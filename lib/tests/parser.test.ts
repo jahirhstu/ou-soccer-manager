@@ -31,6 +31,16 @@ describe("RuleBasedWhatsAppParser", () => {
     expect(result.session?.date).toBe(`${new Date().getFullYear()}-05-27`);
   });
 
+  it("defaults missing payment method to e-transfer", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Game May 27
+      Rafi paid 12
+    `);
+
+    expect(result.payments[0].paymentMethod).toBe("e-transfer");
+  });
+
   it("extracts numbered season signup rows with inline payments", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`

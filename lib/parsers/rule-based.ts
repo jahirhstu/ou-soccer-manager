@@ -351,7 +351,7 @@ function detectMethod(line: string) {
   if (/e-?transfer/i.test(line)) return "e-transfer";
   if (/cash/i.test(line)) return "cash";
   if (/bank/i.test(line)) return "bank transfer";
-  return "other";
+  return "e-transfer";
 }
 
 function dedupeAttendance(rows: ParsedWhatsAppImport["attendance"]) {
