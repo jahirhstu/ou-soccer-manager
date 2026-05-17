@@ -413,7 +413,8 @@ returns table(
   balance_amount numeric,
   goals integer,
   assists integer,
-  appearances integer
+  appearances integer,
+  last_attended_sessions text[]
 )
 language sql stable security definer set search_path = public as $$
   with payment_totals as (
@@ -444,6 +445,25 @@ language sql stable security definer set search_path = public as $$
     join public.sessions s on s.id = g.session_id
     where g.assist_player_id is not null
     group by g.assist_player_id, s.season_id
+  ),
+  last_sessions as (
+    select
+      ranked.player_id,
+      ranked.season_id,
+      array_agg(ranked.session_label order by ranked.session_date desc) last_attended_sessions
+    from (
+      select
+        a.player_id,
+        s.season_id,
+        s.session_date,
+        coalesce(nullif(s.name, ''), s.session_date::text) session_label,
+        row_number() over (partition by a.player_id, s.season_id order by s.session_date desc, s.created_at desc) rn
+      from public.attendance a
+      join public.sessions s on s.id = a.session_id
+      where a.status in ('played','replacement')
+    ) ranked
+    where ranked.rn <= 3
+    group by ranked.player_id, ranked.season_id
   )
   select
     p.id player_id,
@@ -458,13 +478,15 @@ language sql stable security definer set search_path = public as $$
     coalesce(pt.total_paid_amount,0) - coalesce(pl.estimated_used_amount,0) balance_amount,
     coalesce(sc.goals,0) goals,
     coalesce(ast.assists,0) assists,
-    coalesce(pl.total_played_sessions,0)::integer appearances
+    coalesce(pl.total_played_sessions,0)::integer appearances,
+    coalesce(ls.last_attended_sessions, array[]::text[]) last_attended_sessions
   from public.players p
   cross join public.seasons s
   left join payment_totals pt on pt.player_id = p.id and pt.season_id = s.id
   left join played pl on pl.player_id = p.id and pl.season_id = s.id
   left join scored sc on sc.player_id = p.id and sc.season_id = s.id
   left join assisted ast on ast.player_id = p.id and ast.season_id = s.id
+  left join last_sessions ls on ls.player_id = p.id and ls.season_id = s.id
   where p.status = 'active'
     and (
       coalesce(pt.total_paid_amount,0) > 0

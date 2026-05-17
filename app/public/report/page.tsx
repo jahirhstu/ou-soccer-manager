@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, CircleDollarSign, LayoutDashboard, Search, ShieldCheck, Trophy, Users, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Search, ShieldCheck, Trophy } from "lucide-react";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
@@ -18,6 +18,7 @@ type PublicPlayerReportRow = {
   goals: number | null;
   assists: number | null;
   appearances: number | null;
+  last_attended_sessions: string[] | null;
 };
 
 export default async function PublicPlayerReportPage({
@@ -40,14 +41,9 @@ export default async function PublicPlayerReportPage({
   const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
   const totals = rows.reduce(
     (summary, row) => ({
-      paid: summary.paid + numberValue(row.total_paid_amount),
-      used: summary.used + numberValue(row.estimated_used_amount),
-      owed: summary.owed + numberValue(row.owes_money),
-      credit: summary.credit + numberValue(row.credit_amount),
-      goals: summary.goals + Number(row.goals ?? 0),
-      assists: summary.assists + Number(row.assists ?? 0)
+      goals: summary.goals + Number(row.goals ?? 0)
     }),
-    { paid: 0, used: 0, owed: 0, credit: 0, goals: 0, assists: 0 }
+    { goals: 0 }
   );
 
   return (
@@ -59,7 +55,7 @@ export default async function PublicPlayerReportPage({
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  Public team report
+                  Players status
                 </span>
                 {showDashboardLink ? (
                   <Link className="btn-secondary min-h-8 px-3 py-1 text-xs" href="/dashboard">
@@ -68,16 +64,15 @@ export default async function PublicPlayerReportPage({
                   </Link>
                 ) : null}
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer balances and stats</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer players status</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Shared read-only view for player balances, goals, assists, and appearances.
+                Shared read-only view for player balances, goals, assists, appearances, and recent attendance.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:w-[430px]">
-              <SummaryTile icon={CircleDollarSign} label="Collected" value={money(totals.paid)} />
-              <SummaryTile icon={Activity} label="Used" value={money(totals.used)} />
-              <SummaryTile icon={Users} label="Owing" value={money(totals.owed)} tone={totals.owed > 0 ? "danger" : "neutral"} />
-              <SummaryTile icon={Trophy} label="Goals" value={totals.goals.toString()} />
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:w-44">
+              <Trophy className="mb-2 h-5 w-5 text-pitch" />
+              <div className="text-xs font-medium text-emerald-700">Total goals</div>
+              <div className="mt-1 text-2xl font-semibold text-ink">{totals.goals}</div>
             </div>
           </div>
         </header>
@@ -126,6 +121,7 @@ export default async function PublicPlayerReportPage({
                   <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} />
                   <MiniMetric label="Played" value={String(row.appearances ?? row.total_played_sessions ?? 0)} />
                 </div>
+                <RecentSessions sessions={row.last_attended_sessions ?? []} />
               </article>
             );
           })}
@@ -139,31 +135,30 @@ export default async function PublicPlayerReportPage({
   );
 }
 
-function SummaryTile({
-  icon: Icon,
-  label,
-  value,
-  tone = "neutral"
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  tone?: "neutral" | "danger";
-}) {
-  return (
-    <div className={cn("rounded-lg border p-3", tone === "danger" ? "border-rose-200 bg-rose-50" : "border-line bg-slate-50")}>
-      <Icon className={cn("mb-2 h-4 w-4", tone === "danger" ? "text-rose-600" : "text-pitch")} />
-      <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold text-ink">{value}</div>
-    </div>
-  );
-}
-
 function StatBox({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "credit" | "owes" | "neutral" }) {
   return (
     <div className={cn("rounded-md border p-2 text-center", toneClasses(tone).soft)}>
       <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
       <div className={cn("mt-1 text-base font-bold", toneClasses(tone).text)}>{value}</div>
+    </div>
+  );
+}
+
+function RecentSessions({ sessions }: { sessions: string[] }) {
+  return (
+    <div className="mt-3 rounded-md bg-slate-50 p-2 text-xs">
+      <div className="font-semibold uppercase text-slate-500">Last 3 attended</div>
+      {sessions.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {sessions.map((session, index) => (
+            <span className="rounded bg-white px-2 py-1 font-medium text-slate-700 ring-1 ring-slate-200" key={`${session}-${index}`}>
+              {session}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-slate-500">No attended sessions yet.</p>
+      )}
     </div>
   );
 }

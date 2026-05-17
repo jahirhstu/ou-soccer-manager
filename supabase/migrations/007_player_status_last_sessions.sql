@@ -1,3 +1,5 @@
+drop function if exists public.public_player_report();
+
 create or replace function public.public_player_report()
 returns table(
   player_id uuid,
