@@ -11,7 +11,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   const supabase = await createSupabaseServerClient();
   const [{ data: player }, { data: payments }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }] = await Promise.all([
     supabase.from("players").select("*").eq("id", id).single(),
-    supabase.from("payments").select("*,seasons(name)").eq("player_id", id).order("payment_date", { ascending: false }),
+    supabase.from("payments").select("*,seasons(name)").eq("player_id", id).gt("amount", 0).order("payment_date", { ascending: false }),
     supabase.from("attendance").select("*,sessions(session_date)").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("ledger_entries").select("*").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id),

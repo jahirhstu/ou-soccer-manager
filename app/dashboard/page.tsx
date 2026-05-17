@@ -12,7 +12,7 @@ export default async function DashboardPage() {
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
-    supabase.from("payments").select("amount,payment_date,players(display_name)").order("created_at", { ascending: false }).limit(5),
+    supabase.from("payments").select("amount,payment_date,players(display_name)").gt("amount", 0).order("created_at", { ascending: false }).limit(5),
     supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
     supabase.from("player_season_payment_summary").select("season_id,total_paid_amount,estimated_used_amount,owes_money")

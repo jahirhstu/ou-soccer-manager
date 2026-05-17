@@ -156,7 +156,22 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       }
 
       const paymentAmount = Number(explicitAmount ? parsedAmount : sentWithoutAmount ? sessionPrice : null);
-      if (!Number.isFinite(paymentAmount)) continue;
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+        await supabase.from("audit_logs").insert({
+          actor_id: profile.id,
+          action: "payment_import_skipped_no_amount",
+          entity_type: "payments",
+          new_data: {
+            player_id: payment.matchedPlayerId,
+            session_id: parsed.importType === "session_update" ? targetSessionId : null,
+            season_id: targetSeasonId,
+            import_id: importRow?.id,
+            session_price: sessionPrice,
+            payment
+          }
+        });
+        continue;
+      }
       const sessionsCovered =
         (Number.isFinite(parsedSessionsCovered) && parsedSessionsCovered > 0 ? parsedSessionsCovered : null) ??
         (parsed.importType === "session_update" ? sessionsCoveredFromAmount(paymentAmount, sessionPrice) : null);

@@ -7,7 +7,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function PaymentsPage() {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.from("payments").select("*,players(display_name),seasons(name)").order("payment_date", { ascending: false });
+  const { data } = await supabase.from("payments").select("*,players(display_name),seasons(name)").gt("amount", 0).order("payment_date", { ascending: false });
   return (
     <AppShell>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
