@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { LayoutDashboard, Search, ShieldCheck, Trophy } from "lucide-react";
+import { Search, ShieldCheck, Trophy } from "lucide-react";
+import { PublicHeader } from "@/components/PublicHeader";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
@@ -32,7 +32,7 @@ export default async function PublicPlayerReportPage({
     supabase.rpc("public_player_report"),
     getCurrentProfile()
   ]);
-  const showDashboardLink = hasPermission(profile?.role, "manage_attendance");
+  const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const rows = ((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
     if (filters.q && !String(row.player_name ?? "").toLowerCase().includes(filters.q.toLowerCase())) return false;
     if (filters.season && row.season_id !== filters.season) return false;
@@ -47,8 +47,9 @@ export default async function PublicPlayerReportPage({
   );
 
   return (
-    <main className="min-h-screen px-4 py-5 sm:py-8">
-      <div className="mx-auto grid max-w-6xl gap-5">
+    <main className="min-h-screen">
+      <PublicHeader returnHref={showReturnLink ? "/reports/payments" : undefined} returnLabel="Return to report" />
+      <div className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:py-8">
         <header className="panel overflow-hidden">
           <div className="grid gap-5 bg-white p-5 sm:p-6 md:grid-cols-[1fr_auto] md:items-center">
             <div className="min-w-0">
@@ -57,12 +58,6 @@ export default async function PublicPlayerReportPage({
                   <ShieldCheck className="h-3.5 w-3.5" />
                   Players status
                 </span>
-                {showDashboardLink ? (
-                  <Link className="btn-secondary min-h-8 px-3 py-1 text-xs" href="/dashboard">
-                    <LayoutDashboard className="h-3.5 w-3.5" />
-                    Dashboard
-                  </Link>
-                ) : null}
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer players status</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">

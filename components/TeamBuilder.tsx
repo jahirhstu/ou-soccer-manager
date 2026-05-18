@@ -4,7 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, Crown, Save, Undo2, UserPlus, Users } from "lucide-react";
+import { CheckCircle2, Crown, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
 import { saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -151,6 +151,18 @@ export function TeamBuilder({
     });
   }
 
+  function tossOrder() {
+    setTeams((current) => {
+      const shuffled = [...current];
+      for (let index = shuffled.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+      }
+      return shuffled;
+    });
+    toast.success("Toss complete. Pick order updated.");
+  }
+
   function onDragStart(event: DragEvent, source: DragSource) {
     event.dataTransfer.setData("application/json", JSON.stringify(source));
     event.dataTransfer.effectAllowed = "move";
@@ -192,6 +204,25 @@ export function TeamBuilder({
           </div>
           <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
         </div>
+      </section>
+
+      <section className="panel flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-ink">Captain pick order</h2>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {teams.map((team, index) => (
+              <span className="rounded-md bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 ring-1 ring-line" key={team.key}>
+                {index + 1}. {team.name}
+              </span>
+            ))}
+          </div>
+        </div>
+        {canEdit ? (
+          <button className="btn-secondary min-h-8 px-3 text-xs" onClick={tossOrder} type="button">
+            <Shuffle className="h-3.5 w-3.5" />
+            Toss order
+          </button>
+        ) : null}
       </section>
 
       <section

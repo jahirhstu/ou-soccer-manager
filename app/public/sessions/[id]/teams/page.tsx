@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { CalendarDays, LayoutDashboard, Lock, MapPin, ShieldCheck } from "lucide-react";
+import { CalendarDays, Lock, MapPin, ShieldCheck } from "lucide-react";
+import { PublicHeader } from "@/components/PublicHeader";
 import { TeamBuilder, type TeamBuilderData } from "@/components/TeamBuilder";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
@@ -15,8 +16,9 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
   const canEdit = hasPermission(profile?.role, "manage_attendance");
 
   return (
-    <main className="min-h-screen px-2 py-3 sm:px-4 sm:py-8">
-      <div className="mx-auto grid max-w-7xl gap-3 sm:gap-5">
+    <main className="min-h-screen">
+      <PublicHeader returnHref={canEdit ? `/sessions/${id}` : undefined} returnLabel="Return to session" />
+      <div className="mx-auto grid max-w-7xl gap-3 px-2 py-3 sm:gap-5 sm:px-4 sm:py-8">
         <header className="panel p-3 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 gap-3">
@@ -27,12 +29,6 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
                     <ShieldCheck className="h-3.5 w-3.5" />
                     Team builder
                   </span>
-                  {canEdit ? (
-                    <Link className="btn-secondary min-h-8 px-3 py-1 text-xs" href="/dashboard">
-                      <LayoutDashboard className="h-3.5 w-3.5" />
-                      Dashboard
-                    </Link>
-                  ) : null}
                 </div>
                 <h1 className="truncate text-xl font-semibold tracking-tight text-ink sm:text-3xl">
                   {report?.session?.name ?? report?.session?.sessionDate ?? "Team builder"}

@@ -543,7 +543,7 @@ language sql stable security definer set search_path = public as $$
             where stp.session_team_id = st.id
           ), '[]'::jsonb)
         )
-        order by st.name
+        order by st.created_at, st.name
       )
       from public.session_teams st
       where st.session_id = ss.id
