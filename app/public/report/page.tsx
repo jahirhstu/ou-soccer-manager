@@ -1,4 +1,5 @@
-import { Search, ShieldCheck, Trophy } from "lucide-react";
+import type { ReactNode } from "react";
+import { Handshake, Search, ShieldCheck, Trophy } from "lucide-react";
 import { PublicHeader } from "@/components/PublicHeader";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
@@ -21,6 +22,16 @@ type PublicPlayerReportRow = {
   last_attended_sessions: string[] | null;
 };
 
+type LatestSessionWinnerRow = {
+  session_id: string;
+  session_name: string | null;
+  session_date: string | null;
+  winning_team_name: string | null;
+  winning_score: number | null;
+  runner_up_score: number | null;
+  is_draw: boolean | null;
+};
+
 export default async function PublicPlayerReportPage({
   searchParams
 }: {
@@ -28,8 +39,9 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [{ data, error }, profile] = await Promise.all([
+  const [{ data, error }, { data: winnerData, error: winnerError }, profile] = await Promise.all([
     supabase.rpc("public_player_report"),
+    supabase.rpc("public_latest_session_winner", { p_season_id: filters.season || null }),
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
@@ -39,12 +51,9 @@ export default async function PublicPlayerReportPage({
     return true;
   });
   const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
-  const totals = rows.reduce(
-    (summary, row) => ({
-      goals: summary.goals + Number(row.goals ?? 0)
-    }),
-    { goals: 0 }
-  );
+  const topScorer = topPlayer(rows, "goals");
+  const topAssist = topPlayer(rows, "assists");
+  const latestWinner = ((winnerData ?? []) as LatestSessionWinnerRow[])[0];
 
   return (
     <main className="min-h-screen">
@@ -64,10 +73,25 @@ export default async function PublicPlayerReportPage({
                 Shared read-only view for player balances, goals, assists, appearances, and recent attendance.
               </p>
             </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:w-44">
-              <Trophy className="mb-2 h-5 w-5 text-pitch" />
-              <div className="text-xs font-medium text-emerald-700">Total goals</div>
-              <div className="mt-1 text-2xl font-semibold text-ink">{totals.goals}</div>
+            <div className="grid gap-2 sm:grid-cols-3 md:w-[34rem]">
+              <SummaryCard
+                icon={<Trophy className="h-5 w-5 text-amber-600" />}
+                label="Top scorer"
+                subLabel={topScorer ? `${topScorer.value} goals` : "No goals yet"}
+                value={topScorer?.name ?? "-"}
+              />
+              <SummaryCard
+                icon={<Handshake className="h-5 w-5 text-pitch" />}
+                label="Top assist"
+                subLabel={topAssist ? `${topAssist.value} assists` : "No assists yet"}
+                value={topAssist?.name ?? "-"}
+              />
+              <SummaryCard
+                icon={<ShieldCheck className="h-5 w-5 text-emerald-600" />}
+                label="Latest winner"
+                subLabel={winnerError ? "Run latest migration" : latestWinner ? winnerScore(latestWinner) : "No scored session"}
+                value={latestWinner?.winning_team_name ?? "-"}
+              />
             </div>
           </div>
         </header>
@@ -127,6 +151,27 @@ export default async function PublicPlayerReportPage({
         ) : null}
       </div>
     </main>
+  );
+}
+
+function SummaryCard({
+  icon,
+  label,
+  subLabel,
+  value
+}: {
+  icon: ReactNode;
+  label: string;
+  subLabel: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+      {icon}
+      <div className="mt-2 text-xs font-medium text-emerald-700">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold text-ink" title={value}>{value}</div>
+      <div className="mt-1 truncate text-xs font-medium text-emerald-800" title={subLabel}>{subLabel}</div>
+    </div>
   );
 }
 
@@ -210,4 +255,26 @@ function uniqueSeasons(rows: PublicPlayerReportRow[]) {
     if (row.season_id) seasons.set(row.season_id, row.season_name ?? "Season");
   }
   return Array.from(seasons.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function topPlayer(rows: PublicPlayerReportRow[], field: "goals" | "assists") {
+  const totalsByPlayer = rows.reduce((totals, row) => {
+    const value = Number(row[field] ?? 0);
+    if (value > 0) {
+      const current = totals.get(row.player_id) ?? { name: row.player_name ?? "Unknown player", value: 0 };
+      totals.set(row.player_id, { ...current, value: current.value + value });
+    }
+    return totals;
+  }, new Map<string, { name: string; value: number }>());
+
+  return Array.from(totalsByPlayer.values()).reduce<{ name: string; value: number } | null>((leader, row) => {
+    if (!leader || row.value > leader.value) return row;
+    return leader;
+  }, null);
+}
+
+function winnerScore(row: LatestSessionWinnerRow) {
+  if (row.winning_score == null) return row.session_name ?? "Latest scored session";
+  const score = row.runner_up_score == null ? String(row.winning_score) : `${row.winning_score}-${row.runner_up_score}`;
+  return `${score}${row.is_draw ? " draw" : ""}`;
 }

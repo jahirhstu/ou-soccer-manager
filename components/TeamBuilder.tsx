@@ -4,7 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, Crown, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
+import { CheckCircle2, Crown, Save, Shuffle, Trophy, Undo2, UserPlus, Users } from "lucide-react";
 import { saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -59,12 +59,16 @@ export function TeamBuilder({
 }) {
   const router = useRouter();
   const lastLocalSaveAt = useRef(0);
+  const tossTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const players = data.players ?? [];
   const existingTeams = data.teams ?? [];
   const serverTeamSignature = useMemo(() => JSON.stringify(existingTeams), [existingTeams]);
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, maxExistingTeamSize(existingTeams) || 8));
   const [teams, setTeams] = useState<DraftTeam[]>(() => initialTeams(existingTeams, 2));
+  const [isTossing, setIsTossing] = useState(false);
+  const [tossResult, setTossResult] = useState<string | null>(null);
+  const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(null);
   const [state, action, pending] = useActionState(saveSessionTeamBuilder, null as { success?: boolean; message?: string; error?: string } | null);
   const assignedIds = new Set(teams.flatMap((team) => team.playerIds));
   const poolPlayers = players.filter((player) => !assignedIds.has(player.id));
@@ -75,6 +79,7 @@ export function TeamBuilder({
   }));
   const overfilledTeam = teams.find((team) => team.playerIds.length > playersPerTeam);
   const totalCapacity = teams.length * playersPerTeam;
+  const pickOrderTeams = orderedTeamsForToss(teams, tossOrderKeys);
 
   useEffect(() => {
     if (state?.success) {
@@ -113,9 +118,19 @@ export function TeamBuilder({
   useEffect(() => {
     setTeams((current) => initialTeams(existingTeams, current.length || 2));
     setPlayersPerTeam((current) => Math.max(1, maxExistingTeamSize(existingTeams) || current));
+    setTossOrderKeys(null);
+    setTossResult(null);
   }, [existingTeams, serverTeamSignature]);
 
+  useEffect(() => {
+    return () => {
+      if (tossTimeoutRef.current) clearTimeout(tossTimeoutRef.current);
+    };
+  }, []);
+
   function setTeamCount(count: number) {
+    setTossOrderKeys(null);
+    setTossResult(null);
     setTeams((current) => {
       if (count === current.length) return current;
       if (count > current.length) {
@@ -152,15 +167,24 @@ export function TeamBuilder({
   }
 
   function tossOrder() {
-    setTeams((current) => {
-      const shuffled = [...current];
+    if (isTossing) return;
+    const teamSnapshot = [...teams];
+    setIsTossing(true);
+    setTossResult(null);
+
+    if (tossTimeoutRef.current) clearTimeout(tossTimeoutRef.current);
+    tossTimeoutRef.current = setTimeout(() => {
+      const shuffled = [...teamSnapshot];
       for (let index = shuffled.length - 1; index > 0; index--) {
         const swapIndex = Math.floor(Math.random() * (index + 1));
         [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
       }
-      return shuffled;
-    });
-    toast.success("Toss complete. Pick order updated.");
+      const firstPick = shuffled[0]?.name ?? "";
+      setTossOrderKeys(shuffled.map((team) => team.key));
+      setIsTossing(false);
+      setTossResult(firstPick ? `${firstPick} picks first` : "Pick order updated");
+      toast.success(firstPick ? `Toss complete. ${firstPick} picks first.` : "Toss complete. Pick order updated.");
+    }, 1800);
   }
 
   function onDragStart(event: DragEvent, source: DragSource) {
@@ -206,23 +230,62 @@ export function TeamBuilder({
         </div>
       </section>
 
-      <section className="panel flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-ink">Captain pick order</h2>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {teams.map((team, index) => (
-              <span className="rounded-md bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 ring-1 ring-line" key={team.key}>
-                {index + 1}. {team.name}
-              </span>
-            ))}
-          </div>
+      <section className="panel relative overflow-hidden p-2 sm:p-3">
+        <div className="pointer-events-none absolute inset-0 opacity-70">
+          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-amber-200/40 blur-2xl" />
+          <div className="absolute -bottom-16 left-8 h-28 w-28 rounded-full bg-emerald-200/50 blur-2xl" />
         </div>
-        {canEdit ? (
-          <button className="btn-secondary min-h-8 px-3 text-xs" onClick={tossOrder} type="button">
-            <Shuffle className="h-3.5 w-3.5" />
-            Toss order
-          </button>
-        ) : null}
+        <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-amber-500" />
+              <h2 className="text-sm font-semibold text-ink">Captain pick order</h2>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {pickOrderTeams.map((team, index) => (
+                <span
+                  className={cn(
+                    "rounded-md px-2 py-1 text-xs font-semibold ring-1 transition",
+                    isTossing
+                      ? "animate-pick-pulse bg-amber-50 text-amber-800 ring-amber-200"
+                      : tossResult
+                        ? tossOrderClass(index)
+                        : "bg-slate-50 text-slate-700 ring-line"
+                  )}
+                  key={team.key}
+                  style={{ animationDelay: `${index * 120}ms` }}
+                >
+                  {index + 1}. {team.name}
+                  {index === 0 && tossResult ? (
+                    <>
+                      <span className="mx-1.5 opacity-45">|</span>
+                      <span className="font-bold">picks first</span>
+                    </>
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          </div>
+          {canEdit ? (
+            <div className="flex items-center gap-2 sm:gap-3">
+              {isTossing ? <CoinToss /> : null}
+              <button
+                className={cn(
+                  "min-h-9 overflow-hidden px-3 text-xs",
+                  isTossing
+                    ? "btn-primary animate-toss-button"
+                    : "btn-secondary"
+                )}
+                disabled={isTossing}
+                onClick={tossOrder}
+                type="button"
+              >
+                <Shuffle className={cn("h-3.5 w-3.5", isTossing && "animate-spin")} />
+                {isTossing ? "Tossing..." : "Toss order"}
+              </button>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       <section
@@ -379,6 +442,19 @@ export function TeamBuilder({
   );
 }
 
+function CoinToss() {
+  return (
+    <div className="relative grid h-12 w-12 place-items-center sm:h-14 sm:w-14" aria-hidden="true">
+      <div className="absolute h-12 w-12 animate-toss-ring rounded-full border border-amber-300 sm:h-14 sm:w-14" />
+      <div className="animate-coin-toss rounded-full bg-gradient-to-br from-amber-200 via-yellow-400 to-amber-600 p-1 shadow-lg shadow-amber-500/30">
+        <div className="grid h-8 w-8 place-items-center rounded-full border border-amber-100 bg-gradient-to-br from-yellow-200 to-amber-500 text-xs font-black text-amber-950 sm:h-10 sm:w-10 sm:text-sm">
+          OU
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlayerChip({
   draggable = false,
   onDragStart,
@@ -427,6 +503,24 @@ function initialTeams(existingTeams: TeamBuilderTeam[], fallbackCount: number) {
     captainPlayerId: "",
     playerIds: []
   }));
+}
+
+function orderedTeamsForToss(teams: DraftTeam[], tossOrderKeys: string[] | null) {
+  if (!tossOrderKeys?.length) return teams;
+  const teamsByKey = new Map(teams.map((team) => [team.key, team]));
+  const ordered = tossOrderKeys
+    .map((key) => teamsByKey.get(key))
+    .filter((team): team is DraftTeam => Boolean(team));
+  const orderedKeys = new Set(ordered.map((team) => team.key));
+  const missing = teams.filter((team) => !orderedKeys.has(team.key));
+  return [...ordered, ...missing];
+}
+
+function tossOrderClass(index: number) {
+  if (index === 0) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (index === 1) return "bg-amber-50 text-amber-800 ring-amber-200";
+  if (index === 2) return "bg-rose-50 text-rose-800 ring-rose-200";
+  return "bg-slate-50 text-slate-700 ring-line";
 }
 
 function maxExistingTeamSize(teams: TeamBuilderTeam[]) {

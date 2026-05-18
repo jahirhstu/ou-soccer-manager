@@ -27,6 +27,72 @@ textarea {
   font: inherit;
 }
 
+@keyframes coin-toss {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) rotateX(0deg) rotateZ(-12deg) scale(0.86);
+  }
+  18% {
+    opacity: 1;
+  }
+  42% {
+    transform: translateY(-18px) rotateX(720deg) rotateZ(18deg) scale(1.08);
+  }
+  78% {
+    transform: translateY(4px) rotateX(1260deg) rotateZ(-8deg) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(1440deg) rotateZ(0deg) scale(1);
+  }
+}
+
+@keyframes toss-ring {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.62);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+
+@keyframes pick-pulse {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes toss-button {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(245, 158, 11, 0.42);
+  }
+}
+
+.animate-coin-toss {
+  animation: coin-toss 1.15s cubic-bezier(0.19, 1, 0.22, 1) infinite;
+  transform-style: preserve-3d;
+}
+
+.animate-toss-ring {
+  animation: toss-ring 0.9s ease-out infinite;
+}
+
+.animate-pick-pulse {
+  animation: pick-pulse 0.72s ease-in-out infinite;
+}
+
+.animate-toss-button {
+  animation: toss-button 0.9s ease-in-out infinite;
+}
+
 @layer components {
   .input {
     @apply min-h-10 rounded-md border border-line bg-white px-3 text-sm text-ink shadow-sm outline-none transition placeholder:text-slate-400 focus:border-pitch focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
