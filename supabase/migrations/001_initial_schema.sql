@@ -176,6 +176,22 @@ create table public.session_team_players (
   unique(session_id, player_id)
 );
 
+create table public.session_matches (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions(id) on delete cascade,
+  match_number integer not null,
+  team_a_id uuid not null references public.session_teams(id) on delete cascade,
+  team_b_id uuid not null references public.session_teams(id) on delete cascade,
+  team_a_score integer not null default 0,
+  team_b_score integer not null default 0,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  check (match_number > 0),
+  check (team_a_id <> team_b_id),
+  unique(session_id, match_number)
+);
+
 create table public.session_team_update_events (
   session_id uuid primary key references public.sessions(id) on delete cascade,
   version integer not null default 1,
@@ -245,6 +261,9 @@ create index session_teams_captain_player_id_idx on public.session_teams(captain
 create index session_team_players_session_id_idx on public.session_team_players(session_id);
 create index session_team_players_team_id_idx on public.session_team_players(session_team_id);
 create index session_team_players_player_id_idx on public.session_team_players(player_id);
+create index session_matches_session_id_idx on public.session_matches(session_id);
+create index session_matches_team_a_id_idx on public.session_matches(team_a_id);
+create index session_matches_team_b_id_idx on public.session_matches(team_b_id);
 create index session_team_update_events_updated_at_idx on public.session_team_update_events(updated_at);
 create index goals_session_id_idx on public.goals(session_id);
 create index goals_scorer_id_idx on public.goals(scorer_id);
@@ -259,6 +278,7 @@ create trigger playgrounds_updated_at before update on public.playgrounds for ea
 create trigger seasons_updated_at before update on public.seasons for each row execute function public.set_updated_at();
 create trigger sessions_updated_at before update on public.sessions for each row execute function public.set_updated_at();
 create trigger session_teams_updated_at before update on public.session_teams for each row execute function public.set_updated_at();
+create trigger session_matches_updated_at before update on public.session_matches for each row execute function public.set_updated_at();
 create trigger payments_updated_at before update on public.payments for each row execute function public.set_updated_at();
 create trigger attendance_updated_at before update on public.attendance for each row execute function public.set_updated_at();
 create trigger dropouts_updated_at before update on public.dropouts for each row execute function public.set_updated_at();
@@ -714,6 +734,7 @@ alter table public.ledger_entries enable row level security;
 alter table public.session_player_charges enable row level security;
 alter table public.session_teams enable row level security;
 alter table public.session_team_players enable row level security;
+alter table public.session_matches enable row level security;
 alter table public.session_team_update_events enable row level security;
 alter table public.goals enable row level security;
 alter table public.whatsapp_imports enable row level security;
@@ -764,6 +785,11 @@ create policy "session_team_players_select" on public.session_team_players for s
 create policy "session_team_players_admin_all" on public.session_team_players for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 create policy "session_team_players_captain_write" on public.session_team_players for insert with check (public.app_role() = 'captain');
 create policy "session_team_players_captain_update" on public.session_team_players for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
+
+create policy "session_matches_select" on public.session_matches for select using (auth.uid() is not null);
+create policy "session_matches_admin_all" on public.session_matches for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
+create policy "session_matches_captain_write" on public.session_matches for insert with check (public.app_role() = 'captain');
+create policy "session_matches_captain_update" on public.session_matches for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
 
 create policy "session_team_update_events_public_select" on public.session_team_update_events for select using (true);
 

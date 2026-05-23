@@ -82,14 +82,19 @@ Important rules:
 - Extract playground, field, venue, ground, or location into session.location.
 - Extract duration text into session.duration when exact start/end times are not present.
 - If teams are listed, extract each team with its optional teamName/team_name, captain, players, and score if present.
+- If mini-games are listed like "Game 1: Team A 2 - 1 Team B", extract them into matches. A session can contain multiple games.
 - For each goal, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the name before the dash/bracket and parse payment info beside that name.
+- Parenthesized words like "(Sent)", "(Pending)", "(Dropped)", "(Replaced)", or "(Balance will remain)" are status/payment notes, not part of the player name.
 - For season_signup, list roster players in players. Do not create attendance unless the message clearly describes one specific session.
 - For session_update, attendance should represent the selected session.
 - If a player paid the full season amount, sessionsCovered should equal totalSessions when known.
 - If a partial amount is paid and pricePerSession is known, sessionsCovered = amount / pricePerSession rounded to 2 decimals.
 - "left", "remaining", or "balance" means balanceOwed, not amount paid.
-- Drop-in/session-only payment with no sessions count should use sessionsCovered 1.
+- Only set payment.amount when an amount is written beside that specific player's name, such as "Jahir - Payment $30", "Jahir ($30 sent)", or "Mim - 70 paid". Set amountSource to "player_line" for those.
+- Do not copy general amounts from lines like "12$ for drop ins", "Please pay $12", "Cost per session $12", "Interac", or "Full season cost $192" into each player's payment.amount. Those are general context, not individual payments.
+- For "Sent" beside a player with no amount, set amount null, sessionsCovered 1, amountSource "inferred_session_price".
+- Drop-in/session-only payment with no sessions count should use sessionsCovered 1, but only use amount when it is beside the player name.
 - Mark uncertain extraction with confidence low or medium and add warnings.
 - Keep names human-clean, e.g. "Rocky bhai" -> "Rocky Bhai".
 - Return dates as YYYY-MM-DD. If a date has month/day but no year, use current year ${currentYear}.`;
@@ -113,12 +118,13 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     confidence: parsed.confidence ?? "medium",
     season: normalizeSeasonDates(parsed.season),
     session: normalizeSessionDate(parsed.session),
-    players: parsed.players ?? [],
+    players: normalizePlayers(parsed.players ?? []),
     payments: normalizePayments(parsed.payments ?? []),
-    attendance: parsed.attendance ?? [],
-    dropouts: parsed.dropouts ?? [],
+    attendance: normalizeAttendance(parsed.attendance ?? []),
+    dropouts: normalizeDropouts(parsed.dropouts ?? []),
     score: parsed.score,
     teams: normalizeTeams(parsed.teams ?? []),
+    matches: normalizeMatches(parsed.matches ?? []),
     goals: parsed.goals ?? [],
     warnings: parsed.warnings ?? []
   };
@@ -127,8 +133,49 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
 function normalizePayments(payments: ParsedWhatsAppImport["payments"]) {
   return payments.map((payment) => ({
     ...payment,
+    playerName: cleanImportedName(payment.playerName),
+    amountSource: normalizeAmountSource(payment),
     paymentMethod: payment.paymentMethod || "e-transfer"
   }));
+}
+
+function normalizePlayers(players: ParsedWhatsAppImport["players"]) {
+  return players.map((player) => ({ ...player, name: cleanImportedName(player.name) })).filter((player) => player.name);
+}
+
+function normalizeAttendance(rows: ParsedWhatsAppImport["attendance"]) {
+  return rows.map((row) => ({ ...row, playerName: cleanImportedName(row.playerName) })).filter((row) => row.playerName);
+}
+
+function normalizeDropouts(rows: ParsedWhatsAppImport["dropouts"]) {
+  return rows
+    .map((row) => ({
+      ...row,
+      originalPlayerName: cleanImportedName(row.originalPlayerName),
+      replacementPlayerName: row.replacementPlayerName ? cleanImportedName(row.replacementPlayerName) : undefined
+    }))
+    .filter((row) => row.originalPlayerName);
+}
+
+function cleanImportedName(name: string | null | undefined) {
+  return String(name ?? "")
+    .replace(/\((?:sent|pending|dropped|replaced|replacement|balance will remain)\)/gi, " ")
+    .replace(/\b(?:sent|pending|dropped|replaced|replacement|balance will remain)\b/gi, " ")
+    .replace(/[^\p{L}\p{M}\s.'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAmountSource(payment: ParsedWhatsAppImport["payments"][number]) {
+  if (payment.amount && payment.note && playerLineHasPaymentAmount(payment.note)) return "player_line";
+  if (/\bsent\b/i.test(payment.note ?? "")) return "inferred_session_price";
+  if (payment.amountSource) return payment.amountSource;
+  return payment.amount ? "general_context" : undefined;
+}
+
+function playerLineHasPaymentAmount(note: string) {
+  if (/\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(note)) return false;
+  return /\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.test(note);
 }
 
 function normalizeSeasonDates(season: ParsedWhatsAppImport["season"]) {
@@ -160,9 +207,32 @@ function normalizeTeams(teams: ParsedWhatsAppImport["teams"]) {
       ...team,
       name,
       teamName: team.teamName ?? name,
-      label: team.label ?? name
+      label: team.label ?? name,
+      captainName: team.captainName ? cleanImportedName(team.captainName) : undefined,
+      players: (team.players ?? []).map(cleanImportedName).filter(Boolean)
     };
   });
+}
+
+function normalizeMatches(matches: ParsedWhatsAppImport["matches"]) {
+  return matches
+    .map((match) => ({
+      ...match,
+      matchNumber: Number(match.matchNumber),
+      teamAName: String(match.teamAName ?? "").trim(),
+      teamBName: String(match.teamBName ?? "").trim(),
+      teamAScore: Number(match.teamAScore),
+      teamBScore: Number(match.teamBScore),
+      confidence: match.confidence ?? "medium"
+    }))
+    .filter((match) =>
+      Number.isFinite(match.matchNumber) &&
+      match.teamAName &&
+      match.teamBName &&
+      Number.isFinite(match.teamAScore) &&
+      Number.isFinite(match.teamBScore)
+    )
+    .sort((left, right) => left.matchNumber - right.matchNumber);
 }
 
 function stripNulls(value: unknown): unknown {
@@ -178,11 +248,12 @@ function stripNulls(value: unknown): unknown {
 const confidenceSchema = { type: "string", enum: ["low", "medium", "high"] };
 const nullableString = { type: ["string", "null"] };
 const nullableNumber = { type: ["number", "null"] };
+const nullableAmountSource = { type: ["string", "null"], enum: ["player_line", "inferred_session_price", "general_context", null] };
 
 const parsedWhatsAppImportJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "score", "teams", "goals", "warnings"],
+  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "score", "teams", "matches", "goals", "warnings"],
   properties: {
     rawText: { type: "string" },
     importType: { type: "string", enum: ["season_signup", "session_update"] },
@@ -243,7 +314,7 @@ const parsedWhatsAppImportJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["playerName", "matchedPlayerId", "amount", "sessionsCovered", "paymentMethod", "note", "balanceOwed", "confidence"],
+        required: ["playerName", "matchedPlayerId", "amount", "sessionsCovered", "paymentMethod", "note", "balanceOwed", "amountSource", "confidence"],
         properties: {
           playerName: { type: "string" },
           matchedPlayerId: nullableString,
@@ -252,6 +323,7 @@ const parsedWhatsAppImportJsonSchema = {
           paymentMethod: nullableString,
           note: nullableString,
           balanceOwed: nullableNumber,
+          amountSource: nullableAmountSource,
           confidence: confidenceSchema
         }
       }
@@ -324,6 +396,22 @@ const parsedWhatsAppImportJsonSchema = {
           captainName: nullableString,
           score: nullableNumber,
           players: { type: "array", items: { type: "string" } },
+          confidence: confidenceSchema
+        }
+      }
+    },
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["matchNumber", "teamAName", "teamBName", "teamAScore", "teamBScore", "confidence"],
+        properties: {
+          matchNumber: { type: "number" },
+          teamAName: { type: "string" },
+          teamBName: { type: "string" },
+          teamAScore: { type: "number" },
+          teamBScore: { type: "number" },
           confidence: confidenceSchema
         }
       }

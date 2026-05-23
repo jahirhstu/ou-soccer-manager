@@ -14,9 +14,12 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData) {
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
     const rawText = String(formData.get("rawText") ?? "");
     const parsed = await whatsappParser.parse(rawText);
+    sanitizeParsedNames(parsed);
     ensureSentPaymentsAreParsed(parsed);
+    ensureMatchTeamsAreParsedTeams(parsed);
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
+    sanitizeParsedNames(parsed);
     return { parsed };
   } catch (error) {
     return { error: friendlyImportError(error, "parse") };
@@ -33,13 +36,14 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       sessionId: formData.get("sessionId") || undefined
     });
     const parsed = JSON.parse(String(formData.get("parsedJson")));
+    sanitizeParsedNames(parsed);
     ensureSentPaymentsAreParsed(parsed);
     const matches = new Map<string, string>();
     const ignoredNames = new Set<string>();
     const updatePlayerNames = new Set<string>();
     for (const [key, value] of formData.entries()) {
       if (key.startsWith("match_") && value) {
-        const parsedName = key.replace("match_", "");
+        const parsedName = cleanImportedPlayerName(key.replace("match_", ""));
         if (value === "__ignore__") {
           ignoredNames.add(parsedName);
         } else {
@@ -47,12 +51,15 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         }
       }
       if (key.startsWith("update_name_") && value === "yes") {
-        updatePlayerNames.add(key.replace("update_name_", ""));
+        updatePlayerNames.add(cleanImportedPlayerName(key.replace("update_name_", "")));
       }
     }
     removeIgnoredRows(parsed, ignoredNames);
+    sanitizeParsedNames(parsed);
+    ensureMatchTeamsAreParsedTeams(parsed);
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
+    sanitizeParsedNames(parsed);
 
     const supabase = await createSupabaseServerClient();
     const targetSeasonId = await resolveTargetSeasonId({
@@ -114,6 +121,15 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         actorId: profile.id
       });
     }
+    if (targetSessionId && parsed.matches?.length) {
+      teamIds = await upsertSessionMatches({
+        supabase,
+        sessionId: targetSessionId,
+        matches: parsed.matches,
+        teamIds,
+        actorId: profile.id
+      });
+    }
 
     const { data: importRow, error } = await supabase
       .from("whatsapp_imports")
@@ -142,8 +158,13 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       if (!payment.matchedPlayerId || !targetSeasonId) continue;
       const parsedAmount = Number(payment.amount ?? 0);
       const parsedSessionsCovered = Number(payment.sessionsCovered ?? 0);
-      const explicitAmount = Number.isFinite(parsedAmount) && parsedAmount > 0;
-      const sentWithoutAmount = Boolean(parsed.importType === "session_update" && !explicitAmount && parsedSessionsCovered > 0);
+      const amountSource = normalizePaymentAmountSource(payment);
+      const explicitAmount = Boolean(Number.isFinite(parsedAmount) && parsedAmount > 0 && amountSource === "player_line");
+      const sentWithoutAmount = Boolean(
+        parsed.importType === "session_update" &&
+        !explicitAmount &&
+        (parsedSessionsCovered > 0 || /\bsent\b/i.test(String(payment.note ?? "")))
+      );
       if (sentWithoutAmount && sessionPrice != null && (creditBeforeSession.get(payment.matchedPlayerId) ?? 0) >= sessionPrice) {
         await supabase.from("audit_logs").insert({
           actor_id: profile.id,
@@ -189,6 +210,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         playerId: payment.matchedPlayerId,
         amount: paymentAmount,
         sessionsCovered,
+        amountSource,
         paymentMethod: payment.paymentMethod || "e-transfer",
         note: payment.note,
         importId: importRow?.id,
@@ -264,7 +286,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
 
     for (const dropout of parsed.dropouts ?? []) {
       if (!dropout.matchedOriginalPlayerId || !targetSessionId) continue;
-      await supabase.from("dropouts").insert({
+      const { error: dropoutError } = await supabase.from("dropouts").insert({
         session_id: targetSessionId,
         original_player_id: dropout.matchedOriginalPlayerId,
         replacement_player_id: dropout.matchedReplacementPlayerId,
@@ -272,6 +294,16 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         notes: dropout.note,
         created_by: profile.id
       });
+      if (dropoutError) throw new Error(dropoutError.message);
+      if (dropout.matchedReplacementPlayerId) {
+        await syncReplacementTeamAssignment({
+          supabase,
+          sessionId: targetSessionId,
+          originalPlayerId: dropout.matchedOriginalPlayerId,
+          replacementPlayerId: dropout.matchedReplacementPlayerId,
+          actorId: profile.id
+        });
+      }
     }
 
     if (parsed.importType === "session_update" && targetSessionId) {
@@ -288,7 +320,10 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     revalidatePath("/reports/attendance");
     revalidatePath("/seasons");
     revalidatePath("/sessions");
-    if (targetSessionId) revalidatePath(`/sessions/${targetSessionId}`);
+    if (targetSessionId) {
+      revalidatePath(`/sessions/${targetSessionId}`);
+      revalidatePath(`/public/sessions/${targetSessionId}/teams`);
+    }
     return { success: true, message: "WhatsApp import confirmed successfully." };
   } catch (error) {
     return { error: friendlyImportError(error, "confirm") };
@@ -531,6 +566,7 @@ async function importPaymentOnce({
   playerId,
   amount,
   sessionsCovered,
+  amountSource,
   paymentMethod,
   note,
   importId,
@@ -542,22 +578,41 @@ async function importPaymentOnce({
   playerId: string;
   amount: number;
   sessionsCovered: number | null;
+  amountSource?: "player_line" | "inferred_session_price" | "general_context";
   paymentMethod?: string;
   note?: string;
   importId?: string;
   actorId: string;
 }) {
   if (sessionId) {
-    const { data: existingLedger, error: existingLedgerError } = await supabase
+    const { data: existingLedgers, error: existingLedgerError } = await supabase
       .from("ledger_entries")
-      .select("id")
+      .select("id,amount,sessions_count")
       .eq("season_id", seasonId)
       .eq("session_id", sessionId)
       .eq("player_id", playerId)
-      .eq("type", "payment_received")
-      .maybeSingle();
+      .eq("type", "payment_received");
     if (existingLedgerError) throw new Error(existingLedgerError.message);
-    if (existingLedger) return null;
+    const alreadyImported = (existingLedgers ?? []).some((entry) => {
+      if (amountSource !== "player_line") return true;
+      return sameMoney(entry.amount, amount) && sameSessions(entry.sessions_count, sessionsCovered);
+    });
+    if (alreadyImported) return null;
+  } else {
+    const { data: existingPayments, error: existingPaymentError } = await supabase
+      .from("payments")
+      .select("id,amount,sessions_covered,reference_note")
+      .eq("season_id", seasonId)
+      .eq("player_id", playerId)
+      .eq("amount", amount);
+    if (existingPaymentError) throw new Error(existingPaymentError.message);
+    const noteFingerprint = paymentNoteFingerprint(note);
+    const alreadyImported = (existingPayments ?? []).some((payment) => {
+      if (!sameMoney(payment.amount, amount) || !sameSessions(payment.sessions_covered, sessionsCovered)) return false;
+      const existingFingerprint = paymentNoteFingerprint(payment.reference_note);
+      return !noteFingerprint || existingFingerprint === noteFingerprint;
+    });
+    if (alreadyImported) return null;
   }
 
   const { data: paymentRow, error: paymentError } = await supabase
@@ -721,6 +776,39 @@ function sessionsCoveredFromAmount(amount: number, sessionPrice: number | null) 
   return Number((amount / sessionPrice).toFixed(2));
 }
 
+function normalizePaymentAmountSource(payment: any): "player_line" | "inferred_session_price" | "general_context" | undefined {
+  const amount = Number(payment.amount ?? 0);
+  const note = String(payment.note ?? "");
+  if (Number.isFinite(amount) && amount > 0 && playerLineHasPaymentAmount(note)) return "player_line";
+  if (Number.isFinite(amount) && amount > 0 && payment.amountSource === "player_line" && !note) return "player_line";
+  if (/\bsent\b/i.test(note)) return "inferred_session_price";
+  if (payment.amountSource === "inferred_session_price") return "inferred_session_price";
+  if (Number.isFinite(amount) && amount > 0) return "general_context";
+  return payment.amountSource;
+}
+
+function playerLineHasPaymentAmount(note: string) {
+  if (!note) return false;
+  if (/\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(note)) return false;
+  return /\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.test(note);
+}
+
+function sameMoney(left: unknown, right: unknown) {
+  return Math.abs(Number(left ?? 0) - Number(right ?? 0)) < 0.01;
+}
+
+function sameSessions(left: unknown, right: unknown) {
+  return Math.abs(Number(left ?? 0) - Number(right ?? 0)) < 0.01;
+}
+
+function paymentNoteFingerprint(note: unknown) {
+  return String(note ?? "")
+    .replace(/WhatsApp import [0-9a-f-]+:/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function removeIgnoredRows(parsed: any, ignoredNames: Set<string>) {
   if (!ignoredNames.size) return;
 
@@ -749,6 +837,91 @@ function removeIgnoredRows(parsed: any, ignoredNames: Set<string>) {
   ];
 }
 
+function sanitizeParsedNames(parsed: any) {
+  parsed.players = dedupeByName(
+    (parsed.players ?? [])
+      .map((player: any) => ({ ...player, name: cleanImportedPlayerName(player.name) }))
+      .filter((player: any) => player.name),
+    "name"
+  );
+  parsed.payments = dedupeByName(
+    (parsed.payments ?? [])
+      .map((payment: any) => ({ ...payment, playerName: cleanImportedPlayerName(payment.playerName) }))
+      .filter((payment: any) => payment.playerName),
+    "playerName"
+  );
+  parsed.attendance = dedupeAttendanceRows(
+    (parsed.attendance ?? [])
+      .map((row: any) => ({ ...row, playerName: cleanImportedPlayerName(row.playerName) }))
+      .filter((row: any) => row.playerName)
+  );
+  parsed.dropouts = (parsed.dropouts ?? [])
+    .map((dropout: any) => ({
+      ...dropout,
+      originalPlayerName: cleanImportedPlayerName(dropout.originalPlayerName),
+      replacementPlayerName: dropout.replacementPlayerName ? cleanImportedPlayerName(dropout.replacementPlayerName) : undefined
+    }))
+    .filter((dropout: any) => dropout.originalPlayerName);
+  parsed.goals = (parsed.goals ?? [])
+    .map((goal: any) => ({
+      ...goal,
+      scorerName: cleanImportedPlayerName(goal.scorerName),
+      assistName: goal.assistName ? cleanImportedPlayerName(goal.assistName) : undefined
+    }))
+    .filter((goal: any) => goal.scorerName);
+  parsed.teams = (parsed.teams ?? []).map((team: any) => ({
+    ...team,
+    captainName: team.captainName ? cleanImportedPlayerName(team.captainName) : undefined,
+    players: (team.players ?? []).map(cleanImportedPlayerName).filter(Boolean)
+  }));
+  parsed.matches = (parsed.matches ?? [])
+    .map((match: any) => ({
+      ...match,
+      matchNumber: Number(match.matchNumber),
+      teamAName: String(match.teamAName ?? "").trim(),
+      teamBName: String(match.teamBName ?? "").trim(),
+      teamAScore: Number(match.teamAScore),
+      teamBScore: Number(match.teamBScore)
+    }))
+    .filter((match: any) =>
+      Number.isFinite(match.matchNumber) &&
+      match.teamAName &&
+      match.teamBName &&
+      Number.isFinite(match.teamAScore) &&
+      Number.isFinite(match.teamBScore)
+    );
+}
+
+function cleanImportedPlayerName(name: string | null | undefined) {
+  return normalizePlayerName(
+    String(name ?? "")
+      .replace(/\((?:sent|pending|dropped|replaced|replacement|balance will remain)\)/gi, " ")
+      .replace(/\b(?:sent|pending|dropped|replaced|replacement|balance will remain)\b/gi, " ")
+      .replace(/[^\p{L}\p{M}\s.'-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+function dedupeByName<T extends Record<string, any>>(rows: T[], key: keyof T) {
+  const deduped = new Map<string, T>();
+  for (const row of rows) {
+    const normalized = normalizeNameKey(String(row[key] ?? ""));
+    if (!normalized || deduped.has(normalized)) continue;
+    deduped.set(normalized, row);
+  }
+  return Array.from(deduped.values());
+}
+
+function dedupeAttendanceRows(rows: any[]) {
+  const deduped = new Map<string, any>();
+  for (const row of rows) {
+    const key = `${normalizeNameKey(row.playerName)}:${row.status}`;
+    if (!deduped.has(key)) deduped.set(key, row);
+  }
+  return Array.from(deduped.values());
+}
+
 function ensureSentPaymentsAreParsed(parsed: any) {
   if (parsed.importType !== "session_update" || !parsed.rawText) return;
 
@@ -770,6 +943,7 @@ function ensureSentPaymentsAreParsed(parsed: any) {
     parsed.payments.push({
       playerName: name,
       sessionsCovered: 1,
+      amountSource: "inferred_session_price",
       paymentMethod: "e-transfer",
       note: line.trim(),
       confidence: "high"
@@ -826,8 +1000,21 @@ function ensureTeamPlayersAreAttendance(parsed: any) {
   }
 }
 
+function ensureMatchTeamsAreParsedTeams(parsed: any) {
+  const existing = new Set((parsed.teams ?? []).map((team: any) => normalizeNameKey(getTeamName(team))));
+  for (const match of parsed.matches ?? []) {
+    for (const teamName of [match.teamAName, match.teamBName]) {
+      const key = normalizeNameKey(teamName);
+      if (!key || existing.has(key)) continue;
+      parsed.teams ??= [];
+      parsed.teams.push({ name: teamName, label: teamName, players: [], confidence: match.confidence ?? "medium" });
+      existing.add(key);
+    }
+  }
+}
+
 function hasSessionRows(parsed: any) {
-  return Boolean(parsed.attendance?.length || parsed.goals?.length || parsed.dropouts?.length || parsed.score);
+  return Boolean(parsed.attendance?.length || parsed.goals?.length || parsed.dropouts?.length || parsed.score || parsed.matches?.length);
 }
 
 async function resolveImportedPlayers({
@@ -1017,6 +1204,103 @@ async function upsertSessionTeams({
   }
 
   return teamIds;
+}
+
+async function upsertSessionMatches({
+  supabase,
+  sessionId,
+  matches,
+  teamIds,
+  actorId
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  sessionId: string;
+  matches: Array<{ matchNumber: number; teamAName: string; teamBName: string; teamAScore: number; teamBScore: number }>;
+  teamIds: Map<string, string>;
+  actorId: string;
+}) {
+  for (const match of matches) {
+    const teamAId = await findOrCreateSessionTeam(supabase, sessionId, match.teamAName, teamIds, actorId);
+    const teamBId = await findOrCreateSessionTeam(supabase, sessionId, match.teamBName, teamIds, actorId);
+    if (!teamAId || !teamBId || teamAId === teamBId) continue;
+    const { error } = await supabase.from("session_matches").upsert(
+      {
+        session_id: sessionId,
+        match_number: match.matchNumber,
+        team_a_id: teamAId,
+        team_b_id: teamBId,
+        team_a_score: match.teamAScore,
+        team_b_score: match.teamBScore,
+        created_by: actorId
+      },
+      { onConflict: "session_id,match_number" }
+    );
+    if (error) throw new Error(error.message);
+  }
+  return teamIds;
+}
+
+async function findOrCreateSessionTeam(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  sessionId: string,
+  rawName: string,
+  teamIds: Map<string, string>,
+  actorId: string
+) {
+  const name = rawName.trim();
+  if (!name) return undefined;
+  const key = normalizeNameKey(name);
+  const existingId = teamIds.get(key);
+  if (existingId) return existingId;
+  const { data, error } = await supabase
+    .from("session_teams")
+    .upsert({ session_id: sessionId, name, label: name, created_by: actorId }, { onConflict: "session_id,name" })
+    .select("id,name")
+    .single();
+  if (error) throw new Error(error.message);
+  teamIds.set(normalizeNameKey(data.name), data.id);
+  return data.id;
+}
+
+async function syncReplacementTeamAssignment({
+  supabase,
+  sessionId,
+  originalPlayerId,
+  replacementPlayerId,
+  actorId
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  sessionId: string;
+  originalPlayerId: string;
+  replacementPlayerId: string;
+  actorId: string;
+}) {
+  const { data: originalAssignment, error } = await supabase
+    .from("session_team_players")
+    .select("session_team_id")
+    .eq("session_id", sessionId)
+    .eq("player_id", originalPlayerId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!originalAssignment?.session_team_id) return;
+
+  const { error: deleteError } = await supabase
+    .from("session_team_players")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("player_id", originalPlayerId);
+  if (deleteError) throw new Error(deleteError.message);
+
+  const { error: upsertError } = await supabase.from("session_team_players").upsert(
+    {
+      session_team_id: originalAssignment.session_team_id,
+      session_id: sessionId,
+      player_id: replacementPlayerId,
+      created_by: actorId
+    },
+    { onConflict: "session_id,player_id" }
+  );
+  if (upsertError) throw new Error(upsertError.message);
 }
 
 function getTeamName(team: { name?: string; teamName?: string; team_name?: string; label?: string }) {

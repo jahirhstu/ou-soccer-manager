@@ -110,6 +110,7 @@ export type ParsedWhatsAppImport = {
     paymentMethod?: string;
     note?: string;
     balanceOwed?: number;
+    amountSource?: "player_line" | "inferred_session_price" | "general_context";
     confidence: Confidence;
   }>;
   attendance: Array<{
@@ -134,6 +135,14 @@ export type ParsedWhatsAppImport = {
     captainName?: string;
     score?: number;
     players: string[];
+    confidence: Confidence;
+  }>;
+  matches: Array<{
+    matchNumber: number;
+    teamAName: string;
+    teamBName: string;
+    teamAScore: number;
+    teamBScore: number;
     confidence: Confidence;
   }>;
   goals: Array<{

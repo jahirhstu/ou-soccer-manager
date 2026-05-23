@@ -4,7 +4,6 @@ import {
   detectPaymentIntent,
   detectReplacementIntent,
   normalizePlayerName,
-  parseCurrencyAmount,
   parseSessionDate
 } from "../utils";
 import type { WhatsAppParser } from "./types";
@@ -19,8 +18,11 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
     const attendance: ParsedWhatsAppImport["attendance"] = [];
     const dropouts: ParsedWhatsAppImport["dropouts"] = [];
     const teams: ParsedWhatsAppImport["teams"] = [];
+    const matches: ParsedWhatsAppImport["matches"] = [];
     const goals: ParsedWhatsAppImport["goals"] = [];
     const warnings: string[] = [];
+    const unpairedDropoutIndexes: number[] = [];
+    let pendingMatchNumber: number | undefined;
     let score: ParsedWhatsAppImport["score"];
     let date: string | undefined;
     const seasonInfo = extractSeasonInfo(lines);
@@ -33,7 +35,25 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       if (rosterRow) {
         players.set(rosterRow.player.name, rosterRow.player);
         if (!isSeasonSignup) {
-          attendance.push({ playerName: rosterRow.player.name, status: "confirmed", confidence: "medium" });
+          attendance.push({ playerName: rosterRow.player.name, status: rosterRow.attendanceStatus, confidence: "medium" });
+          if (rosterRow.attendanceStatus === "dropped") {
+            dropouts.push({
+              originalPlayerName: rosterRow.player.name,
+              transferType: "manual_adjustment",
+              note: rosterRow.note,
+              confidence: "medium"
+            });
+            unpairedDropoutIndexes.push(dropouts.length - 1);
+          }
+          if (rosterRow.attendanceStatus === "replacement" && unpairedDropoutIndexes.length) {
+            const dropoutIndex = unpairedDropoutIndexes.shift();
+            if (dropoutIndex != null && dropouts[dropoutIndex]) {
+              dropouts[dropoutIndex] = {
+                ...dropouts[dropoutIndex],
+                replacementPlayerName: rosterRow.player.name
+              };
+            }
+          }
         }
         if (rosterRow.payment) payments.push(rosterRow.payment);
         if (rosterRow.warning) warnings.push(rosterRow.warning);
@@ -41,6 +61,18 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       }
 
       if (isGenericSeasonInfoLine(line)) continue;
+
+      const matchHeader = line.match(/^game\s*(\d{1,2})\s*:?\s*$/i);
+      if (matchHeader) {
+        pendingMatchNumber = Number(matchHeader[1]);
+        continue;
+      }
+      const miniGame = parseMiniGameLine(line, pendingMatchNumber);
+      if (miniGame) {
+        matches.push(miniGame);
+        pendingMatchNumber = undefined;
+        continue;
+      }
 
       const lineNames = extractNames(line);
       const teamRow = parseTeamLine(line);
@@ -60,13 +92,14 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
 
       if (detectPaymentIntent(line)) {
         const playerName = lineNames[0];
-        const amount = parseCurrencyAmount(line);
+        const amount = parsePlayerLinePaymentAmount(line);
         const sessionsCovered = parseSessionsCovered(line) ?? (isSessionOnlyPayment(line) || detectSentWithoutAmount(line, amount) ? 1 : undefined);
         if (playerName) {
           payments.push({
             playerName,
             amount,
             sessionsCovered,
+            amountSource: amount ? "player_line" : detectSentWithoutAmount(line, amount) ? "inferred_session_price" : undefined,
             paymentMethod: detectMethod(line),
             note: line,
             confidence: amount ? "high" : "medium"
@@ -152,10 +185,32 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       dropouts,
       score,
       teams,
+      matches: dedupeMatches(matches),
       goals,
       warnings
     };
   }
+}
+
+function parseMiniGameLine(line: string, pendingMatchNumber?: number): ParsedWhatsAppImport["matches"][number] | null {
+  const oneLine = line.match(/^game\s*(\d{1,2})\s*:\s*(.+)$/i);
+  const matchNumber = oneLine ? Number(oneLine[1]) : pendingMatchNumber;
+  const body = (oneLine ? oneLine[2] : line).trim();
+  if (!matchNumber) return null;
+  const scoreMatch = body.match(/^(.+?)\s+(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s+(.+)$/i);
+  if (!scoreMatch) return null;
+  return {
+    matchNumber,
+    teamAName: normalizeTeamName(scoreMatch[1]),
+    teamAScore: Number(scoreMatch[2]),
+    teamBScore: Number(scoreMatch[3]),
+    teamBName: normalizeTeamName(scoreMatch[4]),
+    confidence: "high"
+  };
+}
+
+function normalizeTeamName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 function parseTeamLine(line: string): ParsedWhatsAppImport["teams"][number] | null {
@@ -237,36 +292,49 @@ function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo) {
   if (!match) return null;
 
   const body = match[1].replace(/^[^\p{L}\p{N}$]+/u, "").trim();
-  const nameMatch = body.match(/^(.+?)(?:\s*[-–]\s*|\s*\[|$)/u);
+  const nameMatch = body.match(/^(.+?)(?:\s*[-–]\s*|\s*[\[(]|$)/u);
   const rawName = nameMatch?.[1]?.replace(/[^\p{L}\p{M}\s.'-]/gu, " ").replace(/\s+/g, " ").trim();
   if (!rawName || /\b(paid|left|cad|available|after|session)\b/i.test(rawName)) return null;
 
   const name = normalizePlayerName(rawName);
   const amount = parsePaidAmount(body);
   const balanceLeft = parseBalanceLeft(body);
+  const sentWithoutAmount = !amount && /\bsent\b/i.test(body);
   const sessionsCovered =
     amount && seasonInfo.fullSeasonCost && seasonInfo.totalSessions && Math.abs(amount - seasonInfo.fullSeasonCost) < 0.01
       ? seasonInfo.totalSessions
       : amount && seasonInfo.pricePerSession
         ? Number((amount / seasonInfo.pricePerSession).toFixed(2))
-        : undefined;
+        : sentWithoutAmount
+          ? 1
+          : undefined;
   const note = body.replace(rawName, "").trim();
 
   return {
     player: { name, confidence: "high" as const },
-    payment: amount
+    attendanceStatus: rosterAttendanceStatus(body),
+    note,
+    payment: amount || sentWithoutAmount
       ? {
           playerName: name,
           amount,
           sessionsCovered,
+          amountSource: amount ? "player_line" as const : "inferred_session_price" as const,
           paymentMethod: "e-transfer",
           note: note || body,
           balanceOwed: balanceLeft,
-          confidence: "high" as const
+          confidence: amount ? "high" as const : "medium" as const
         }
       : undefined,
     warning: balanceLeft ? `${name} has ${balanceLeft} CAD marked as left/remaining balance.` : undefined
   };
+}
+
+function rosterAttendanceStatus(body: string): ParsedWhatsAppImport["attendance"][number]["status"] {
+  if (/\b(?:dropped|drop|out|balance will remain)\b/i.test(body)) return "dropped";
+  if (/\b(?:replaced|replacement)\b/i.test(body)) return "replacement";
+  if (/\bpending\b/i.test(body)) return "waitlisted";
+  return "confirmed";
 }
 
 function buildSeasonDraft(seasonInfo: SeasonInfo): ParsedWhatsAppImport["season"] {
@@ -296,8 +364,18 @@ function buildSessionDraft(date: string | undefined, seasonInfo: SeasonInfo): Pa
 }
 
 function parsePaidAmount(line: string) {
-  const match = line.match(/\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?paid\b/i);
-  return match ? Number(match[1]) : undefined;
+  const match = line.match(/\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i);
+  return match ? Number(match[1] ?? match[2]) : undefined;
+}
+
+function parsePlayerLinePaymentAmount(line: string) {
+  if (isGeneralPaymentContextLine(line)) return undefined;
+  const match = line.match(/\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i);
+  return match ? Number(match[1] ?? match[2]) : undefined;
+}
+
+function isGeneralPaymentContextLine(line: string) {
+  return /\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(line);
 }
 
 function parseBalanceLeft(line: string) {
@@ -358,4 +436,10 @@ function dedupeAttendance(rows: ParsedWhatsAppImport["attendance"]) {
   const byPlayer = new Map<string, ParsedWhatsAppImport["attendance"][number]>();
   rows.forEach((row) => byPlayer.set(`${row.playerName}:${row.status}`, row));
   return Array.from(byPlayer.values());
+}
+
+function dedupeMatches(rows: ParsedWhatsAppImport["matches"]) {
+  const byNumber = new Map<number, ParsedWhatsAppImport["matches"][number]>();
+  rows.forEach((row) => byNumber.set(row.matchNumber, row));
+  return Array.from(byNumber.values()).sort((left, right) => left.matchNumber - right.matchNumber);
 }

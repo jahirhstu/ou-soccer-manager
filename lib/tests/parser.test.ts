@@ -41,6 +41,86 @@ describe("RuleBasedWhatsAppParser", () => {
     expect(result.payments[0].paymentMethod).toBe("e-transfer");
   });
 
+  it("does not treat a general drop-in amount as each sent player's explicit payment", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, May 20th
+      12$ for drop ins
+      1. Imon (Sent)
+      2. Zayan (Sent)
+    `);
+
+    expect(result.payments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Imon", amount: undefined, sessionsCovered: 1, amountSource: "inferred_session_price" }),
+        expect.objectContaining({ playerName: "Zayan", amount: undefined, sessionsCovered: 1, amountSource: "inferred_session_price" })
+      ])
+    );
+  });
+
+  it("marks an amount beside a player as a player-line payment", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Game May 27
+      Jahir - Payment $30
+      Mim - $70 paid
+    `);
+
+    expect(result.payments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Jahir", amount: 30, amountSource: "player_line" }),
+        expect.objectContaining({ playerName: "Mim", amount: 70, amountSource: "player_line" })
+      ])
+    );
+  });
+
+  it("keeps parenthesized status out of numbered roster player names", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, May 20th
+      25. Morshed (Replaced) (Sent)
+    `);
+
+    expect(result.players).toEqual([expect.objectContaining({ name: "Morshed" })]);
+    expect(result.payments).toEqual([
+      expect.objectContaining({ playerName: "Morshed", amountSource: "inferred_session_price" })
+    ]);
+  });
+
+  it("pairs a replaced player with the previous dropped roster player", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, May 20th
+      8. Mim (Dropped) (Balance will remain)
+      25. Morshed (Replaced) (Sent)
+    `);
+
+    expect(result.attendance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Mim", status: "dropped" }),
+        expect.objectContaining({ playerName: "Morshed", status: "replacement" })
+      ])
+    );
+    expect(result.dropouts).toEqual([
+      expect.objectContaining({ originalPlayerName: "Mim", replacementPlayerName: "Morshed" })
+    ]);
+  });
+
+  it("extracts mini-game match scores", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: May 27
+      Game 1: Matha Gorom 2 - 1 Thanda Matha
+      Game 2:
+      Thanda Matha 1 - 0 Agun
+    `);
+
+    expect(result.matches).toEqual([
+      expect.objectContaining({ matchNumber: 1, teamAName: "Matha Gorom", teamAScore: 2, teamBScore: 1, teamBName: "Thanda Matha" }),
+      expect.objectContaining({ matchNumber: 2, teamAName: "Thanda Matha", teamAScore: 1, teamBScore: 0, teamBName: "Agun" })
+    ]);
+  });
+
   it("extracts numbered season signup rows with inline payments", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`

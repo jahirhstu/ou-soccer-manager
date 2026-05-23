@@ -25,6 +25,7 @@ const nav = [
   { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { href: "/import-whatsapp", label: "WhatsApp", icon: MessageSquareText },
   { href: "/reports/payments", label: "Payments report", icon: BarChart3 },
+  { href: "/reports/leaderboards", label: "Leaderboards", icon: Trophy },
   { href: "/reports/playground-stats", label: "Field stats", icon: Trophy },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
