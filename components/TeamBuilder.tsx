@@ -247,14 +247,14 @@ export function TeamBuilder({
           <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-amber-200/40 blur-2xl" />
           <div className="absolute -bottom-16 left-8 h-28 w-28 rounded-full bg-emerald-200/50 blur-2xl" />
         </div>
-        <div className="relative grid gap-4 lg:grid-cols-[260px_1fr_auto] lg:items-center">
-          <RouletteWheel isSpinning={isTossing} rotation={rouletteRotation} teams={teams} />
+        <div className="relative grid justify-items-center gap-4 text-center">
+          <RouletteWheel isSpinning={isTossing} playersById={playersById} rotation={rouletteRotation} teams={pickOrderTeams} />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center gap-2">
               <Trophy className="h-4 w-4 text-amber-500" />
               <h2 className="text-sm font-semibold text-ink">Captain pick roulette</h2>
             </div>
-            <div className="mt-1 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
               {pickOrderTeams.map((team, index) => (
                 <span
                   className={cn(
@@ -281,7 +281,7 @@ export function TeamBuilder({
             {tossResult ? <p className="mt-2 text-xs font-semibold text-emerald-800">{tossResult}</p> : null}
           </div>
           {canEdit ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center gap-2">
               <button
                 className={cn(
                   "min-h-9 overflow-hidden px-3 text-xs",
@@ -461,26 +461,37 @@ export function TeamBuilder({
   );
 }
 
-function RouletteWheel({ isSpinning, rotation, teams }: { isSpinning: boolean; rotation: number; teams: DraftTeam[] }) {
+function RouletteWheel({
+  isSpinning,
+  playersById,
+  rotation,
+  teams
+}: {
+  isSpinning: boolean;
+  playersById: Map<string, TeamBuilderPlayer>;
+  rotation: number;
+  teams: DraftTeam[];
+}) {
   const gradient = rouletteGradient(teams.length);
   const segment = 360 / Math.max(teams.length, 1);
   return (
     <div className="relative mx-auto grid h-56 w-56 place-items-center">
-      <div className="absolute -right-2 top-1/2 z-10 h-0 w-0 -translate-y-1/2 border-y-[10px] border-r-[18px] border-y-transparent border-r-amber-500 drop-shadow" />
       <div
         className={cn("relative h-52 w-52 rounded-full border-4 border-white shadow-lg ring-4 ring-emerald-100 transition-transform duration-700 ease-out", isSpinning && "animate-roulette-spin")}
         style={{ background: gradient, transform: `rotate(${rotation}deg)` }}
       >
         {teams.map((team, index) => {
           const angle = index * segment + segment / 2;
+          const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
           return (
             <span
-              className="absolute left-1/2 top-1/2 w-20 origin-left -translate-y-1/2 truncate text-center text-[11px] font-black uppercase text-white drop-shadow"
+              className="absolute left-1/2 top-1/2 grid w-24 origin-left -translate-y-1/2 place-items-center text-center text-[10px] font-black uppercase leading-tight text-white drop-shadow"
               key={team.key}
-              style={{ transform: `rotate(${angle}deg) translateX(28px) rotate(90deg)` }}
+              style={{ transform: `rotate(${angle}deg) translateX(26px) rotate(90deg)` }}
               title={team.name}
             >
-              {team.name}
+              <span className="max-w-20 truncate">{team.name}</span>
+              {captain ? <span className="max-w-20 truncate text-[9px] font-semibold normal-case opacity-90">{captain.name}</span> : null}
             </span>
           );
         })}
@@ -493,7 +504,7 @@ function RouletteWheel({ isSpinning, rotation, teams }: { isSpinning: boolean; r
 }
 
 function rouletteGradient(count: number) {
-  const colors = ["#059669", "#f59e0b", "#e11d48", "#2563eb"];
+  const colors = ["#059669", "#f59e0b", "#e11d48", "#64748b"];
   const segment = 360 / Math.max(count, 1);
   return `conic-gradient(${Array.from({ length: Math.max(count, 1) }, (_, index) => {
     const start = index * segment;

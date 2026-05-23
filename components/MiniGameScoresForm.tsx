@@ -95,42 +95,56 @@ export function MiniGameScoresForm({
     <form action={action} className="grid gap-4">
       <input name="sessionId" type="hidden" value={sessionId} />
       <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Add each mini-game score, then attach scorer and optional assist details for that game.</p>
-        <button className="btn-secondary" onClick={addGame} type="button">
+      <div className="panel flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
+        <p className="max-w-2xl text-sm text-slate-500">Add each mini-game score, then attach scorer and optional assist details for that game.</p>
+        <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" onClick={addGame} type="button">
           <Plus className="h-4 w-4" />
           Add game
         </button>
       </div>
-      <div className="grid gap-4">
+      <div className="grid gap-3 xl:grid-cols-2">
         {games.map((game) => {
           const selectablePlayers = uniquePlayers([
             ...(playersByTeam.get(game.teamAId) ?? []),
             ...(playersByTeam.get(game.teamBId) ?? [])
           ]);
           return (
-            <section className="panel grid gap-4 p-4" key={game.key}>
-              <div className="grid gap-3 md:grid-cols-[110px_1fr_90px_1fr_90px_auto] md:items-end">
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Game
-                  <input className="input" min="1" onChange={(event) => updateGame(game.key, { matchNumber: Number(event.target.value) })} type="number" value={game.matchNumber} />
-                </label>
-                <TeamSelect label="Team A" onChange={(value) => updateGame(game.key, { teamAId: value })} teams={teams} value={game.teamAId} />
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Score
-                  <input className="input" min="0" onChange={(event) => updateGame(game.key, { teamAScore: Number(event.target.value) })} type="number" value={game.teamAScore} />
-                </label>
-                <TeamSelect label="Team B" onChange={(value) => updateGame(game.key, { teamBId: value })} teams={teams} value={game.teamBId} />
-                <label className="grid gap-1 text-sm font-medium text-slate-700">
-                  Score
-                  <input className="input" min="0" onChange={(event) => updateGame(game.key, { teamBScore: Number(event.target.value) })} type="number" value={game.teamBScore} />
-                </label>
-                <button className="btn-secondary md:mb-0" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
+            <section className="panel overflow-hidden" key={game.key}>
+              <div className="flex items-center justify-between gap-3 border-b border-line bg-slate-50 px-3 py-2.5 sm:px-4">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">{game.matchNumber}</span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-ink">Mini-game {game.matchNumber}</h2>
+                    <p className="text-xs text-slate-500">Score and goal events</p>
+                  </div>
+                </div>
+                <button className="btn-secondary min-h-8 px-2" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
+              <div className="grid gap-3 p-3 sm:p-4">
+                <div className="grid gap-2 sm:grid-cols-[88px_1fr_72px] sm:items-end">
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Game
+                    <input className="input min-h-9 px-2 text-sm" min="1" onChange={(event) => updateGame(game.key, { matchNumber: Number(event.target.value) })} type="number" value={game.matchNumber} />
+                  </label>
+                  <TeamSelect label="Team A" onChange={(value) => updateGame(game.key, { teamAId: value })} teams={teams} value={game.teamAId} />
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Score
+                    <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="0" onChange={(event) => updateGame(game.key, { teamAScore: Number(event.target.value) })} type="number" value={game.teamAScore} />
+                  </label>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[88px_1fr_72px] sm:items-end">
+                  <div className="hidden sm:block" />
+                  <TeamSelect label="Team B" onChange={(value) => updateGame(game.key, { teamBId: value })} teams={teams} value={game.teamBId} />
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  Score
+                    <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="0" onChange={(event) => updateGame(game.key, { teamBScore: Number(event.target.value) })} type="number" value={game.teamBScore} />
+                  </label>
+                </div>
+              </div>
 
-              <div className="grid gap-2">
+              <div className="grid gap-2 border-t border-line bg-white p-3 sm:p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-ink">Goals and assists</h3>
                   <button
@@ -150,7 +164,7 @@ export function MiniGameScoresForm({
                   </button>
                 </div>
                 {game.goals.map((goal) => (
-                  <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2 md:grid-cols-[1fr_1fr_1fr_90px_auto]" key={goal.key}>
+                  <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_70px_auto]" key={goal.key}>
                     <TeamSelect compact label="Scoring team" onChange={(value) => updateGoal(game.key, goal.key, { sessionTeamId: value })} teams={teams.filter((team) => team.id === game.teamAId || team.id === game.teamBId)} value={goal.sessionTeamId} />
                     <PlayerSelect label="Scorer" onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value })} players={selectablePlayers} value={goal.scorerId} />
                     <PlayerSelect label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={selectablePlayers} value={goal.assistPlayerId} optional />
@@ -169,7 +183,7 @@ export function MiniGameScoresForm({
           );
         })}
       </div>
-      <button className="btn-primary w-fit" disabled={pending || !teams.length}>
+      <button className="btn-primary sticky bottom-3 z-10 w-fit shadow-lg sm:static sm:shadow-sm" disabled={pending || !teams.length}>
         <Save className="h-4 w-4" />
         {pending ? "Saving..." : "Save mini-games"}
       </button>
@@ -179,9 +193,9 @@ export function MiniGameScoresForm({
 
 function TeamSelect({ compact = false, label, onChange, teams, value }: { compact?: boolean; label: string; onChange: (value: string) => void; teams: TeamOption[]; value: string }) {
   return (
-    <label className={`grid gap-1 ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-sm font-medium text-slate-700"}`}>
+    <label className={`grid gap-1 ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
       {label}
-      <select className="input min-h-9" onChange={(event) => onChange(event.target.value)} value={value}>
+      <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">Select team</option>
         {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
       </select>
