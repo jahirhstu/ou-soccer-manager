@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarClock, CircleDollarSign, CreditCard, TrendingDown, Trophy, Upload, Users, type LucideIcon } from "lucide-react";
+import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, TrendingDown, Trophy, Upload, Users, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppShell } from "../(shell)";
@@ -31,7 +31,10 @@ export default async function DashboardPage() {
             <h1 className="page-title">Dashboard</h1>
             <p className="text-sm text-slate-500">Active season: {activeSeason?.name ?? "No active season"}</p>
           </div>
-          <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
+          <div className="flex flex-wrap gap-2">
+            <Link className="btn-secondary" href="/public/report"><ExternalLink className="h-4 w-4" /> Public Report</Link>
+            <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={Users} label="Players" value={players?.length ?? 0} />

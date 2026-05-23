@@ -8,6 +8,7 @@ import { createSupabaseServerClient, getCurrentProfile } from "../supabase/serve
 const cleanupTables = [
   "whatsapp_imports",
   "goals",
+  "session_team_lineups",
   "session_matches",
   "session_team_players",
   "session_teams",

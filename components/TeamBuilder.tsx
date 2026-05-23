@@ -59,7 +59,7 @@ export function TeamBuilder({
 }) {
   const router = useRouter();
   const lastLocalSaveAt = useRef(0);
-  const tossTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tossTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const players = data.players ?? [];
   const existingTeams = data.teams ?? [];
   const serverTeamSignature = useMemo(() => JSON.stringify(existingTeams), [existingTeams]);
@@ -69,6 +69,7 @@ export function TeamBuilder({
   const [isTossing, setIsTossing] = useState(false);
   const [tossResult, setTossResult] = useState<string | null>(null);
   const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(null);
+  const [rouletteRotation, setRouletteRotation] = useState(0);
   const [state, action, pending] = useActionState(saveSessionTeamBuilder, null as { success?: boolean; message?: string; error?: string } | null);
   const assignedIds = new Set(teams.flatMap((team) => team.playerIds));
   const poolPlayers = players.filter((player) => !assignedIds.has(player.id));
@@ -124,7 +125,7 @@ export function TeamBuilder({
 
   useEffect(() => {
     return () => {
-      if (tossTimeoutRef.current) clearTimeout(tossTimeoutRef.current);
+      if (tossTimerRef.current) clearInterval(tossTimerRef.current);
     };
   }, []);
 
@@ -166,25 +167,36 @@ export function TeamBuilder({
     });
   }
 
-  function tossOrder() {
+  function startToss() {
     if (isTossing) return;
-    const teamSnapshot = [...teams];
     setIsTossing(true);
     setTossResult(null);
+    setTossOrderKeys(null);
 
-    if (tossTimeoutRef.current) clearTimeout(tossTimeoutRef.current);
-    tossTimeoutRef.current = setTimeout(() => {
-      const shuffled = [...teamSnapshot];
-      for (let index = shuffled.length - 1; index > 0; index--) {
-        const swapIndex = Math.floor(Math.random() * (index + 1));
-        [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-      }
-      const firstPick = shuffled[0]?.name ?? "";
-      setTossOrderKeys(shuffled.map((team) => team.key));
-      setIsTossing(false);
-      setTossResult(firstPick ? `${firstPick} picks first` : "Pick order updated");
-      toast.success(firstPick ? `Toss complete. ${firstPick} picks first.` : "Toss complete. Pick order updated.");
-    }, 1800);
+    if (tossTimerRef.current) clearInterval(tossTimerRef.current);
+    tossTimerRef.current = setInterval(() => {
+      setRouletteRotation((current) => current + 23);
+    }, 60);
+  }
+
+  function stopToss() {
+    if (!isTossing) return;
+    if (tossTimerRef.current) clearInterval(tossTimerRef.current);
+    tossTimerRef.current = null;
+    const shuffled = [...teams];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    const extraTurns = 360 * 4;
+    const firstIndex = teams.findIndex((team) => team.key === shuffled[0]?.key);
+    const segment = 360 / Math.max(teams.length, 1);
+    setRouletteRotation((current) => current + extraTurns + Math.max(firstIndex, 0) * segment + segment / 2);
+    setTossOrderKeys(shuffled.map((team) => team.key));
+    setIsTossing(false);
+    const firstPick = shuffled[0]?.name ?? "";
+    setTossResult(firstPick ? `${firstPick} picks first` : "Pick order updated");
+    toast.success(firstPick ? `Toss complete. ${firstPick} picks first.` : "Toss complete. Pick order updated.");
   }
 
   function onDragStart(event: DragEvent, source: DragSource) {
@@ -230,16 +242,17 @@ export function TeamBuilder({
         </div>
       </section>
 
-      <section className="panel relative overflow-hidden p-2 sm:p-3">
+      <section className="panel relative overflow-hidden p-2 sm:p-4">
         <div className="pointer-events-none absolute inset-0 opacity-70">
           <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-amber-200/40 blur-2xl" />
           <div className="absolute -bottom-16 left-8 h-28 w-28 rounded-full bg-emerald-200/50 blur-2xl" />
         </div>
-        <div className="relative flex flex-wrap items-center justify-between gap-3">
+        <div className="relative grid gap-4 lg:grid-cols-[260px_1fr_auto] lg:items-center">
+          <RouletteWheel isSpinning={isTossing} rotation={rouletteRotation} teams={teams} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Trophy className="h-4 w-4 text-amber-500" />
-              <h2 className="text-sm font-semibold text-ink">Captain pick order</h2>
+              <h2 className="text-sm font-semibold text-ink">Captain pick roulette</h2>
             </div>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {pickOrderTeams.map((team, index) => (
@@ -265,23 +278,29 @@ export function TeamBuilder({
                 </span>
               ))}
             </div>
+            {tossResult ? <p className="mt-2 text-xs font-semibold text-emerald-800">{tossResult}</p> : null}
           </div>
           {canEdit ? (
-            <div className="flex items-center gap-2 sm:gap-3">
-              {isTossing ? <CoinToss /> : null}
+            <div className="flex items-center gap-2">
               <button
                 className={cn(
                   "min-h-9 overflow-hidden px-3 text-xs",
-                  isTossing
-                    ? "btn-primary animate-toss-button"
-                    : "btn-secondary"
+                  isTossing ? "btn-primary animate-toss-button" : "btn-secondary"
                 )}
                 disabled={isTossing}
-                onClick={tossOrder}
+                onClick={startToss}
                 type="button"
               >
                 <Shuffle className={cn("h-3.5 w-3.5", isTossing && "animate-spin")} />
-                {isTossing ? "Tossing..." : "Toss order"}
+                Start
+              </button>
+              <button
+                className="btn-secondary min-h-9 px-3 text-xs"
+                disabled={!isTossing}
+                onClick={stopToss}
+                type="button"
+              >
+                Stop
               </button>
             </div>
           ) : null}
@@ -442,17 +461,45 @@ export function TeamBuilder({
   );
 }
 
-function CoinToss() {
+function RouletteWheel({ isSpinning, rotation, teams }: { isSpinning: boolean; rotation: number; teams: DraftTeam[] }) {
+  const gradient = rouletteGradient(teams.length);
+  const segment = 360 / Math.max(teams.length, 1);
   return (
-    <div className="relative grid h-12 w-12 place-items-center sm:h-14 sm:w-14" aria-hidden="true">
-      <div className="absolute h-12 w-12 animate-toss-ring rounded-full border border-amber-300 sm:h-14 sm:w-14" />
-      <div className="animate-coin-toss rounded-full bg-gradient-to-br from-amber-200 via-yellow-400 to-amber-600 p-1 shadow-lg shadow-amber-500/30">
-        <div className="grid h-8 w-8 place-items-center rounded-full border border-amber-100 bg-gradient-to-br from-yellow-200 to-amber-500 text-xs font-black text-amber-950 sm:h-10 sm:w-10 sm:text-sm">
+    <div className="relative mx-auto grid h-56 w-56 place-items-center">
+      <div className="absolute -right-2 top-1/2 z-10 h-0 w-0 -translate-y-1/2 border-y-[10px] border-r-[18px] border-y-transparent border-r-amber-500 drop-shadow" />
+      <div
+        className={cn("relative h-52 w-52 rounded-full border-4 border-white shadow-lg ring-4 ring-emerald-100 transition-transform duration-700 ease-out", isSpinning && "animate-roulette-spin")}
+        style={{ background: gradient, transform: `rotate(${rotation}deg)` }}
+      >
+        {teams.map((team, index) => {
+          const angle = index * segment + segment / 2;
+          return (
+            <span
+              className="absolute left-1/2 top-1/2 w-20 origin-left -translate-y-1/2 truncate text-center text-[11px] font-black uppercase text-white drop-shadow"
+              key={team.key}
+              style={{ transform: `rotate(${angle}deg) translateX(28px) rotate(90deg)` }}
+              title={team.name}
+            >
+              {team.name}
+            </span>
+          );
+        })}
+        <div className="absolute left-1/2 top-1/2 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-emerald-900 text-sm font-black text-white shadow">
           OU
         </div>
       </div>
     </div>
   );
+}
+
+function rouletteGradient(count: number) {
+  const colors = ["#059669", "#f59e0b", "#e11d48", "#2563eb"];
+  const segment = 360 / Math.max(count, 1);
+  return `conic-gradient(${Array.from({ length: Math.max(count, 1) }, (_, index) => {
+    const start = index * segment;
+    const end = (index + 1) * segment;
+    return `${colors[index % colors.length]} ${start}deg ${end}deg`;
+  }).join(", ")})`;
 }
 
 function PlayerChip({

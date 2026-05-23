@@ -202,6 +202,7 @@ create table public.session_team_update_events (
 create table public.goals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions(id) on delete cascade,
+  match_id uuid references public.session_matches(id) on delete set null,
   scorer_id uuid not null references public.players(id),
   assist_player_id uuid references public.players(id),
   session_team_id uuid references public.session_teams(id) on delete set null,
@@ -212,6 +213,19 @@ create table public.goals (
   created_by uuid references public.profiles(id),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
+);
+
+create table public.session_team_lineups (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions(id) on delete cascade,
+  session_team_id uuid not null references public.session_teams(id) on delete cascade,
+  player_count integer not null check (player_count > 0),
+  formation text,
+  positions jsonb not null default '[]'::jsonb,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(session_team_id)
 );
 
 create table public.whatsapp_imports (
@@ -269,6 +283,9 @@ create index goals_session_id_idx on public.goals(session_id);
 create index goals_scorer_id_idx on public.goals(scorer_id);
 create index goals_assist_player_id_idx on public.goals(assist_player_id);
 create index goals_session_team_id_idx on public.goals(session_team_id);
+create index goals_match_id_idx on public.goals(match_id);
+create index session_team_lineups_session_id_idx on public.session_team_lineups(session_id);
+create index session_team_lineups_team_id_idx on public.session_team_lineups(session_team_id);
 create index whatsapp_imports_status_idx on public.whatsapp_imports(status);
 
 create trigger players_updated_at before update on public.players for each row execute function public.set_updated_at();
@@ -283,6 +300,7 @@ create trigger payments_updated_at before update on public.payments for each row
 create trigger attendance_updated_at before update on public.attendance for each row execute function public.set_updated_at();
 create trigger dropouts_updated_at before update on public.dropouts for each row execute function public.set_updated_at();
 create trigger goals_updated_at before update on public.goals for each row execute function public.set_updated_at();
+create trigger session_team_lineups_updated_at before update on public.session_team_lineups for each row execute function public.set_updated_at();
 
 create or replace view public.player_season_payment_summary
 with (security_invoker = true) as
@@ -737,6 +755,7 @@ alter table public.session_team_players enable row level security;
 alter table public.session_matches enable row level security;
 alter table public.session_team_update_events enable row level security;
 alter table public.goals enable row level security;
+alter table public.session_team_lineups enable row level security;
 alter table public.whatsapp_imports enable row level security;
 alter table public.audit_logs enable row level security;
 
@@ -790,6 +809,7 @@ create policy "session_matches_select" on public.session_matches for select usin
 create policy "session_matches_admin_all" on public.session_matches for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 create policy "session_matches_captain_write" on public.session_matches for insert with check (public.app_role() = 'captain');
 create policy "session_matches_captain_update" on public.session_matches for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
+create policy "session_matches_captain_delete" on public.session_matches for delete using (public.app_role() = 'captain');
 
 create policy "session_team_update_events_public_select" on public.session_team_update_events for select using (true);
 
@@ -797,6 +817,13 @@ create policy "goals_select" on public.goals for select using (public.app_role()
 create policy "goals_admin_all" on public.goals for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 create policy "goals_captain_write" on public.goals for insert with check (public.app_role() = 'captain');
 create policy "goals_captain_update" on public.goals for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
+create policy "goals_captain_delete" on public.goals for delete using (public.app_role() = 'captain');
+
+create policy "session_team_lineups_select" on public.session_team_lineups for select using (auth.uid() is not null);
+create policy "session_team_lineups_admin_all" on public.session_team_lineups for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
+create policy "session_team_lineups_captain_write" on public.session_team_lineups for insert with check (public.app_role() = 'captain');
+create policy "session_team_lineups_captain_update" on public.session_team_lineups for update using (public.app_role() = 'captain') with check (public.app_role() = 'captain');
+create policy "session_team_lineups_captain_delete" on public.session_team_lineups for delete using (public.app_role() = 'captain');
 
 create policy "imports_admin_all" on public.whatsapp_imports for all using (public.app_role() = 'admin') with check (public.app_role() = 'admin');
 create policy "audit_admin_select" on public.audit_logs for select using (public.app_role() = 'admin');

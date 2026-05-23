@@ -76,6 +76,15 @@ textarea {
   }
 }
 
+@keyframes roulette-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .animate-coin-toss {
   animation: coin-toss 1.15s cubic-bezier(0.19, 1, 0.22, 1) infinite;
   transform-style: preserve-3d;
@@ -91,6 +100,10 @@ textarea {
 
 .animate-toss-button {
   animation: toss-button 0.9s ease-in-out infinite;
+}
+
+.animate-roulette-spin {
+  animation: roulette-spin 0.55s linear infinite;
 }
 
 @layer components {

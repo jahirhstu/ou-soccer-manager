@@ -738,14 +738,14 @@ async function cleanupDuplicateGoalsForSession(
 ) {
   const { data, error } = await supabase
     .from("goals")
-    .select("id,scorer_id,assist_player_id,session_team_id,team,goal_count,notes,created_at,updated_at")
+    .select("id,match_id,scorer_id,assist_player_id,session_team_id,team,goal_count,notes,created_at,updated_at")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
   const grouped = new Map<string, any[]>();
   for (const goal of data ?? []) {
-    const key = [goal.scorer_id, goal.session_team_id ?? "", goal.team ?? "", goal.assist_player_id ?? ""].join(":");
+    const key = [goal.match_id ?? "", goal.scorer_id, goal.session_team_id ?? "", goal.team ?? "", goal.assist_player_id ?? ""].join(":");
     grouped.set(key, [...(grouped.get(key) ?? []), goal]);
   }
 

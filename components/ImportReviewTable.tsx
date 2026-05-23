@@ -100,6 +100,12 @@ export function ImportReviewTable({
         <form action={confirmAction} className="grid gap-4">
           <input name="rawText" type="hidden" value={parsed.rawText} />
           <input name="parsedJson" type="hidden" value={JSON.stringify(parsed)} />
+          <details className="panel overflow-hidden">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink">LLM/parser JSON</summary>
+            <pre className="max-h-96 overflow-auto border-t border-line bg-slate-950 p-4 text-xs leading-5 text-emerald-100">
+              {JSON.stringify(parsed, null, 2)}
+            </pre>
+          </details>
           <div className="panel grid gap-3 p-4">
             <div>
               <h2 className="text-sm font-semibold">Detected import type</h2>

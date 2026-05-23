@@ -55,6 +55,9 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           {session?.status !== "completed" ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>Build teams</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/teams/edit`}>Edit team players</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Mini-game scores</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
               <form action={completeSession}>
                 <input name="session_id" type="hidden" value={id} />
                 <button className="btn-primary">
@@ -63,8 +66,11 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               </form>
             </div>
           ) : (
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View team builder</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/teams/edit`}>Edit team players</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Mini-game scores</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
             </div>
           )}
         </section>

@@ -3,7 +3,6 @@ import { cn, money } from "@/lib/utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import { Download } from "lucide-react";
-import Link from "next/link";
 
 export default async function PaymentReportPage({
   searchParams
@@ -48,7 +47,6 @@ export default async function PaymentReportPage({
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">Payment report</h1>
         <div className="flex flex-wrap gap-2">
-          <Link className="btn-secondary" href="/public/report">Public report</Link>
           <a className="btn-secondary" download="payment-report.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`}>
             <Download className="h-4 w-4" />
             Export CSV
