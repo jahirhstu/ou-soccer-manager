@@ -123,22 +123,21 @@ export function MiniGameScoresForm({
                 </button>
               </div>
               <div className="grid gap-3 p-3 sm:p-4">
-                <div className="grid gap-2 sm:grid-cols-[88px_1fr_72px] sm:items-end">
-                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
-                  Game
-                    <input className="input min-h-9 px-2 text-sm" min="1" onChange={(event) => updateGame(game.key, { matchNumber: Number(event.target.value) })} type="number" value={game.matchNumber} />
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="grid w-16 gap-1 text-xs font-semibold uppercase text-slate-500">
+                    Game
+                    <input className="input min-h-9 px-2 text-center text-sm font-semibold" max="99" min="1" onChange={(event) => updateGame(game.key, { matchNumber: Number(event.target.value) })} type="number" value={game.matchNumber} />
                   </label>
-                  <TeamSelect label="Team A" onChange={(value) => updateGame(game.key, { teamAId: value })} teams={teams} value={game.teamAId} />
-                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
-                  Score
+                  <TeamSelect className="w-44 max-w-full sm:w-52" label="Team A" onChange={(value) => updateGame(game.key, { teamAId: value })} teams={teams} value={game.teamAId} />
+                  <label className="grid w-16 gap-1 text-xs font-semibold uppercase text-slate-500">
+                    Score
                     <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="0" onChange={(event) => updateGame(game.key, { teamAScore: Number(event.target.value) })} type="number" value={game.teamAScore} />
                   </label>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-[88px_1fr_72px] sm:items-end">
-                  <div className="hidden sm:block" />
-                  <TeamSelect label="Team B" onChange={(value) => updateGame(game.key, { teamBId: value })} teams={teams} value={game.teamBId} />
-                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
-                  Score
+                <div className="flex flex-wrap items-end gap-2 sm:pl-[72px]">
+                  <TeamSelect className="w-44 max-w-full sm:w-52" label="Team B" onChange={(value) => updateGame(game.key, { teamBId: value })} teams={teams} value={game.teamBId} />
+                  <label className="grid w-16 gap-1 text-xs font-semibold uppercase text-slate-500">
+                    Score
                     <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="0" onChange={(event) => updateGame(game.key, { teamBScore: Number(event.target.value) })} type="number" value={game.teamBScore} />
                   </label>
                 </div>
@@ -164,15 +163,15 @@ export function MiniGameScoresForm({
                   </button>
                 </div>
                 {game.goals.map((goal) => (
-                  <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_70px_auto]" key={goal.key}>
-                    <TeamSelect compact label="Scoring team" onChange={(value) => updateGoal(game.key, goal.key, { sessionTeamId: value })} teams={teams.filter((team) => team.id === game.teamAId || team.id === game.teamBId)} value={goal.sessionTeamId} />
-                    <PlayerSelect label="Scorer" onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value })} players={selectablePlayers} value={goal.scorerId} />
-                    <PlayerSelect label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={selectablePlayers} value={goal.assistPlayerId} optional />
-                    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                  <div className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
+                    <TeamSelect className="w-40 max-w-full" compact label="Scoring team" onChange={(value) => updateGoal(game.key, goal.key, { sessionTeamId: value })} teams={teams.filter((team) => team.id === game.teamAId || team.id === game.teamBId)} value={goal.sessionTeamId} />
+                    <PlayerSelect className="w-40 max-w-full" label="Scorer" onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value })} players={selectablePlayers} value={goal.scorerId} />
+                    <PlayerSelect className="w-40 max-w-full" label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={selectablePlayers} value={goal.assistPlayerId} optional />
+                    <label className="grid w-16 gap-1 text-xs font-semibold uppercase text-slate-500">
                       Goals
-                      <input className="input min-h-9 text-sm" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
+                      <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
                     </label>
-                    <button className="btn-secondary min-h-9 self-end px-3" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button">
+                    <button className="btn-secondary min-h-9 px-3" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -191,9 +190,9 @@ export function MiniGameScoresForm({
   );
 }
 
-function TeamSelect({ compact = false, label, onChange, teams, value }: { compact?: boolean; label: string; onChange: (value: string) => void; teams: TeamOption[]; value: string }) {
+function TeamSelect({ className = "", compact = false, label, onChange, teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; teams: TeamOption[]; value: string }) {
   return (
-    <label className={`grid gap-1 ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
+    <label className={`grid gap-1 ${className} ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
       {label}
       <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">Select team</option>
@@ -203,11 +202,11 @@ function TeamSelect({ compact = false, label, onChange, teams, value }: { compac
   );
 }
 
-function PlayerSelect({ label, onChange, optional = false, players, value }: { label: string; onChange: (value: string) => void; optional?: boolean; players: Array<{ id: string; name: string }>; value: string }) {
+function PlayerSelect({ className = "", label, onChange, optional = false, players, value }: { className?: string; label: string; onChange: (value: string) => void; optional?: boolean; players: Array<{ id: string; name: string }>; value: string }) {
   return (
-    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+    <label className={`grid gap-1 text-xs font-semibold uppercase text-slate-500 ${className}`}>
       {label}
-      <select className="input min-h-9 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
+      <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">{optional ? "No assist" : "Select player"}</option>
         {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
       </select>

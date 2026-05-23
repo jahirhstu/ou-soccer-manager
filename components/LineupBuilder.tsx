@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import { toast } from "sonner";
-import { Move, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { saveTeamLineup } from "@/lib/actions/session-management";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +46,7 @@ export function LineupBuilder({
   const selectedTeam = teams.find((team) => team.id === selectedTeamId);
   const [playerCount, setPlayerCount] = useState(savedLineup?.playerCount ?? Math.min(teams[0]?.players.length || 7, 11));
   const [formation, setFormation] = useState(savedLineup?.formation ?? formationName(playerCount));
-  const [positions, setPositions] = useState<LineupPosition[]>(() => savedLineup?.positions?.length ? savedLineup.positions : defaultPositions(formationName(playerCount), playerCount));
+  const [positions, setPositions] = useState<LineupPosition[]>(() => savedLineup?.positions?.length ? savedLineup.positions : []);
   const assignedIds = new Set(positions.map((position) => position.playerId).filter(Boolean));
   const availablePlayers = useMemo(
     () => (selectedTeam?.players ?? []).filter((player) => !assignedIds.has(player.id)).sort((left, right) => left.name.localeCompare(right.name)),
@@ -64,14 +64,14 @@ export function LineupBuilder({
     const nextFormation = nextLineup?.formation ?? formationName(nextCount);
     setPlayerCount(nextCount);
     setFormation(nextFormation);
-    setPositions(nextLineup?.positions?.length ? nextLineup.positions : defaultPositions(nextFormation, nextCount));
+    setPositions(nextLineup?.positions?.length ? nextLineup.positions : []);
   }, [lineups, selectedTeamId, teams]);
 
   function changePlayerCount(count: number) {
     setPlayerCount(count);
     const nextFormation = formationName(count);
     setFormation(nextFormation);
-    applyFormation(nextFormation, count);
+    trimExtraPlayers(count);
   }
 
   function applyFormation(nextFormation: string, count = playerCount) {
@@ -91,15 +91,6 @@ export function LineupBuilder({
     applyFormation(nextFormation, nextCount);
   }
 
-  function assignPlayer(slot: string, playerId: string) {
-    setPositions((current) =>
-      current.map((position) => ({
-        ...position,
-        playerId: position.slot === slot ? playerId || undefined : position.playerId === playerId ? undefined : position.playerId
-      }))
-    );
-  }
-
   function onDragStart(event: DragEvent, playerId: string) {
     event.dataTransfer.setData("text/plain", playerId);
     event.dataTransfer.effectAllowed = "move";
@@ -114,10 +105,20 @@ export function LineupBuilder({
     const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 8, 92);
     setPositions((current) => {
       const existingIndex = current.findIndex((position) => position.playerId === playerId);
-      const targetIndex = existingIndex >= 0 ? existingIndex : current.findIndex((position) => !position.playerId);
-      if (targetIndex < 0) return current;
-      return current.map((position, index) => index === targetIndex ? { ...position, x, y, playerId } : position.playerId === playerId ? { ...position, playerId: undefined } : position);
+      if (existingIndex >= 0) {
+        return current.map((position, index) => index === existingIndex ? { ...position, x, y } : position);
+      }
+      if (current.length >= playerCount) return current;
+      return [...current, { slot: `custom-${playerId}`, label: "", x, y, playerId }];
     });
+  }
+
+  function removeFromField(playerId: string) {
+    setPositions((current) => current.filter((position) => position.playerId !== playerId));
+  }
+
+  function trimExtraPlayers(count: number) {
+    setPositions((current) => current.slice(0, count));
   }
 
   return (
@@ -170,23 +171,25 @@ export function LineupBuilder({
           <div className="absolute left-1/2 top-1/2 h-0.5 w-full -translate-y-1/2 bg-white/45 md:left-0 md:top-1/2" />
           {positions.map((position) => {
             const player = selectedTeam?.players.find((item) => item.id === position.playerId);
-            return (
-              <label
-                className="absolute grid w-28 -translate-x-1/2 -translate-y-1/2 gap-1 rounded-lg border border-white/40 bg-white/95 p-2 text-center shadow-sm"
+            return player ? (
+              <div
+                className="absolute inline-flex min-h-9 -translate-x-1/2 -translate-y-1/2 cursor-grab select-none items-center justify-center rounded-full border border-white/70 bg-white px-3 py-1 text-xs font-black text-emerald-900 shadow-md active:cursor-grabbing"
                 draggable={Boolean(position.playerId)}
                 key={position.slot}
                 onDragStart={(event) => position.playerId && onDragStart(event, position.playerId)}
                 style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                title="Drag to move. Double-click to remove."
+                onDoubleClick={() => removeFromField(player.id)}
               >
-                <span className="text-[10px] font-bold uppercase text-emerald-800">{position.label}</span>
-                <select className="min-h-8 rounded-md border border-line bg-white px-1 text-xs" onChange={(event) => assignPlayer(position.slot, event.target.value)} value={position.playerId ?? ""}>
-                  <option value="">Open</option>
-                  {player ? <option value={player.id}>{player.name}</option> : null}
-                  {availablePlayers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
-            );
+                {player.name}
+              </div>
+            ) : null;
           })}
+          {!positions.length ? (
+            <div className="absolute left-1/2 top-1/2 max-w-xs -translate-x-1/2 -translate-y-1/2 rounded-lg bg-emerald-950/50 px-4 py-3 text-center text-sm font-semibold text-white backdrop-blur">
+              Drag players here to build from scratch.
+            </div>
+          ) : null}
         </div>
         <aside className="panel grid content-start gap-3 p-4">
           <div>
@@ -196,12 +199,11 @@ export function LineupBuilder({
           <div className="flex flex-wrap gap-2">
             {availablePlayers.map((player) => (
               <span
-                className="inline-flex cursor-grab items-center gap-1.5 rounded-md border border-line bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm active:cursor-grabbing"
+                className="inline-flex cursor-grab items-center rounded-full border border-line bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm active:cursor-grabbing"
                 draggable
                 key={player.id}
                 onDragStart={(event) => onDragStart(event, player.id)}
               >
-                <Move className="h-3.5 w-3.5 text-slate-400" />
                 {player.name}
               </span>
             ))}
