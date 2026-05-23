@@ -239,7 +239,7 @@ export function TeamBuilder({
               <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
             </div>
           </div>
-          <RouletteWheel canEdit={canEdit} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} playersById={playersById} rotation={rouletteRotation} segmentTeams={teams} />
+          <RouletteWheel canEdit={canEdit} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} rotation={rouletteRotation} segmentTeams={teams} />
           <PickOrderList playersById={playersById} teams={pickOrderTeams} />
         </div>
       </section>
@@ -403,7 +403,6 @@ function RouletteWheel({
   displayTeams,
   isSpinning,
   onToggle,
-  playersById,
   rotation,
   segmentTeams
 }: {
@@ -411,7 +410,6 @@ function RouletteWheel({
   displayTeams: DraftTeam[];
   isSpinning: boolean;
   onToggle: () => void;
-  playersById: Map<string, TeamBuilderPlayer>;
   rotation: number;
   segmentTeams: DraftTeam[];
 }) {
@@ -425,20 +423,8 @@ function RouletteWheel({
         style={{ background: gradient, transform: `rotate(${rotation}deg)` }}
       >
         {segmentTeams.map((team, index) => {
-          const angle = index * segment + segment / 2;
-          const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
-          const orderIndex = orderByKey.get(team.key) ?? index;
-          return (
-            <span
-              className="absolute left-1/2 top-1/2 grid w-24 origin-left -translate-y-1/2 place-items-center text-center text-[10px] font-black uppercase leading-tight text-white drop-shadow"
-              key={team.key}
-              style={{ transform: `rotate(${angle}deg) translateX(26px) rotate(90deg)` }}
-              title={team.name}
-            >
-              <span className={cn("mb-0.5 grid h-5 w-5 place-items-center rounded-full text-[10px] font-black", orderNumberClass(orderIndex))}>{orderIndex + 1}</span>
-              {captain ? <span className="max-w-20 truncate text-[9px] font-semibold normal-case opacity-90">{captain.name}</span> : null}
-            </span>
-          );
+          const angle = index * segment;
+          return <span className="absolute left-1/2 top-1/2 h-0.5 w-24 origin-left bg-white/50" key={team.key} style={{ transform: `rotate(${angle}deg)` }} />;
         })}
         <button
           className={cn(
