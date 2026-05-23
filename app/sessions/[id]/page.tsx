@@ -79,7 +79,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           <DataTable rows={teams ?? []} columns={[
             { header: "Team", cell: (row) => row.name },
             { header: "Captain", cell: (row: any) => row.captain?.display_name ?? "-" },
-            { header: "Score", cell: (row) => row.score ?? "-" },
             { header: "Players", cell: (row: any) => (row.session_team_players ?? []).map((item: any) => item.players?.display_name).filter(Boolean).join(", ") || "-" }
           ]} />
         </section>

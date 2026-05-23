@@ -152,7 +152,7 @@ export function MiniGameScoresForm({
                       updateGame(game.key, {
                         goals: [
                           ...game.goals,
-                          { key: `goal-${Date.now()}`, scorerId: "", assistPlayerId: "", sessionTeamId: game.teamAId, goalCount: 1 }
+                          { key: randomKey("goal"), scorerId: "", assistPlayerId: "", sessionTeamId: game.teamAId, goalCount: 1 }
                         ]
                       })
                     }
@@ -228,4 +228,8 @@ function defaultGames(teams: TeamOption[]) {
 
 function uniquePlayers(players: Array<{ id: string; name: string }>) {
   return Array.from(new Map(players.map((player) => [player.id, player])).values()).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function randomKey(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

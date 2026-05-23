@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
-import type { DragEvent } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { saveTeamLineup } from "@/lib/actions/session-management";
@@ -20,6 +20,7 @@ type LineupPosition = {
   x: number;
   y: number;
   playerId?: string;
+  jerseyColor?: string;
 };
 
 type TeamOption = {
@@ -30,6 +31,7 @@ type TeamOption = {
 
 const playerCounts = [5, 6, 7, 8, 9, 10, 11];
 const formationOptions = ["2-1-1", "2-2-1", "2-2-2", "3-3-1", "3-3-2", "3-3-3", "4-3-3"];
+const jerseyColors = ["#059669", "#dc2626", "#2563eb", "#f59e0b", "#111827", "#ffffff"];
 
 export function LineupBuilder({
   lineups,
@@ -46,6 +48,7 @@ export function LineupBuilder({
   const selectedTeam = teams.find((team) => team.id === selectedTeamId);
   const [playerCount, setPlayerCount] = useState(savedLineup?.playerCount ?? Math.min(teams[0]?.players.length || 7, 11));
   const [formation, setFormation] = useState(savedLineup?.formation ?? formationName(playerCount));
+  const [jerseyColor, setJerseyColor] = useState(savedLineup?.positions?.[0]?.jerseyColor ?? jerseyColors[0]);
   const [positions, setPositions] = useState<LineupPosition[]>(() => savedLineup?.positions?.length ? savedLineup.positions : []);
   const assignedIds = new Set(positions.map((position) => position.playerId).filter(Boolean));
   const availablePlayers = useMemo(
@@ -64,8 +67,11 @@ export function LineupBuilder({
     const nextFormation = nextLineup?.formation ?? formationName(nextCount);
     setPlayerCount(nextCount);
     setFormation(nextFormation);
+    setJerseyColor(nextLineup?.positions?.[0]?.jerseyColor ?? jerseyColors[0]);
     setPositions(nextLineup?.positions?.length ? nextLineup.positions : []);
   }, [lineups, selectedTeamId, teams]);
+
+  const savePositions = positions.map((position) => ({ ...position, jerseyColor }));
 
   function changePlayerCount(count: number) {
     setPlayerCount(count);
@@ -77,10 +83,13 @@ export function LineupBuilder({
   function applyFormation(nextFormation: string, count = playerCount) {
     const template = defaultPositions(nextFormation, count);
     setPositions((current) =>
-      template.map((slot, index) => ({
-        ...slot,
-        playerId: current[index]?.playerId
-      }))
+      current
+        .filter((position) => position.playerId)
+        .slice(0, count)
+        .map((position, index) => ({
+          ...(template[index] ?? position),
+          playerId: position.playerId
+        }))
     );
   }
 
@@ -94,6 +103,18 @@ export function LineupBuilder({
   function onDragStart(event: DragEvent, playerId: string) {
     event.dataTransfer.setData("text/plain", playerId);
     event.dataTransfer.effectAllowed = "move";
+    const player = selectedTeam?.players.find((item) => item.id === playerId);
+    if (player) {
+      const ghost = document.createElement("div");
+      ghost.style.opacity = "0.72";
+      ghost.style.position = "fixed";
+      ghost.style.top = "-1000px";
+      ghost.style.left = "-1000px";
+      ghost.innerHTML = jerseyMarkup(player.name, jerseyColor);
+      document.body.appendChild(ghost);
+      event.dataTransfer.setDragImage(ghost, 48, 28);
+      window.setTimeout(() => ghost.remove(), 0);
+    }
   }
 
   function onFieldDrop(event: DragEvent<HTMLDivElement>) {
@@ -101,14 +122,14 @@ export function LineupBuilder({
     const playerId = event.dataTransfer.getData("text/plain");
     if (!playerId) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 6, 94);
-    const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 8, 92);
+    const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 2, 98);
+    const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 2, 98);
     setPositions((current) => {
       const existingIndex = current.findIndex((position) => position.playerId === playerId);
       if (existingIndex >= 0) {
         return current.map((position, index) => index === existingIndex ? { ...position, x, y } : position);
       }
-      if (current.length >= playerCount) return current;
+      if (current.filter((position) => position.playerId).length >= playerCount) return current;
       return [...current, { slot: `custom-${playerId}`, label: "", x, y, playerId }];
     });
   }
@@ -118,7 +139,7 @@ export function LineupBuilder({
   }
 
   function trimExtraPlayers(count: number) {
-    setPositions((current) => current.slice(0, count));
+    setPositions((current) => current.filter((position) => position.playerId).slice(0, count));
   }
 
   return (
@@ -127,9 +148,9 @@ export function LineupBuilder({
       <input name="sessionTeamId" type="hidden" value={selectedTeamId} />
       <input name="playerCount" type="hidden" value={playerCount} />
       <input name="formation" type="hidden" value={formation} />
-      <input name="positionsJson" type="hidden" value={JSON.stringify(positions)} />
+      <input name="positionsJson" type="hidden" value={JSON.stringify(savePositions)} />
 
-      <section className="panel grid gap-3 p-4 md:grid-cols-4">
+      <section className="panel grid gap-3 p-4 md:grid-cols-[1fr_150px_150px_1fr]">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Team
           <select className="input" onChange={(event) => setSelectedTeamId(event.target.value)} value={selectedTeamId}>
@@ -149,18 +170,29 @@ export function LineupBuilder({
           </select>
         </label>
         <div className="grid content-end gap-1 text-sm">
-          <span className="text-slate-500">Field placement</span>
-          <span className="text-lg font-semibold text-ink">{formation}</span>
+          <span className="text-slate-500">Jersey color</span>
+          <div className="flex flex-wrap gap-2">
+            {jerseyColors.map((color) => (
+              <button
+                aria-label={`Use jersey color ${color}`}
+                className={`h-8 w-8 rounded-full border shadow-sm ${jerseyColor === color ? "ring-2 ring-pitch ring-offset-2" : ""}`}
+                key={color}
+                onClick={() => setJerseyColor(color)}
+                style={{ backgroundColor: color }}
+                type="button"
+              />
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[minmax(320px,640px)_280px] lg:justify-center">
         <div
-          className="relative mx-auto aspect-[10/14] w-full max-w-[640px] overflow-hidden rounded-lg border border-emerald-700 bg-emerald-700 shadow-sm"
+          className="relative mx-auto aspect-[10/14] w-full max-w-[640px] overflow-hidden rounded-lg border border-emerald-500 bg-emerald-500 shadow-sm transition"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onFieldDrop}
         >
-          <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(255,255,255,0.05)_50%,transparent_50%)] bg-[length:100%_80px]" />
+          <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(255,255,255,0.12)_50%,transparent_50%)] bg-[length:100%_80px]" />
           <div className="absolute inset-3 rounded-md border-2 border-white/70" />
           <div className="absolute left-1/2 top-3 h-12 w-28 -translate-x-1/2 rounded-b-md border-2 border-t-0 border-white/70 md:h-14 md:w-36" />
           <div className="absolute bottom-3 left-1/2 h-12 w-28 -translate-x-1/2 rounded-t-md border-2 border-b-0 border-white/70 md:h-14 md:w-36" />
@@ -171,17 +203,16 @@ export function LineupBuilder({
           {positions.map((position) => {
             const player = selectedTeam?.players.find((item) => item.id === position.playerId);
             return player ? (
-              <div
-                className="absolute inline-flex min-h-9 -translate-x-1/2 -translate-y-1/2 cursor-grab select-none items-center justify-center rounded-full border border-white/70 bg-white px-3 py-1 text-xs font-black text-emerald-900 shadow-md active:cursor-grabbing"
+              <JerseyLabel
                 draggable={Boolean(position.playerId)}
                 key={position.slot}
                 onDragStart={(event) => position.playerId && onDragStart(event, position.playerId)}
+                color={jerseyColor}
+                name={player.name}
                 style={{ left: `${position.x}%`, top: `${position.y}%` }}
                 title="Drag to move. Double-click to remove."
                 onDoubleClick={() => removeFromField(player.id)}
-              >
-                {player.name}
-              </div>
+              />
             ) : null;
           })}
           {!positions.length ? (
@@ -198,12 +229,12 @@ export function LineupBuilder({
           <div className="flex flex-wrap gap-2">
             {availablePlayers.map((player) => (
               <span
-                className="inline-flex cursor-grab items-center rounded-full border border-line bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm active:cursor-grabbing"
+                className="cursor-grab active:cursor-grabbing"
                 draggable
                 key={player.id}
                 onDragStart={(event) => onDragStart(event, player.id)}
               >
-                {player.name}
+                <JerseyBadge color={jerseyColor} name={player.name} />
               </span>
             ))}
             {!availablePlayers.length ? <p className="text-sm text-slate-500">Every selected-team player is in the lineup.</p> : null}
@@ -268,4 +299,62 @@ function layerY(index: number, total: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function JerseyBadge({ color, name }: { color: string; name: string }) {
+  return (
+    <span
+      className="grid min-h-12 min-w-20 place-items-center px-3 py-2 text-center text-xs font-black shadow-sm"
+      style={{
+        backgroundColor: color,
+        color: readableTextColor(color),
+        clipPath: "polygon(18% 0, 35% 10%, 65% 10%, 82% 0, 100% 22%, 86% 38%, 86% 100%, 14% 100%, 14% 38%, 0 22%)"
+      }}
+    >
+      <span className="max-w-16 truncate pt-2">{name}</span>
+    </span>
+  );
+}
+
+function JerseyLabel({
+  color,
+  draggable,
+  name,
+  onDoubleClick,
+  onDragStart,
+  style,
+  title
+}: {
+  color: string;
+  draggable: boolean;
+  name: string;
+  onDoubleClick: () => void;
+  onDragStart: (event: DragEvent) => void;
+  style: CSSProperties;
+  title: string;
+}) {
+  return (
+    <div
+      className="absolute -translate-x-1/2 -translate-y-1/2 cursor-grab select-none active:cursor-grabbing"
+      draggable={draggable}
+      onDoubleClick={onDoubleClick}
+      onDragStart={onDragStart}
+      style={style}
+      title={title}
+    >
+      <JerseyBadge color={color} name={name} />
+    </div>
+  );
+}
+
+function jerseyMarkup(name: string, color: string) {
+  return `<div style="display:grid;place-items:center;min-width:80px;min-height:48px;padding:8px 12px;text-align:center;font:700 12px system-ui;color:${readableTextColor(color)};background:${color};clip-path:polygon(18% 0,35% 10%,65% 10%,82% 0,100% 22%,86% 38%,86% 100%,14% 100%,14% 38%,0 22%);box-shadow:0 8px 20px rgba(15,23,42,.18)"><span style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-top:8px">${escapeHtml(name)}</span></div>`;
+}
+
+function readableTextColor(color: string) {
+  return color === "#ffffff" || color === "#f59e0b" ? "#111827" : "#ffffff";
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" })[char] ?? char);
 }

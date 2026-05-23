@@ -4,7 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, Crown, Save, Shuffle, Trophy, Undo2, UserPlus, Users } from "lucide-react";
+import { CheckCircle2, Crown, Save, Undo2, UserPlus, Users } from "lucide-react";
 import { saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -67,7 +67,6 @@ export function TeamBuilder({
   const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, maxExistingTeamSize(existingTeams) || 8));
   const [teams, setTeams] = useState<DraftTeam[]>(() => initialTeams(existingTeams, 2));
   const [isTossing, setIsTossing] = useState(false);
-  const [tossResult, setTossResult] = useState<string | null>(null);
   const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(null);
   const [rouletteRotation, setRouletteRotation] = useState(0);
   const [state, action, pending] = useActionState(saveSessionTeamBuilder, null as { success?: boolean; message?: string; error?: string } | null);
@@ -120,7 +119,6 @@ export function TeamBuilder({
     setTeams((current) => initialTeams(existingTeams, current.length || 2));
     setPlayersPerTeam((current) => Math.max(1, maxExistingTeamSize(existingTeams) || current));
     setTossOrderKeys(null);
-    setTossResult(null);
   }, [existingTeams, serverTeamSignature]);
 
   useEffect(() => {
@@ -131,7 +129,6 @@ export function TeamBuilder({
 
   function setTeamCount(count: number) {
     setTossOrderKeys(null);
-    setTossResult(null);
     setTeams((current) => {
       if (count === current.length) return current;
       if (count > current.length) {
@@ -170,12 +167,12 @@ export function TeamBuilder({
   function startToss() {
     if (isTossing) return;
     setIsTossing(true);
-    setTossResult(null);
     setTossOrderKeys(null);
 
     if (tossTimerRef.current) clearInterval(tossTimerRef.current);
     tossTimerRef.current = setInterval(() => {
       setRouletteRotation((current) => current + 23);
+      setTossOrderKeys(shuffledKeys(teams));
     }, 60);
   }
 
@@ -183,11 +180,7 @@ export function TeamBuilder({
     if (!isTossing) return;
     if (tossTimerRef.current) clearInterval(tossTimerRef.current);
     tossTimerRef.current = null;
-    const shuffled = [...teams];
-    for (let index = shuffled.length - 1; index > 0; index--) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-    }
+    const shuffled = orderedTeamsForToss(teams, tossOrderKeys ?? shuffledKeys(teams));
     const extraTurns = 360 * 4;
     const firstIndex = teams.findIndex((team) => team.key === shuffled[0]?.key);
     const segment = 360 / Math.max(teams.length, 1);
@@ -195,7 +188,6 @@ export function TeamBuilder({
     setTossOrderKeys(shuffled.map((team) => team.key));
     setIsTossing(false);
     const firstPick = shuffled[0]?.name ?? "";
-    setTossResult(firstPick ? `${firstPick} picks first` : "Pick order updated");
     toast.success(firstPick ? `Toss complete. ${firstPick} picks first.` : "Toss complete. Pick order updated.");
   }
 
@@ -214,96 +206,41 @@ export function TeamBuilder({
 
   return (
     <div className="grid gap-3 sm:gap-5">
-      <section className="panel grid grid-cols-2 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-[180px_180px_1fr] md:items-end">
-        <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
-          Teams
-          <select className="input min-h-9" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
-            {[2, 3, 4].map((count) => <option key={count} value={count}>{count} teams</option>)}
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
-          Players per team
-          <input
-            className="input min-h-9"
-            disabled={!canEdit}
-            min="1"
-            onChange={(event) => setPlayersPerTeam(Math.max(1, Number(event.target.value) || 1))}
-            type="number"
-            value={playersPerTeam}
-          />
-        </label>
-        <div className="col-span-2 grid gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-2 text-xs text-emerald-900 sm:p-3 sm:text-sm md:col-span-1">
-          <div className="flex flex-wrap gap-1.5">
-            <Metric label="Registered" value={players.length} />
-            <Metric label="Capacity" value={totalCapacity} />
-            <Metric label="Pool" value={poolPlayers.length} />
-          </div>
-          <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
-        </div>
-      </section>
-
-      <section className="panel relative overflow-hidden p-2 sm:p-4">
+      <section className="panel relative overflow-hidden p-3 sm:p-4">
         <div className="pointer-events-none absolute inset-0 opacity-70">
           <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-amber-200/40 blur-2xl" />
           <div className="absolute -bottom-16 left-8 h-28 w-28 rounded-full bg-emerald-200/50 blur-2xl" />
         </div>
-        <div className="relative grid justify-items-center gap-4 text-center">
-          <RouletteWheel isSpinning={isTossing} playersById={playersById} rotation={rouletteRotation} teams={pickOrderTeams} />
-          <div className="min-w-0">
-            <div className="flex items-center justify-center gap-2">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              <h2 className="text-sm font-semibold text-ink">Captain pick roulette</h2>
+        <div className="relative grid gap-4 lg:grid-cols-[minmax(220px,1fr)_260px_minmax(220px,1fr)] lg:items-center">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
+              Teams
+              <select className="input min-h-9" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
+                {[2, 3, 4].map((count) => <option key={count} value={count}>{count} teams</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
+              Players per team
+              <input
+                className="input min-h-9"
+                disabled={!canEdit}
+                min="1"
+                onChange={(event) => setPlayersPerTeam(Math.max(1, Number(event.target.value) || 1))}
+                type="number"
+                value={playersPerTeam}
+              />
+            </label>
+            <div className="col-span-2 grid gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-2 text-xs text-emerald-900 sm:p-3 sm:text-sm">
+              <div className="flex flex-wrap gap-1.5">
+                <Metric label="Registered" value={players.length} />
+                <Metric label="Capacity" value={totalCapacity} />
+                <Metric label="Pool" value={poolPlayers.length} />
+              </div>
+              <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
             </div>
-            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-              {pickOrderTeams.map((team, index) => (
-                <span
-                  className={cn(
-                    "rounded-md px-2 py-1 text-xs font-semibold ring-1 transition",
-                    isTossing
-                      ? "animate-pick-pulse bg-amber-50 text-amber-800 ring-amber-200"
-                      : tossResult
-                        ? tossOrderClass(index)
-                        : "bg-slate-50 text-slate-700 ring-line"
-                  )}
-                  key={team.key}
-                  style={{ animationDelay: `${index * 120}ms` }}
-                >
-                  {index + 1}. {team.name}
-                  {index === 0 && tossResult ? (
-                    <>
-                      <span className="mx-1.5 opacity-45">|</span>
-                      <span className="font-bold">picks first</span>
-                    </>
-                  ) : null}
-                </span>
-              ))}
-            </div>
-            {tossResult ? <p className="mt-2 text-xs font-semibold text-emerald-800">{tossResult}</p> : null}
           </div>
-          {canEdit ? (
-            <div className="flex items-center justify-center gap-2">
-              <button
-                className={cn(
-                  "min-h-9 overflow-hidden px-3 text-xs",
-                  isTossing ? "btn-primary animate-toss-button" : "btn-secondary"
-                )}
-                disabled={isTossing}
-                onClick={startToss}
-                type="button"
-              >
-                <Shuffle className={cn("h-3.5 w-3.5", isTossing && "animate-spin")} />
-                Start
-              </button>
-              <button
-                className="btn-secondary min-h-9 px-3 text-xs"
-                disabled={!isTossing}
-                onClick={stopToss}
-                type="button"
-              >
-                Stop
-              </button>
-            </div>
-          ) : null}
+          <RouletteWheel canEdit={canEdit} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} playersById={playersById} rotation={rouletteRotation} teams={pickOrderTeams} />
+          <PickOrderList playersById={playersById} teams={pickOrderTeams} />
         </div>
       </section>
 
@@ -462,12 +399,16 @@ export function TeamBuilder({
 }
 
 function RouletteWheel({
+  canEdit,
   isSpinning,
+  onToggle,
   playersById,
   rotation,
   teams
 }: {
+  canEdit: boolean;
   isSpinning: boolean;
+  onToggle: () => void;
   playersById: Map<string, TeamBuilderPlayer>;
   rotation: number;
   teams: DraftTeam[];
@@ -490,15 +431,44 @@ function RouletteWheel({
               style={{ transform: `rotate(${angle}deg) translateX(26px) rotate(90deg)` }}
               title={team.name}
             >
-              <span className="max-w-20 truncate">{team.name}</span>
+              <span className={cn("mb-0.5 grid h-5 w-5 place-items-center rounded-full text-[10px] font-black", orderNumberClass(index))}>{index + 1}</span>
               {captain ? <span className="max-w-20 truncate text-[9px] font-semibold normal-case opacity-90">{captain.name}</span> : null}
             </span>
           );
         })}
-        <div className="absolute left-1/2 top-1/2 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-emerald-900 text-sm font-black text-white shadow">
-          OU
-        </div>
+        <button
+          className={cn(
+            "absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white text-xs font-black shadow",
+            isSpinning ? "bg-rose-600 text-white" : "bg-emerald-900 text-white"
+          )}
+          disabled={!canEdit}
+          onClick={onToggle}
+          type="button"
+        >
+          {isSpinning ? "STOP" : "PLAY"}
+        </button>
       </div>
+    </div>
+  );
+}
+
+function PickOrderList({ playersById, teams }: { playersById: Map<string, TeamBuilderPlayer>; teams: DraftTeam[] }) {
+  return (
+    <div className="grid gap-2">
+      {teams.map((team, index) => {
+        const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
+        return (
+          <div className="flex items-center gap-2 rounded-md bg-white/75 px-3 py-2 text-left ring-1 ring-line" key={team.key}>
+            <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-black", orderNumberClass(index))}>
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-ink">{captain?.name ?? team.name}</div>
+              <div className="truncate text-xs text-slate-500">{team.name}</div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -574,11 +544,20 @@ function orderedTeamsForToss(teams: DraftTeam[], tossOrderKeys: string[] | null)
   return [...ordered, ...missing];
 }
 
-function tossOrderClass(index: number) {
-  if (index === 0) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
-  if (index === 1) return "bg-amber-50 text-amber-800 ring-amber-200";
-  if (index === 2) return "bg-rose-50 text-rose-800 ring-rose-200";
-  return "bg-slate-50 text-slate-700 ring-line";
+function orderNumberClass(index: number) {
+  if (index === 0) return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200";
+  if (index === 1) return "bg-amber-100 text-amber-800 ring-1 ring-amber-200";
+  if (index === 2) return "bg-rose-100 text-rose-800 ring-1 ring-rose-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function shuffledKeys(teams: DraftTeam[]) {
+  const shuffled = [...teams];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled.map((team) => team.key);
 }
 
 function maxExistingTeamSize(teams: TeamBuilderTeam[]) {
