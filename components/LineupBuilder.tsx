@@ -154,21 +154,20 @@ export function LineupBuilder({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_280px]">
+      <section className="grid gap-4 lg:grid-cols-[minmax(320px,640px)_280px] lg:justify-center">
         <div
-          className="relative aspect-[7/10] overflow-hidden rounded-lg border border-emerald-700 bg-emerald-700 shadow-sm md:aspect-[16/10]"
+          className="relative mx-auto aspect-[10/14] w-full max-w-[640px] overflow-hidden rounded-lg border border-emerald-700 bg-emerald-700 shadow-sm"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onFieldDrop}
         >
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.05)_50%,transparent_50%)] bg-[length:80px_100%]" />
+          <div className="absolute inset-0 bg-[linear-gradient(0deg,rgba(255,255,255,0.05)_50%,transparent_50%)] bg-[length:100%_80px]" />
           <div className="absolute inset-3 rounded-md border-2 border-white/70" />
-          <div className="absolute left-3 top-1/2 h-28 w-8 -translate-y-1/2 rounded-r-md border-2 border-l-0 border-white/70 md:h-36 md:w-12" />
-          <div className="absolute right-3 top-1/2 h-28 w-8 -translate-y-1/2 rounded-l-md border-2 border-r-0 border-white/70 md:h-36 md:w-12" />
-          <div className="absolute left-0 top-1/2 h-16 w-4 -translate-y-1/2 rounded-r bg-white/85 shadow md:h-24 md:w-5" />
-          <div className="absolute right-0 top-1/2 h-16 w-4 -translate-y-1/2 rounded-l bg-white/85 shadow md:h-24 md:w-5" />
+          <div className="absolute left-1/2 top-3 h-12 w-28 -translate-x-1/2 rounded-b-md border-2 border-t-0 border-white/70 md:h-14 md:w-36" />
+          <div className="absolute bottom-3 left-1/2 h-12 w-28 -translate-x-1/2 rounded-t-md border-2 border-b-0 border-white/70 md:h-14 md:w-36" />
+          <div className="absolute left-1/2 top-0 h-4 w-16 -translate-x-1/2 rounded-b bg-white/85 shadow md:h-5 md:w-24" />
+          <div className="absolute bottom-0 left-1/2 h-4 w-16 -translate-x-1/2 rounded-t bg-white/85 shadow md:h-5 md:w-24" />
           <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/60" />
-          <div className="absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 bg-white/45" />
-          <div className="absolute left-1/2 top-1/2 h-0.5 w-full -translate-y-1/2 bg-white/45 md:left-0 md:top-1/2" />
+          <div className="absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2 bg-white/45" />
           {positions.map((position) => {
             const player = selectedTeam?.players.find((item) => item.id === position.playerId);
             return player ? (
