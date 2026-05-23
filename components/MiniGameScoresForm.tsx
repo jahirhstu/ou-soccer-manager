@@ -163,17 +163,21 @@ export function MiniGameScoresForm({
                   </button>
                 </div>
                 {game.goals.map((goal) => (
-                  <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2 sm:grid-cols-[minmax(120px,160px)_minmax(120px,160px)] lg:grid-cols-[minmax(120px,160px)_minmax(120px,160px)_minmax(120px,160px)_72px_44px] lg:items-end" key={goal.key}>
-                    <TeamSelect compact label="Scoring team" onChange={(value) => updateGoal(game.key, goal.key, { sessionTeamId: value })} teams={teams.filter((team) => team.id === game.teamAId || team.id === game.teamBId)} value={goal.sessionTeamId} />
-                    <PlayerSelect label="Scorer" onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value })} players={selectablePlayers} value={goal.scorerId} />
-                    <PlayerSelect label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={selectablePlayers} value={goal.assistPlayerId} optional />
-                    <label className="grid w-20 gap-1 text-xs font-semibold uppercase text-slate-500">
-                      Goals
-                      <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
-                    </label>
-                    <button className="btn-secondary min-h-9 w-11 px-0 lg:self-end" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <TeamSelect compact label="Scoring team" onChange={(value) => updateGoal(game.key, goal.key, { sessionTeamId: value })} teams={teams.filter((team) => team.id === game.teamAId || team.id === game.teamBId)} value={goal.sessionTeamId} />
+                      <PlayerSelect label="Scorer" onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value })} players={selectablePlayers} value={goal.scorerId} />
+                      <PlayerSelect label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={selectablePlayers} value={goal.assistPlayerId} optional />
+                    </div>
+                    <div className="flex items-end justify-between gap-2">
+                      <label className="grid w-24 gap-1 text-xs font-semibold uppercase text-slate-500">
+                        Goals
+                        <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
+                      </label>
+                      <button className="btn-secondary min-h-9 w-11 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {!game.goals.length ? <p className="text-sm text-slate-500">No goal details added for this game.</p> : null}

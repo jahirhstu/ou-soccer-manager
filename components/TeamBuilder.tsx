@@ -239,7 +239,7 @@ export function TeamBuilder({
               <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
             </div>
           </div>
-          <RouletteWheel canEdit={canEdit} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} playersById={playersById} rotation={rouletteRotation} teams={pickOrderTeams} />
+          <RouletteWheel canEdit={canEdit} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} playersById={playersById} rotation={rouletteRotation} segmentTeams={teams} />
           <PickOrderList playersById={playersById} teams={pickOrderTeams} />
         </div>
       </section>
@@ -400,30 +400,34 @@ export function TeamBuilder({
 
 function RouletteWheel({
   canEdit,
+  displayTeams,
   isSpinning,
   onToggle,
   playersById,
   rotation,
-  teams
+  segmentTeams
 }: {
   canEdit: boolean;
+  displayTeams: DraftTeam[];
   isSpinning: boolean;
   onToggle: () => void;
   playersById: Map<string, TeamBuilderPlayer>;
   rotation: number;
-  teams: DraftTeam[];
+  segmentTeams: DraftTeam[];
 }) {
-  const gradient = rouletteGradient(teams.length);
-  const segment = 360 / Math.max(teams.length, 1);
+  const orderByKey = new Map(displayTeams.map((team, index) => [team.key, index]));
+  const gradient = rouletteGradient(segmentTeams, orderByKey);
+  const segment = 360 / Math.max(segmentTeams.length, 1);
   return (
     <div className="relative mx-auto grid h-56 w-56 place-items-center">
       <div
         className={cn("relative h-52 w-52 rounded-full border-4 border-white shadow-lg ring-4 ring-emerald-100 transition-transform duration-700 ease-out", isSpinning && "animate-roulette-spin")}
         style={{ background: gradient, transform: `rotate(${rotation}deg)` }}
       >
-        {teams.map((team, index) => {
+        {segmentTeams.map((team, index) => {
           const angle = index * segment + segment / 2;
           const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
+          const orderIndex = orderByKey.get(team.key) ?? index;
           return (
             <span
               className="absolute left-1/2 top-1/2 grid w-24 origin-left -translate-y-1/2 place-items-center text-center text-[10px] font-black uppercase leading-tight text-white drop-shadow"
@@ -431,7 +435,7 @@ function RouletteWheel({
               style={{ transform: `rotate(${angle}deg) translateX(26px) rotate(90deg)` }}
               title={team.name}
             >
-              <span className={cn("mb-0.5 grid h-5 w-5 place-items-center rounded-full text-[10px] font-black", orderNumberClass(index))}>{index + 1}</span>
+              <span className={cn("mb-0.5 grid h-5 w-5 place-items-center rounded-full text-[10px] font-black", orderNumberClass(orderIndex))}>{orderIndex + 1}</span>
               {captain ? <span className="max-w-20 truncate text-[9px] font-semibold normal-case opacity-90">{captain.name}</span> : null}
             </span>
           );
@@ -473,14 +477,20 @@ function PickOrderList({ playersById, teams }: { playersById: Map<string, TeamBu
   );
 }
 
-function rouletteGradient(count: number) {
-  const colors = ["#059669", "#f59e0b", "#e11d48", "#64748b"];
-  const segment = 360 / Math.max(count, 1);
-  return `conic-gradient(${Array.from({ length: Math.max(count, 1) }, (_, index) => {
+function rouletteGradient(teams: DraftTeam[], orderByKey: Map<string, number>) {
+  const segment = 360 / Math.max(teams.length, 1);
+  return `conic-gradient(${teams.map((team, index) => {
     const start = index * segment;
     const end = (index + 1) * segment;
-    return `${colors[index % colors.length]} ${start}deg ${end}deg`;
+    return `${orderColor(orderByKey.get(team.key) ?? index)} ${start}deg ${end}deg`;
   }).join(", ")})`;
+}
+
+function orderColor(index: number) {
+  if (index === 0) return "#059669";
+  if (index === 1) return "#f59e0b";
+  if (index === 2) return "#e11d48";
+  return "#64748b";
 }
 
 function PlayerChip({
