@@ -74,8 +74,6 @@ export type Session = {
   end_time: string | null;
   price_per_session: number | null;
   status: SessionStatus;
-  team_a_score: number | null;
-  team_b_score: number | null;
   notes: string | null;
 };
 
@@ -126,14 +124,12 @@ export type ParsedWhatsAppImport = {
     note?: string;
     confidence: Confidence;
   }>;
-  score?: { teamAScore?: number; teamBScore?: number; confidence: Confidence };
   teams: Array<{
     name?: string;
     teamName?: string;
     team_name?: string;
     label?: string;
     captainName?: string;
-    score?: number;
     players: string[];
     confidence: Confidence;
   }>;

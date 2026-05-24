@@ -21,7 +21,6 @@ export default async function SessionsPage() {
         { header: "Season", cell: (row: any) => row.seasons?.name ?? "-" },
         { header: "Playground", cell: (row: any) => row.playgrounds?.name ?? row.location ?? "-" },
         { header: "Price", cell: (row) => row.price_per_session == null ? "Season default" : money(row.price_per_session) },
-        { header: "Score", cell: (row) => row.team_a_score == null ? "-" : `${row.team_a_score}-${row.team_b_score}` },
         { header: "Status", cell: (row) => <StatusBadge status={row.status} /> }
       ]} />
     </AppShell>

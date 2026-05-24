@@ -28,14 +28,6 @@ export const sessionSchema = z.object({
   end_time: z.string().optional().nullable(),
   price_per_session: optionalNumber,
   status: z.enum(["scheduled", "completed", "cancelled"]).default("scheduled"),
-  team_a_score: z.preprocess(
-    (value) => (value === "" || value == null ? undefined : value),
-    z.coerce.number().int().nonnegative().optional()
-  ),
-  team_b_score: z.preprocess(
-    (value) => (value === "" || value == null ? undefined : value),
-    z.coerce.number().int().nonnegative().optional()
-  ),
   notes: z.string().optional().nullable()
 });
 

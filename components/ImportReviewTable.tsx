@@ -239,7 +239,7 @@ export function ImportReviewTable({
             rows={(parsed.teams ?? []).map((row) => {
               const captain = row.captainName ? `Captain: ${row.captainName}. ` : "";
               const teamName = row.name ?? row.teamName ?? row.team_name ?? row.label ?? "Unnamed team";
-              return `${teamName}${row.score == null ? "" : ` (${row.score})`}: ${captain}${row.players.join(", ")}`;
+              return `${teamName}: ${captain}${row.players.join(", ")}`;
             })}
           />
           <ReviewBlock title="Mini games" rows={(parsed.matches ?? []).map((row) => `Game ${row.matchNumber}: ${row.teamAName} ${row.teamAScore}-${row.teamBScore} ${row.teamBName}`)} />

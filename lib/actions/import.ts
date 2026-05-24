@@ -829,7 +829,7 @@ function removeIgnoredRows(parsed: any, ignoredNames: Set<string>) {
       captainName: team.captainName && !ignoredNames.has(team.captainName) ? team.captainName : undefined,
       players: (team.players ?? []).filter((playerName: string) => !ignoredNames.has(playerName))
     }))
-    .filter((team: any) => team.players.length || team.captainName || team.score != null);
+    .filter((team: any) => team.players.length || team.captainName);
 
   parsed.warnings = [
     ...(parsed.warnings ?? []),
@@ -1014,7 +1014,7 @@ function ensureMatchTeamsAreParsedTeams(parsed: any) {
 }
 
 function hasSessionRows(parsed: any) {
-  return Boolean(parsed.attendance?.length || parsed.goals?.length || parsed.dropouts?.length || parsed.score || parsed.matches?.length);
+  return Boolean(parsed.attendance?.length || parsed.goals?.length || parsed.dropouts?.length || parsed.matches?.length);
 }
 
 async function resolveImportedPlayers({
@@ -1161,7 +1161,7 @@ async function upsertSessionTeams({
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   sessionId: string;
-  teams: Array<{ name?: string; teamName?: string; team_name?: string; label?: string; captainName?: string; score?: number; players?: string[] }>;
+  teams: Array<{ name?: string; teamName?: string; team_name?: string; label?: string; captainName?: string; players?: string[] }>;
   playerIds: Map<string, string>;
   actorId: string;
 }) {
@@ -1176,7 +1176,6 @@ async function upsertSessionTeams({
       name: teamName,
       label: team.label ?? teamName,
       created_by: actorId,
-      ...(team.score != null ? { score: team.score } : {}),
       ...(team.captainName ? { captain_player_id: captainPlayerId } : {})
     };
     const { data, error } = await supabase

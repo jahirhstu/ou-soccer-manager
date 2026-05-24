@@ -30,7 +30,6 @@ language sql stable security definer set search_path = public as $$
           'id', st.id,
           'name', st.name,
           'captainPlayerId', st.captain_player_id,
-          'score', st.score,
           'players', coalesce((
             select jsonb_agg(
               jsonb_build_object(

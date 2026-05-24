@@ -31,8 +31,7 @@ export function parserInstructions() {
   "payments": [{"playerName": string, "matchedPlayerId": null, "amount": number | null, "sessionsCovered": number | null, "paymentMethod": string | null, "note": string | null, "balanceOwed": number | null, "amountSource": "player_line" | "inferred_session_price" | "general_context" | null, "confidence": "low" | "medium" | "high"}],
   "attendance": [{"playerName": string, "matchedPlayerId": null, "status": "confirmed" | "played" | "absent" | "dropped" | "replacement" | "waitlisted", "confidence": "low" | "medium" | "high"}],
   "dropouts": [{"originalPlayerName": string, "replacementPlayerName": string | null, "transferType": "credit_to_original_player" | "replacement_owes_original_player" | "replacement_paid_admin" | "no_credit" | "manual_adjustment" | null, "note": string | null, "confidence": "low" | "medium" | "high"}],
-  "score": null | {"teamAScore": number | null, "teamBScore": number | null, "confidence": "low" | "medium" | "high"},
-  "teams": [{"name": string | null, "teamName": string | null, "team_name": string | null, "label": string | null, "captainName": string | null, "score": number | null, "players": string[], "confidence": "low" | "medium" | "high"}],
+  "teams": [{"name": string | null, "teamName": string | null, "team_name": string | null, "label": string | null, "captainName": string | null, "players": string[], "confidence": "low" | "medium" | "high"}],
   "matches": [{"matchNumber": number, "teamAName": string, "teamBName": string, "teamAScore": number, "teamBScore": number, "confidence": "low" | "medium" | "high"}],
   "goals": [{"scorerName": string, "assistName": string | null, "count": number | null, "team": "A" | "B" | null, "teamName": string | null, "note": string | null, "confidence": "low" | "medium" | "high"}],
   "warnings": string[]
@@ -40,7 +39,7 @@ export function parserInstructions() {
 
 Classify importType:
 - season_signup: season roster/signup message with season name, season dates, total sessions, full season cost, numbered player list, season payments, partial payments, balances left.
-- session_update: one session message with session name, date, duration/time, playground/location, who is in/out/played, drop-ins, session payments, score, goals, assists, dropouts, replacements.
+- session_update: one session message with session name, date, duration/time, playground/location, who is in/out/played, drop-ins, session payments, mini-game scores, goals, assists, dropouts, replacements.
 
 Rules:
 - Return pure JSON only. No markdown.
@@ -49,7 +48,7 @@ Rules:
 - Extract session.name when a specific session/game title/name is present.
 - Extract playground, field, venue, ground, or location into session.location.
 - Extract duration text into session.duration when exact start/end times are not present.
-- If teams are listed, populate teams with team name/label, captainName, players, and score when present. Supports 2 or 3 teams.
+- If teams are listed, populate teams with team name/label, captainName, and players. Supports 2 or 3 teams.
 - If mini-games are listed like "Game 1: Team A 2 - 1 Team B", populate matches. A session can contain multiple games.
 - For goals, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the player name before dash/bracket and parse payment info beside that name.
@@ -81,7 +80,6 @@ export function normalizeParsedJson(value: any, rawText: string): ParsedWhatsApp
     payments: normalizePayments(parsed.payments ?? []),
     attendance: normalizeAttendance(parsed.attendance ?? []),
     dropouts: normalizeDropouts(parsed.dropouts ?? []),
-    score: parsed.score,
     teams: normalizeTeams(parsed.teams ?? []),
     matches: normalizeMatches(parsed.matches ?? []),
     goals: parsed.goals ?? [],

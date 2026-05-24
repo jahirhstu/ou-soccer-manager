@@ -38,7 +38,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             <span>{(session as any)?.playgrounds?.name ?? session?.location ?? "-"}</span>
             <span>{session?.price_per_session == null ? "Season default price" : `${money(session.price_per_session)} session price`}</span>
             {session?.status ? <StatusBadge status={session.status} /> : null}
-            <span>Score: {session?.team_a_score ?? "-"}-{session?.team_b_score ?? "-"}</span>
           </div>
           <form action={updateSessionPrice} className="mt-4 flex max-w-sm gap-2">
             <input name="session_id" type="hidden" value={id} />

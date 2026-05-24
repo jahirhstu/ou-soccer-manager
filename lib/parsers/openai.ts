@@ -73,7 +73,7 @@ Return only data that is explicitly present or strongly implied.
 
 Classify importType:
 - season_signup: a season signup/roster message, usually includes season name, season dates, total sessions, full season cost, numbered player list, season payments, partial payments, balances left.
-- session_update: a single-session message, usually includes session name, date, duration/time, playground/location, who is in/out/played, 2 or 3 teams, team scores, drop-ins, payments for one game, score, goals, assists, dropouts, replacements.
+- session_update: a single-session message, usually includes session name, date, duration/time, playground/location, who is in/out/played, 2 or 3 teams, mini-game scores, drop-ins, payments for one game, goals, assists, dropouts, replacements.
 
 Important rules:
 - Do not invent players from general prose, headings, email addresses, locations, rules, or examples.
@@ -81,7 +81,7 @@ Important rules:
 - Extract session.name when a specific session/game title/name is present.
 - Extract playground, field, venue, ground, or location into session.location.
 - Extract duration text into session.duration when exact start/end times are not present.
-- If teams are listed, extract each team with its optional teamName/team_name, captain, players, and score if present.
+- If teams are listed, extract each team with its optional teamName/team_name, captain, and players.
 - If mini-games are listed like "Game 1: Team A 2 - 1 Team B", extract them into matches. A session can contain multiple games.
 - For each goal, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the name before the dash/bracket and parse payment info beside that name.
@@ -122,7 +122,6 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     payments: normalizePayments(parsed.payments ?? []),
     attendance: normalizeAttendance(parsed.attendance ?? []),
     dropouts: normalizeDropouts(parsed.dropouts ?? []),
-    score: parsed.score,
     teams: normalizeTeams(parsed.teams ?? []),
     matches: normalizeMatches(parsed.matches ?? []),
     goals: parsed.goals ?? [],
@@ -253,7 +252,7 @@ const nullableAmountSource = { type: ["string", "null"], enum: ["player_line", "
 const parsedWhatsAppImportJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "score", "teams", "matches", "goals", "warnings"],
+  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "teams", "matches", "goals", "warnings"],
   properties: {
     rawText: { type: "string" },
     importType: { type: "string", enum: ["season_signup", "session_update"] },
@@ -367,34 +366,18 @@ const parsedWhatsAppImportJsonSchema = {
         }
       }
     },
-    score: {
-      anyOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["teamAScore", "teamBScore", "confidence"],
-          properties: {
-            teamAScore: nullableNumber,
-            teamBScore: nullableNumber,
-            confidence: confidenceSchema
-          }
-        },
-        { type: "null" }
-      ]
-    },
     teams: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "teamName", "team_name", "label", "captainName", "score", "players", "confidence"],
+        required: ["name", "teamName", "team_name", "label", "captainName", "players", "confidence"],
         properties: {
           name: nullableString,
           teamName: nullableString,
           team_name: nullableString,
           label: nullableString,
           captainName: nullableString,
-          score: nullableNumber,
           players: { type: "array", items: { type: "string" } },
           confidence: confidenceSchema
         }

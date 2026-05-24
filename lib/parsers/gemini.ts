@@ -100,7 +100,7 @@ function parserInstructions() {
 
 Classify importType:
 - season_signup: season roster/signup message with season name, season dates, total sessions, full season cost, numbered player list, season payments, partial payments, balances left.
-- session_update: one session message with session name, date, duration/time, playground/location, who is in/out/played, 2 or 3 teams, team scores, drop-ins, session payments, score, goals, assists, dropouts, replacements.
+- session_update: one session message with session name, date, duration/time, playground/location, who is in/out/played, 2 or 3 teams, mini-game scores, drop-ins, session payments, goals, assists, dropouts, replacements.
 
 Rules:
 - Do not invent players from prose, headings, emails, locations, rules, or examples.
@@ -108,7 +108,7 @@ Rules:
 - Extract session.name when a specific session/game title/name is present.
 - Extract playground, field, venue, ground, or location into session.location.
 - Extract duration text into session.duration when exact start/end times are not present.
-- If teams are listed, extract each team with its optional teamName/team_name, captain, players, and score if present.
+- If teams are listed, extract each team with its optional teamName/team_name, captain, and players.
 - If mini-games are listed like "Game 1: Team A 2 - 1 Team B", extract them into matches. A session can contain multiple games.
 - For each goal, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the player name before dash/bracket and parse payment info beside that name.
@@ -144,7 +144,6 @@ function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport 
     payments: normalizePayments(parsed.payments ?? []),
     attendance: normalizeAttendance(parsed.attendance ?? []),
     dropouts: normalizeDropouts(parsed.dropouts ?? []),
-    score: parsed.score,
     teams: normalizeTeams(parsed.teams ?? []),
     matches: normalizeMatches(parsed.matches ?? []),
     goals: parsed.goals ?? [],
@@ -274,8 +273,8 @@ const nullableAmountSource = { type: "string", nullable: true, enum: ["player_li
 
 const geminiParsedWhatsAppImportSchema = {
   type: "object",
-  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "score", "teams", "matches", "goals", "warnings"],
-  propertyOrdering: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "score", "teams", "matches", "goals", "warnings"],
+  required: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "teams", "matches", "goals", "warnings"],
+  propertyOrdering: ["rawText", "importType", "confidence", "season", "session", "players", "payments", "attendance", "dropouts", "teams", "matches", "goals", "warnings"],
   properties: {
     rawText: { type: "string" },
     importType: { type: "string", enum: ["season_signup", "session_update"] },
@@ -375,30 +374,18 @@ const geminiParsedWhatsAppImportSchema = {
         }
       }
     },
-    score: {
-      type: "object",
-      nullable: true,
-      required: ["teamAScore", "teamBScore", "confidence"],
-      propertyOrdering: ["teamAScore", "teamBScore", "confidence"],
-      properties: {
-        teamAScore: nullableNumber,
-        teamBScore: nullableNumber,
-        confidence: confidenceSchema
-      }
-    },
     teams: {
       type: "array",
       items: {
         type: "object",
-        required: ["name", "teamName", "team_name", "label", "captainName", "score", "players", "confidence"],
-        propertyOrdering: ["name", "teamName", "team_name", "label", "captainName", "score", "players", "confidence"],
+        required: ["name", "teamName", "team_name", "label", "captainName", "players", "confidence"],
+        propertyOrdering: ["name", "teamName", "team_name", "label", "captainName", "players", "confidence"],
         properties: {
           name: nullableString,
           teamName: nullableString,
           team_name: nullableString,
           label: nullableString,
           captainName: nullableString,
-          score: nullableNumber,
           players: { type: "array", items: { type: "string" } },
           confidence: confidenceSchema
         }

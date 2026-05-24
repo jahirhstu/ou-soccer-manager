@@ -23,7 +23,6 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
     const warnings: string[] = [];
     const unpairedDropoutIndexes: number[] = [];
     let pendingMatchNumber: number | undefined;
-    let score: ParsedWhatsAppImport["score"];
     let date: string | undefined;
     const seasonInfo = extractSeasonInfo(lines);
     const isSeasonSignup = Boolean(seasonInfo.totalSessions || seasonInfo.fullSeasonCost || seasonInfo.endDate);
@@ -83,11 +82,6 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       }
       if (isLikelyChatEventLine(line)) {
         lineNames.forEach((name) => players.set(name, { name, confidence: "medium" }));
-      }
-
-      const scoreMatch = line.match(/\b(?:score\s*)?(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\b/i);
-      if (scoreMatch) {
-        score = { teamAScore: Number(scoreMatch[1]), teamBScore: Number(scoreMatch[2]), confidence: /score/i.test(line) ? "high" : "medium" };
       }
 
       if (detectPaymentIntent(line)) {
@@ -183,7 +177,6 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       payments,
       attendance: dedupeAttendance(attendance),
       dropouts,
-      score,
       teams,
       matches: dedupeMatches(matches),
       goals,
@@ -217,11 +210,10 @@ function parseTeamLine(line: string): ParsedWhatsAppImport["teams"][number] | nu
   const match = line.match(/^(team\s*[A-C1-3]|team\s+\w+|[A-C])\s*(?:\((\d+)\)|:\s*|\-\s*)(.+)$/i);
   if (!match) return null;
   const name = normalizePlayerName(match[1]);
-  const score = match[2] ? Number(match[2]) : undefined;
   const captainName = extractCaptainName(match[3]);
   const players = extractNames(match[3]).filter((playerName) => !["Vs", "Captain"].includes(playerName));
   if (!players.length) return null;
-  return { name, label: name, captainName, score, players, confidence: "medium" };
+  return { name, label: name, captainName, players, confidence: "medium" };
 }
 
 function extractCaptainName(value: string) {

@@ -77,8 +77,6 @@ create table public.sessions (
   end_time time,
   price_per_session numeric(10,2),
   status text not null default 'scheduled' check (status in ('scheduled', 'completed', 'cancelled')),
-  team_a_score integer,
-  team_b_score integer,
   notes text,
   created_by uuid references public.profiles(id),
   created_at timestamptz default now(),
@@ -158,7 +156,6 @@ create table public.session_teams (
   name text not null,
   label text,
   captain_player_id uuid references public.players(id) on delete set null,
-  score integer,
   notes text,
   created_by uuid references public.profiles(id),
   created_at timestamptz default now(),
@@ -555,21 +552,32 @@ language sql stable security definer set search_path = public as $$
     where (p_season_id is null or s.season_id = p_season_id)
       and exists (
         select 1
-        from public.session_teams st
-        where st.session_id = s.id
-          and st.score is not null
+        from public.session_matches sm
+        where sm.session_id = s.id
       )
     order by s.session_date desc, s.created_at desc
     limit 1
   ),
   scored_teams as (
     select
-      st.session_id,
+      sm.session_id,
+      sm.team_a_id team_id,
       st.name,
-      st.score
-    from public.session_teams st
-    join latest_session ls on ls.id = st.session_id
-    where st.score is not null
+      sum(sm.team_a_score)::integer score
+    from public.session_matches sm
+    join public.session_teams st on st.id = sm.team_a_id
+    join latest_session ls on ls.id = sm.session_id
+    group by sm.session_id, sm.team_a_id, st.name
+    union all
+    select
+      sm.session_id,
+      sm.team_b_id team_id,
+      st.name,
+      sum(sm.team_b_score)::integer score
+    from public.session_matches sm
+    join public.session_teams st on st.id = sm.team_b_id
+    join latest_session ls on ls.id = sm.session_id
+    group by sm.session_id, sm.team_b_id, st.name
   ),
   score_summary as (
     select
@@ -583,13 +591,13 @@ language sql stable security definer set search_path = public as $$
   ),
   winners as (
     select
-      st.session_id,
-      string_agg(st.name, ', ' order by st.name) names,
+      scored.session_id,
+      string_agg(scored.name, ', ' order by scored.name) names,
       count(*) winner_count
-    from scored_teams st
+    from scored_teams scored
     cross join score_summary ss
-    where st.score = ss.top_score
-    group by st.session_id
+    where scored.score = ss.top_score
+    group by scored.session_id
   )
   select
     ls.id session_id,
@@ -707,7 +715,6 @@ language sql stable security definer set search_path = public as $$
           'id', st.id,
           'name', st.name,
           'captainPlayerId', st.captain_player_id,
-          'score', st.score,
           'players', coalesce((
             select jsonb_agg(
               jsonb_build_object(
