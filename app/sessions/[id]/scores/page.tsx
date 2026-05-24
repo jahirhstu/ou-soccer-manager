@@ -18,7 +18,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     supabase.from("session_matches").select("*").eq("session_id", id).order("match_number"),
     supabase
       .from("goals")
-      .select("id,match_id,scorer_id,assist_player_id,session_team_id,goal_count")
+      .select("id,match_id,scorer_id,assist_player_id,goal_type,goal_count")
       .eq("session_id", id)
       .not("match_id", "is", null)
   ]);
@@ -38,13 +38,11 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     matchNumber: match.match_number,
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
-    teamAScore: match.team_a_score,
-    teamBScore: match.team_b_score,
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,
       assistPlayerId: goal.assist_player_id ?? "",
-      sessionTeamId: goal.session_team_id ?? "",
+      goalType: goal.goal_type === "own_goal" ? "own_goal" : "goal",
       goalCount: goal.goal_count ?? 1
     }))
   }));
@@ -55,7 +53,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
         <section className="panel p-5">
           <h1 className="page-title">Mini-game scores</h1>
           <p className="mt-2 text-sm text-slate-500">
-            {session?.name ?? session?.session_date ?? "Session"}: enter each mini-game score, scorer, and optional assist.
+            {session?.name ?? session?.session_date ?? "Session"}: choose teams and enter goals, assists, and own goals. Scores are calculated from goal events.
           </p>
         </section>
         {!canEdit ? (

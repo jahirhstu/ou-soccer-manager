@@ -14,7 +14,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     supabase.from("payments").select("*,seasons(name)").eq("player_id", id).gt("amount", 0).order("payment_date", { ascending: false }),
     supabase.from("attendance").select("*,sessions(session_date)").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("ledger_entries").select("*").eq("player_id", id).order("created_at", { ascending: false }),
-    supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id),
+    supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id).eq("goal_type", "goal"),
     supabase.from("player_season_payment_summary").select("*").eq("player_id", id)
   ]);
   return (

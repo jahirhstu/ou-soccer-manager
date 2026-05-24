@@ -64,6 +64,7 @@ with playground_metrics as (
   from public.goals g
   join public.sessions ss on ss.id = g.session_id
   left join public.playgrounds pg on pg.id = ss.playground_id
+  where coalesce(g.goal_type, 'goal') = 'goal'
   group by g.scorer_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
   union all
   select
@@ -77,6 +78,7 @@ with playground_metrics as (
   join public.sessions ss on ss.id = g.session_id
   left join public.playgrounds pg on pg.id = ss.playground_id
   where g.assist_player_id is not null
+    and coalesce(g.goal_type, 'goal') = 'goal'
   group by g.assist_player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
 ),
 summarized as (

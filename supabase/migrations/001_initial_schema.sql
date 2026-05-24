@@ -204,6 +204,7 @@ create table public.goals (
   assist_player_id uuid references public.players(id),
   session_team_id uuid references public.session_teams(id) on delete set null,
   team text check (team in ('A', 'B')),
+  goal_type text not null default 'goal' check (goal_type in ('goal', 'own_goal')),
   goal_count integer not null default 1,
   minute integer,
   notes text,
@@ -353,8 +354,8 @@ from public.players p
 cross join public.seasons s
 left join public.sessions ss on ss.season_id = s.id
 left join public.attendance a on a.player_id = p.id and a.session_id = ss.id
-left join public.goals g on g.scorer_id = p.id and g.session_id = ss.id
-left join public.goals ga on ga.assist_player_id = p.id and ga.session_id = ss.id
+left join public.goals g on g.scorer_id = p.id and g.session_id = ss.id and g.goal_type = 'goal'
+left join public.goals ga on ga.assist_player_id = p.id and ga.session_id = ss.id and ga.goal_type = 'goal'
 group by p.id, p.display_name, s.id, s.name;
 
 create or replace view public.player_playground_stats_summary
@@ -382,6 +383,7 @@ with playground_metrics as (
   from public.goals g
   join public.sessions ss on ss.id = g.session_id
   left join public.playgrounds pg on pg.id = ss.playground_id
+  where g.goal_type = 'goal'
   group by g.scorer_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
   union all
   select
@@ -395,6 +397,7 @@ with playground_metrics as (
   join public.sessions ss on ss.id = g.session_id
   left join public.playgrounds pg on pg.id = ss.playground_id
   where g.assist_player_id is not null
+    and g.goal_type = 'goal'
   group by g.assist_player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
 ),
 summarized as (
@@ -472,6 +475,7 @@ language sql stable security definer set search_path = public as $$
     select g.scorer_id as player_id, s.season_id, coalesce(sum(g.goal_count),0)::integer goals
     from public.goals g
     join public.sessions s on s.id = g.session_id
+    where g.goal_type = 'goal'
     group by g.scorer_id, s.season_id
   ),
   assisted as (
@@ -479,6 +483,7 @@ language sql stable security definer set search_path = public as $$
     from public.goals g
     join public.sessions s on s.id = g.session_id
     where g.assist_player_id is not null
+      and g.goal_type = 'goal'
     group by g.assist_player_id, s.season_id
   ),
   last_sessions as (

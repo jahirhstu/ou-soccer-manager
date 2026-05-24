@@ -7,16 +7,14 @@ import { createSupabaseServerClient, getCurrentProfile } from "../supabase/serve
 type MiniGameGoalInput = {
   scorerId?: string;
   assistPlayerId?: string;
-  sessionTeamId?: string;
   goalCount?: number;
+  goalType?: "goal" | "own_goal";
 };
 
 type MiniGameInput = {
   matchNumber: number;
   teamAId: string;
   teamBId: string;
-  teamAScore: number;
-  teamBScore: number;
   goals?: MiniGameGoalInput[];
 };
 
@@ -42,6 +40,15 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
       .eq("session_id", sessionId);
     if (existingError) throw new Error(existingError.message);
 
+    const { data: teamPlayers, error: teamPlayersError } = await supabase
+      .from("session_team_players")
+      .select("session_team_id,player_id")
+      .eq("session_id", sessionId);
+    if (teamPlayersError) throw new Error(teamPlayersError.message);
+
+    const playerTeamIds = new Map((teamPlayers ?? []).map((row) => [String(row.player_id), String(row.session_team_id)]));
+    let savedGames = 0;
+
     const removedMatchIds = (existingMatches ?? [])
       .filter((match) => !requestedMatchNumbers.includes(Number(match.match_number)))
       .map((match) => match.id);
@@ -54,13 +61,18 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
 
     for (const game of games) {
       const matchNumber = Number(game.matchNumber);
-      const teamAScore = Number(game.teamAScore);
-      const teamBScore = Number(game.teamBScore);
       if (!Number.isFinite(matchNumber) || matchNumber <= 0) continue;
       if (!game.teamAId || !game.teamBId || game.teamAId === game.teamBId) continue;
-      if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore)) continue;
       if (seenMatchNumbers.has(matchNumber)) continue;
       seenMatchNumbers.add(matchNumber);
+
+      const normalizedGoals = normalizeMiniGameGoals(game, playerTeamIds);
+      const teamAScore = normalizedGoals
+        .filter((goal) => goal.session_team_id === game.teamAId)
+        .reduce((total, goal) => total + goal.goal_count, 0);
+      const teamBScore = normalizedGoals
+        .filter((goal) => goal.session_team_id === game.teamBId)
+        .reduce((total, goal) => total + goal.goal_count, 0);
 
       const { data: match, error } = await supabase
         .from("session_matches")
@@ -83,22 +95,26 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
       const { error: deleteError } = await supabase.from("goals").delete().eq("session_id", sessionId).eq("match_id", match.id);
       if (deleteError) throw new Error(deleteError.message);
 
-      const goalRows = (game.goals ?? [])
+      const goalRows = normalizedGoals
         .map((goal) => ({
           session_id: sessionId,
           match_id: match.id,
           scorer_id: goal.scorerId,
-          assist_player_id: goal.assistPlayerId || null,
-          session_team_id: goal.sessionTeamId || null,
-          goal_count: Math.max(1, Number(goal.goalCount ?? 1) || 1),
+          assist_player_id: goal.assist_player_id,
+          session_team_id: goal.session_team_id,
+          goal_type: goal.goal_type,
+          goal_count: goal.goal_count,
+          notes: goal.goal_type === "own_goal" ? "Own goal" : null,
           created_by: profile.id
-        }))
-        .filter((goal) => goal.scorer_id);
+        }));
       if (goalRows.length) {
         const { error: goalError } = await supabase.from("goals").insert(goalRows);
         if (goalError) throw new Error(goalError.message);
       }
+      savedGames += 1;
     }
+
+    if (!savedGames) return { error: "No valid mini-games were saved. Select two different teams for at least one game." };
 
     revalidatePath(`/sessions/${sessionId}`);
     revalidatePath(`/sessions/${sessionId}/scores`);
@@ -109,6 +125,34 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not save mini-game scores." };
   }
+}
+
+function normalizeMiniGameGoals(game: MiniGameInput, playerTeamIds: Map<string, string>) {
+  return (game.goals ?? [])
+    .map((goal) => {
+      const scorerId = String(goal.scorerId ?? "");
+      const goalType = goal.goalType === "own_goal" ? "own_goal" : "goal";
+      const scorerTeamId = playerTeamIds.get(scorerId);
+      const sessionTeamId = goalType === "own_goal"
+        ? scorerTeamId === game.teamAId
+          ? game.teamBId
+          : scorerTeamId === game.teamBId
+            ? game.teamAId
+            : ""
+        : scorerTeamId === game.teamAId || scorerTeamId === game.teamBId
+          ? scorerTeamId
+          : "";
+      const assistPlayerId = goalType === "own_goal" ? "" : String(goal.assistPlayerId ?? "");
+      const assistTeamId = assistPlayerId ? playerTeamIds.get(assistPlayerId) : undefined;
+      return {
+        scorerId,
+        assist_player_id: assistTeamId === scorerTeamId ? assistPlayerId : null,
+        session_team_id: sessionTeamId || null,
+        goal_type: goalType,
+        goal_count: Math.max(1, Number(goal.goalCount ?? 1) || 1)
+      };
+    })
+    .filter((goal) => goal.scorerId && goal.session_team_id);
 }
 
 export async function saveTeamLineup(_: unknown, formData: FormData) {

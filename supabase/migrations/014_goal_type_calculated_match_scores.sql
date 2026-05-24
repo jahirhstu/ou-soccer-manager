@@ -1,3 +1,95 @@
+alter table public.goals
+  add column if not exists goal_type text not null default 'goal';
+
+alter table public.goals
+  drop constraint if exists goals_goal_type_check;
+
+alter table public.goals
+  add constraint goals_goal_type_check check (goal_type in ('goal', 'own_goal'));
+
+create or replace view public.player_season_stats_summary
+with (security_invoker = true) as
+select
+  p.id player_id,
+  p.display_name player_name,
+  s.id season_id,
+  s.name season_name,
+  count(distinct a.session_id) filter (where a.status in ('played','replacement'))::integer appearances,
+  coalesce(sum(g.goal_count),0)::integer goals,
+  count(ga.id)::integer assists
+from public.players p
+cross join public.seasons s
+left join public.sessions ss on ss.season_id = s.id
+left join public.attendance a on a.player_id = p.id and a.session_id = ss.id
+left join public.goals g on g.scorer_id = p.id and g.session_id = ss.id and g.goal_type = 'goal'
+left join public.goals ga on ga.assist_player_id = p.id and ga.session_id = ss.id and ga.goal_type = 'goal'
+group by p.id, p.display_name, s.id, s.name;
+
+create or replace view public.player_playground_stats_summary
+with (security_invoker = true) as
+with playground_metrics as (
+  select
+    a.player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    0::integer goals,
+    0::integer assists,
+    count(distinct a.session_id) filter (where a.status in ('played','replacement'))::integer appearances
+  from public.attendance a
+  join public.sessions ss on ss.id = a.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  group by a.player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+  union all
+  select
+    g.scorer_id player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    coalesce(sum(g.goal_count),0)::integer goals,
+    0::integer assists,
+    0::integer appearances
+  from public.goals g
+  join public.sessions ss on ss.id = g.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  where g.goal_type = 'goal'
+  group by g.scorer_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+  union all
+  select
+    g.assist_player_id player_id,
+    ss.playground_id,
+    coalesce(pg.name, ss.location, 'Unknown playground') playground_name,
+    0::integer goals,
+    count(g.id)::integer assists,
+    0::integer appearances
+  from public.goals g
+  join public.sessions ss on ss.id = g.session_id
+  left join public.playgrounds pg on pg.id = ss.playground_id
+  where g.assist_player_id is not null
+    and g.goal_type = 'goal'
+  group by g.assist_player_id, ss.playground_id, coalesce(pg.name, ss.location, 'Unknown playground')
+),
+summarized as (
+  select
+    player_id,
+    playground_id,
+    playground_name,
+    sum(goals)::integer goals,
+    sum(assists)::integer assists,
+    sum(appearances)::integer appearances
+  from playground_metrics
+  group by player_id, playground_id, playground_name
+)
+select
+  p.id player_id,
+  p.display_name player_name,
+  s.playground_id,
+  s.playground_name,
+  s.goals,
+  s.assists,
+  s.appearances,
+  case when s.appearances > 0 then round(s.goals::numeric / s.appearances, 2) else 0 end goals_per_appearance
+from summarized s
+join public.players p on p.id = s.player_id;
+
 drop function if exists public.public_player_report();
 
 create or replace function public.public_player_report()
@@ -38,7 +130,7 @@ language sql stable security definer set search_path = public as $$
     select g.scorer_id as player_id, s.season_id, coalesce(sum(g.goal_count),0)::integer goals
     from public.goals g
     join public.sessions s on s.id = g.session_id
-    where coalesce(g.goal_type, 'goal') = 'goal'
+    where g.goal_type = 'goal'
     group by g.scorer_id, s.season_id
   ),
   assisted as (
@@ -46,7 +138,7 @@ language sql stable security definer set search_path = public as $$
     from public.goals g
     join public.sessions s on s.id = g.session_id
     where g.assist_player_id is not null
-      and coalesce(g.goal_type, 'goal') = 'goal'
+      and g.goal_type = 'goal'
     group by g.assist_player_id, s.season_id
   ),
   last_sessions as (

@@ -128,6 +128,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
         <section className="grid gap-3">
           <h2 className="section-title">Goals and assists</h2>
           <DataTable rows={goals ?? []} columns={[
+            { header: "Type", cell: (row) => row.goal_type === "own_goal" ? "Own goal" : "Goal" },
             { header: "Scorer", cell: (row: any) => row.scorer?.display_name ?? "-" },
             { header: "Assist", cell: (row: any) => row.assist?.display_name ?? "-" },
             { header: "Team", cell: (row: any) => row.session_teams?.name ?? row.team ?? "-" },

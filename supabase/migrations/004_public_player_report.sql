@@ -36,6 +36,7 @@ language sql stable security definer set search_path = public as $$
     select g.scorer_id as player_id, s.season_id, coalesce(sum(g.goal_count),0)::integer goals
     from public.goals g
     join public.sessions s on s.id = g.session_id
+    where coalesce(g.goal_type, 'goal') = 'goal'
     group by g.scorer_id, s.season_id
   ),
   assisted as (
@@ -43,6 +44,7 @@ language sql stable security definer set search_path = public as $$
     from public.goals g
     join public.sessions s on s.id = g.session_id
     where g.assist_player_id is not null
+      and coalesce(g.goal_type, 'goal') = 'goal'
     group by g.assist_player_id, s.season_id
   ),
   last_sessions as (
