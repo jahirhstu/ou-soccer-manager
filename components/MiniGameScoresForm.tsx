@@ -5,13 +5,13 @@ import { toast } from "sonner";
 import { Plus, Save, Trash2 } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
 
-type TeamOption = {
+export type TeamOption = {
   id: string;
   name: string;
   players: Array<{ id: string; name: string }>;
 };
 
-type MatchInput = {
+export type MatchInput = {
   key: string;
   matchNumber: number;
   teamAId: string;

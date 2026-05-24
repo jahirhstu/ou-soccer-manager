@@ -1,4 +1,4 @@
-import { MiniGameScoresForm } from "@/components/MiniGameScoresForm";
+import { MiniGameScoresForm, type MatchInput } from "@/components/MiniGameScoresForm";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { AppShell } from "../../../(shell)";
@@ -33,7 +33,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   for (const goal of goals ?? []) {
     goalsByMatch.set(goal.match_id, [...(goalsByMatch.get(goal.match_id) ?? []), goal]);
   }
-  const existingGames = (matches ?? []).map((match: any) => ({
+  const existingGames: MatchInput[] = (matches ?? []).map((match: any) => ({
     key: match.id,
     matchNumber: match.match_number,
     teamAId: match.team_a_id,
@@ -42,7 +42,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       key: goal.id,
       scorerId: goal.scorer_id,
       assistPlayerId: goal.assist_player_id ?? "",
-      goalType: goal.goal_type === "own_goal" ? "own_goal" : "goal",
+      goalType: goal.goal_type === "own_goal" ? "own_goal" as const : "goal" as const,
       goalCount: goal.goal_count ?? 1
     }))
   }));
