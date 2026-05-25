@@ -20,7 +20,7 @@ export default async function PublicFieldStatusPage({
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("public_field_status");
   const allRows = (data ?? []) as FieldStatusRow[];
-  const playgrounds = Array.from(new Set(allRows.map((row) => row.playground_name).filter(Boolean))).sort();
+  const playgrounds = Array.from(new Set(allRows.map((row) => row.playground_name).filter((name): name is string => Boolean(name)))).sort();
   const rows = allRows.filter((row) => {
     if (filters.player && !String(row.player_name ?? "").toLowerCase().includes(filters.player.toLowerCase())) return false;
     if (filters.playground && row.playground_name !== filters.playground) return false;
