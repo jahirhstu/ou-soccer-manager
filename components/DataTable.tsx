@@ -57,8 +57,8 @@ export function DataTable<T>({
                       <span className="truncate">{column.header}</span>
                       <span className="relative grid h-3.5 w-3.5 shrink-0 place-items-center text-slate-400 group-hover:text-pitch">
                         <ArrowDownUp className="h-3.5 w-3.5" data-sort-icon="none" />
-                        <ArrowUp className="h-3.5 w-3.5 text-pitch" data-sort-icon="asc" hidden />
-                        <ArrowDown className="h-3.5 w-3.5 text-pitch" data-sort-icon="desc" hidden />
+                        <ArrowUp className="hidden h-3.5 w-3.5 text-pitch" data-sort-icon="asc" />
+                        <ArrowDown className="hidden h-3.5 w-3.5 text-pitch" data-sort-icon="desc" />
                       </span>
                     </button>
                   </th>
