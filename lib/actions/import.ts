@@ -160,10 +160,13 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       const parsedSessionsCovered = Number(payment.sessionsCovered ?? 0);
       const amountSource = normalizePaymentAmountSource(payment);
       const explicitAmount = Boolean(Number.isFinite(parsedAmount) && parsedAmount > 0 && amountSource === "player_line");
+      const note = String(payment.note ?? "");
+      const pendingWithoutSent = /\bpending\b/i.test(note) && !/\bsent\b/i.test(note);
       const sentWithoutAmount = Boolean(
         parsed.importType === "session_update" &&
         !explicitAmount &&
-        (parsedSessionsCovered > 0 || /\bsent\b/i.test(String(payment.note ?? "")))
+        !pendingWithoutSent &&
+        (/\bsent\b/i.test(note) || (amountSource === "inferred_session_price" && parsedSessionsCovered > 0))
       );
       if (sentWithoutAmount && sessionPrice != null && (creditBeforeSession.get(payment.matchedPlayerId) ?? 0) >= sessionPrice) {
         await supabase.from("audit_logs").insert({

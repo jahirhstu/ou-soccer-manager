@@ -10,6 +10,7 @@ export class GeminiWhatsAppParser implements WhatsAppParser {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       const parsed = await this.fallback.parse(input);
+      parsed.parser = { engine: "rule_based", provider: "gemini", model: getCandidateModels()[0], fallbackUsed: true };
       parsed.warnings.unshift("Gemini parser requested but GEMINI_API_KEY is missing. Used rule-based parser.");
       parsed.confidence = parsed.confidence === "high" ? "medium" : parsed.confidence;
       return parsed;
@@ -24,9 +25,12 @@ export class GeminiWhatsAppParser implements WhatsAppParser {
       const text = extractGeminiText(payload);
       if (!text) throw new Error(`Gemini parser returned no text from ${model}.`);
 
-      return normalizeParsedJson(JSON.parse(text), input);
+      const parsed = normalizeParsedJson(JSON.parse(text), input);
+      parsed.parser = { engine: "llm", provider: "gemini", model };
+      return parsed;
     } catch (error) {
       const parsed = await this.fallback.parse(input);
+      parsed.parser = { engine: "rule_based", provider: "gemini", model: getCandidateModels()[0], fallbackUsed: true };
       parsed.warnings.unshift(`Gemini parser failed. Used rule-based parser. ${error instanceof Error ? error.message : ""}`.trim());
       parsed.confidence = "low";
       return parsed;
@@ -113,6 +117,7 @@ Rules:
 - For each goal, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the player name before dash/bracket and parse payment info beside that name.
 - Parenthesized words like "(Sent)", "(Pending)", "(Dropped)", "(Replaced)", or "(Balance will remain)" are status/payment notes, not part of the player name.
+- In roster/headcount rows, "(Pending)" usually means payment pending, not waitlisted. Keep attendance confirmed unless the row explicitly says waitlist/waitlisted.
 - For season_signup, put roster names in players, but do not create attendance unless one specific session is clearly described.
 - For session_update, attendance applies to the selected session.
 - Full-season paid amount means sessionsCovered equals totalSessions when known.

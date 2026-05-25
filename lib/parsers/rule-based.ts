@@ -171,6 +171,7 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
       rawText: input,
       importType: isSeasonSignup ? "season_signup" : "session_update",
       confidence: warnings.length ? "medium" : "high",
+      parser: { engine: "rule_based", provider: "rule_based" },
       season: buildSeasonDraft(seasonInfo),
       session: buildSessionDraft(date, seasonInfo),
       players: Array.from(players.values()),
@@ -325,7 +326,7 @@ function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo) {
 function rosterAttendanceStatus(body: string): ParsedWhatsAppImport["attendance"][number]["status"] {
   if (/\b(?:dropped|drop|out|balance will remain)\b/i.test(body)) return "dropped";
   if (/\b(?:replaced|replacement)\b/i.test(body)) return "replacement";
-  if (/\bpending\b/i.test(body)) return "waitlisted";
+  if (/\bwaitlist(?:ed)?\b/i.test(body)) return "waitlisted";
   return "confirmed";
 }
 

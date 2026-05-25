@@ -81,6 +81,12 @@ export type ParsedWhatsAppImport = {
   rawText: string;
   importType: "season_signup" | "session_update";
   confidence: Confidence;
+  parser?: {
+    engine: "llm" | "rule_based";
+    provider: "openai" | "gemini" | "ollama" | "rule_based";
+    model?: string;
+    fallbackUsed?: boolean;
+  };
   season?: {
     name?: string;
     startDate?: string;

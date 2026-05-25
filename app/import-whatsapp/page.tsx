@@ -5,12 +5,24 @@ import { MessageSquareText } from "lucide-react";
 
 export default async function ImportWhatsAppPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: players }, { data: aliases }, { data: seasons }, { data: sessions }, { data: playgrounds }] = await Promise.all([
+  const [
+    { data: players },
+    { data: aliases },
+    { data: seasons },
+    { data: sessions },
+    { data: playgrounds },
+    { data: playerReports },
+    { data: ledgerEntries },
+    { data: sessionCharges }
+  ] = await Promise.all([
     supabase.from("players").select("*").order("display_name"),
     supabase.from("player_aliases").select("*").order("match_count", { ascending: false }),
     supabase.from("seasons").select("*").order("name"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }),
-    supabase.from("playgrounds").select("*").order("name")
+    supabase.from("playgrounds").select("*").order("name"),
+    supabase.rpc("public_player_report"),
+    supabase.from("ledger_entries").select("player_id,season_id,session_id,type,amount,sessions_count"),
+    supabase.from("session_player_charges").select("player_id,session_id,amount")
   ]);
   return (
     <AppShell>
@@ -23,7 +35,16 @@ export default async function ImportWhatsAppPage() {
           <p className="text-sm text-slate-500">Parse roster, payments, teams, scores, and attendance before confirming changes.</p>
         </div>
       </div>
-      <ImportReviewTable aliases={aliases ?? []} players={players ?? []} playgrounds={playgrounds ?? []} seasons={seasons ?? []} sessions={sessions ?? []} />
+      <ImportReviewTable
+        aliases={aliases ?? []}
+        ledgerEntries={ledgerEntries ?? []}
+        playerReports={playerReports ?? []}
+        players={players ?? []}
+        playgrounds={playgrounds ?? []}
+        seasons={seasons ?? []}
+        sessionCharges={sessionCharges ?? []}
+        sessions={sessions ?? []}
+      />
     </AppShell>
   );
 }

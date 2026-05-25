@@ -12,12 +12,14 @@ export class OpenAIWhatsAppParser implements WhatsAppParser {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       const parsed = await this.fallback.parse(input);
+      parsed.parser = { engine: "rule_based", provider: "openai", model: process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini", fallbackUsed: true };
       parsed.warnings.unshift("OpenAI parser requested but OPENAI_API_KEY is missing. Used rule-based parser.");
       parsed.confidence = parsed.confidence === "high" ? "medium" : parsed.confidence;
       return parsed;
     }
 
     try {
+      const model = process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini";
       const response = await fetch(OPENAI_RESPONSES_URL, {
         method: "POST",
         headers: {
@@ -25,7 +27,7 @@ export class OpenAIWhatsAppParser implements WhatsAppParser {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini",
+          model,
           input: [
             {
               role: "system",
@@ -55,9 +57,12 @@ export class OpenAIWhatsAppParser implements WhatsAppParser {
       const text = extractResponseText(payload);
       if (!text) throw new Error("OpenAI parser returned no structured text.");
 
-      return normalizeParsedJson(JSON.parse(text), input);
+      const parsed = normalizeParsedJson(JSON.parse(text), input);
+      parsed.parser = { engine: "llm", provider: "openai", model };
+      return parsed;
     } catch (error) {
       const parsed = await this.fallback.parse(input);
+      parsed.parser = { engine: "rule_based", provider: "openai", model: process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini", fallbackUsed: true };
       parsed.warnings.unshift(`OpenAI parser failed. Used rule-based parser. ${error instanceof Error ? error.message : ""}`.trim());
       parsed.confidence = "low";
       return parsed;
@@ -86,6 +91,7 @@ Important rules:
 - For each goal, include teamName when the scorer's team is known.
 - For numbered roster rows, extract the name before the dash/bracket and parse payment info beside that name.
 - Parenthesized words like "(Sent)", "(Pending)", "(Dropped)", "(Replaced)", or "(Balance will remain)" are status/payment notes, not part of the player name.
+- In roster/headcount rows, "(Pending)" usually means payment pending, not waitlisted. Keep attendance confirmed unless the row explicitly says waitlist/waitlisted.
 - For season_signup, list roster players in players. Do not create attendance unless the message clearly describes one specific session.
 - For session_update, attendance should represent the selected session.
 - If a player paid the full season amount, sessionsCovered should equal totalSessions when known.

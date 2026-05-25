@@ -14,10 +14,12 @@ export class OllamaWhatsAppParser implements WhatsAppParser {
       if (!payload.response) throw new Error("Ollama returned no response text.");
 
       const parsed = normalizeParsedJson(JSON.parse(extractJsonObject(payload.response)), input);
+      parsed.parser = { engine: "llm", provider: "ollama", model };
       parsed.warnings.unshift(`Parsed with Ollama model ${model} at ${baseUrl}.`);
       return parsed;
     } catch (error) {
       const parsed = await this.fallback.parse(input);
+      parsed.parser = { engine: "rule_based", provider: "ollama", model, fallbackUsed: true };
       parsed.warnings.unshift(`Ollama parser failed. Used rule-based parser. ${error instanceof Error ? error.message : ""}`.trim());
       parsed.confidence = "low";
       return parsed;
