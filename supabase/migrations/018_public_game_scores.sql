@@ -77,8 +77,8 @@ as $$
 declare
   game_item jsonb;
   goal_item jsonb;
-  match_id uuid;
-  match_number integer;
+  saved_match_id uuid;
+  saved_match_number integer;
   team_a_id uuid;
   team_b_id uuid;
   scorer_id uuid;
@@ -100,7 +100,7 @@ begin
     return jsonb_build_object('error', 'Game score data is invalid.');
   end if;
 
-  delete from public.goals where session_id = p_session_id and match_id is not null;
+  delete from public.goals where session_id = p_session_id and public.goals.match_id is not null;
   delete from public.session_matches where session_id = p_session_id;
 
   for game_item in select value from jsonb_array_elements(p_games)
@@ -111,7 +111,7 @@ begin
       continue;
     end if;
 
-    match_number := case
+    saved_match_number := case
       when coalesce(game_item->>'matchNumber', '') ~ '^[0-9]+$' then greatest(1, (game_item->>'matchNumber')::integer)
       else saved_games + 1
     end;
@@ -131,14 +131,14 @@ begin
     end if;
 
     insert into public.session_matches(session_id, match_number, team_a_id, team_b_id, team_a_score, team_b_score)
-    values (p_session_id, match_number, team_a_id, team_b_id, 0, 0)
+    values (p_session_id, saved_match_number, team_a_id, team_b_id, 0, 0)
     on conflict (session_id, match_number) do update
     set
       team_a_id = excluded.team_a_id,
       team_b_id = excluded.team_b_id,
       team_a_score = 0,
       team_b_score = 0
-    returning id into match_id;
+    returning id into saved_match_id;
 
     for goal_item in
       select value
@@ -195,7 +195,7 @@ begin
       )
       values (
         p_session_id,
-        match_id,
+        saved_match_id,
         scorer_id,
         assist_player_id,
         scoring_team_id,
@@ -213,7 +213,7 @@ begin
 
     update public.session_matches
     set team_a_score = calculated_team_a_score, team_b_score = calculated_team_b_score
-    where id = match_id;
+    where id = saved_match_id;
 
     saved_games := saved_games + 1;
   end loop;

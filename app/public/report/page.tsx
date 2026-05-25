@@ -73,13 +73,13 @@ export default async function PublicPlayerReportPage({
             <div className="grid gap-2 sm:grid-cols-3 xl:w-[38rem]">
               <SummaryCard
                 icon={<Trophy className="h-5 w-5 text-amber-600" />}
-                label="Top scorer"
+                label={topScorer?.score === "joint_top_scorer" ? "Joint top scorer" : "Top scorer"}
                 subLabel={topScorer ? `${topScorer.value ?? 0} goals | ${topScorer.team_name ?? "No team"}` : "No goals yet"}
                 value={topScorer?.player_name ?? "-"}
               />
               <SummaryCard
                 icon={<Handshake className="h-5 w-5 text-pitch" />}
-                label="Top assist"
+                label={topAssist?.score === "joint_top_assister" ? "Joint top assister" : "Top assist"}
                 subLabel={topAssist ? `${topAssist.value ?? 0} assists | ${topAssist.team_name ?? "No team"}` : "No assists yet"}
                 value={topAssist?.player_name ?? "-"}
               />

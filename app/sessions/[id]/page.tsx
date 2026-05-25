@@ -80,14 +80,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           )}
         </section>
         <section className="grid gap-3">
-          <h2 className="section-title">Teams</h2>
-          <DataTable rows={teams ?? []} columns={[
-            { header: "Team", cell: (row) => row.name },
-            { header: "Captain", cell: (row: any) => row.captain?.display_name ?? "-" },
-            { header: "Players", cell: (row: any) => (row.session_team_players ?? []).map((item: any) => item.players?.display_name).filter(Boolean).join(", ") || "-" }
-          ]} />
-        </section>
-        <section className="grid gap-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <h2 className="section-title">Game standings</h2>
@@ -116,6 +108,24 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           ]} />
         </section>
         <section className="grid gap-3">
+          <h2 className="section-title">Teams</h2>
+          <DataTable rows={teams ?? []} columns={[
+            { header: "Team", cell: (row) => row.name },
+            { header: "Captain", cell: (row: any) => row.captain?.display_name ?? "-" },
+            { header: "Players", cell: (row: any) => (row.session_team_players ?? []).map((item: any) => item.players?.display_name).filter(Boolean).join(", ") || "-" }
+          ]} />
+        </section>
+        <section className="grid gap-3">
+          <h2 className="section-title">Goals and assists</h2>
+          <DataTable rows={goals ?? []} columns={[
+            { header: "Type", cell: (row) => row.goal_type === "own_goal" ? "Own goal" : "Goal" },
+            { header: "Scorer", cell: (row: any) => row.scorer?.display_name ?? "-" },
+            { header: "Assist", cell: (row: any) => row.assist?.display_name ?? "-" },
+            { header: "Team", cell: (row: any) => row.session_teams?.name ?? row.team ?? "-" },
+            { header: "Goals", cell: (row) => row.goal_count ?? 1 }
+          ]} />
+        </section>
+        <section className="grid gap-3">
           <h2 className="section-title">Attendance</h2>
           <DataTable rows={attendance ?? []} columns={[
             { header: "Player", cell: (row: any) => row.players?.display_name ?? "-" },
@@ -129,16 +139,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             { header: "Original", cell: (row: any) => row.original?.display_name ?? "-" },
             { header: "Replacement", cell: (row: any) => row.replacement?.display_name ?? "-" },
             { header: "Transfer type", cell: (row) => row.transfer_type.replaceAll("_", " ") }
-          ]} />
-        </section>
-        <section className="grid gap-3">
-          <h2 className="section-title">Goals and assists</h2>
-          <DataTable rows={goals ?? []} columns={[
-            { header: "Type", cell: (row) => row.goal_type === "own_goal" ? "Own goal" : "Goal" },
-            { header: "Scorer", cell: (row: any) => row.scorer?.display_name ?? "-" },
-            { header: "Assist", cell: (row: any) => row.assist?.display_name ?? "-" },
-            { header: "Team", cell: (row: any) => row.session_teams?.name ?? row.team ?? "-" },
-            { header: "Goals", cell: (row) => row.goal_count ?? 1 }
           ]} />
         </section>
       </div>
