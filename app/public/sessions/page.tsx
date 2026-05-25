@@ -4,6 +4,7 @@ import { DataTable } from "@/components/DataTable";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
+import { compareNumberAsc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { money } from "@/lib/utils";
 
@@ -18,14 +19,21 @@ type PublicSessionRow = {
   status: string | null;
 };
 
-export default async function PublicSessionsPage() {
+type SortKey = "date_desc" | "date_asc" | "name" | "season" | "field" | "status" | "price";
+
+export default async function PublicSessionsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ sort?: string }>;
+}) {
+  const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
   const [{ data, error }, profile] = await Promise.all([
     supabase.rpc("public_sessions"),
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
-  const rows = (data ?? []) as PublicSessionRow[];
+  const rows = sortRows((data ?? []) as PublicSessionRow[], sortKey(filters.sort));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -69,4 +77,21 @@ export default async function PublicSessionsPage() {
 function numberValue(value: number | string | null | undefined) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function sortKey(value: string | undefined): SortKey {
+  if (value === "date_asc" || value === "name" || value === "season" || value === "field" || value === "status" || value === "price") return value;
+  return "date_desc";
+}
+
+function sortRows(rows: PublicSessionRow[], key: SortKey) {
+  return [...rows].sort((left, right) => {
+    if (key === "date_asc") return compareText(left.session_date, right.session_date) || compareText(left.name, right.name);
+    if (key === "name") return compareText(left.name, right.name) || compareText(right.session_date, left.session_date);
+    if (key === "season") return compareText(left.season_name, right.season_name) || compareText(right.session_date, left.session_date);
+    if (key === "field") return compareText(left.playground_name ?? left.location, right.playground_name ?? right.location) || compareText(right.session_date, left.session_date);
+    if (key === "status") return compareText(left.status, right.status) || compareText(right.session_date, left.session_date);
+    if (key === "price") return compareNumberAsc(left.price_per_session, right.price_per_session) || compareText(right.session_date, left.session_date);
+    return compareText(right.session_date, left.session_date) || compareText(left.name, right.name);
+  });
 }

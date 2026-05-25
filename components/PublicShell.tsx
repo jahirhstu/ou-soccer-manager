@@ -30,7 +30,7 @@ export async function PublicShell({
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-pitch text-sm font-bold text-white shadow-sm">OU</span>
             <span className="min-w-0 leading-tight">
               <span className="block truncate">Soccer Manager</span>
-              <span className="block text-xs font-medium text-slate-500">{useAppNav ? "Club operations" : "Public dashboard"}</span>
+              <span className="block text-xs font-medium text-slate-500">{useAppNav ? "Club operations" : "Report Gallery"}</span>
             </span>
           </Link>
           {isLoggedIn ? (
@@ -63,7 +63,7 @@ export async function PublicShell({
           {!useAppNav ? (
             <div className="mb-2 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
               <BarChart3 className="h-4 w-4" />
-              Public reports
+              Report Gallery
             </div>
           ) : null}
           {useAppNav ? <AdminNav role={profile.role} /> : <PublicNav />}

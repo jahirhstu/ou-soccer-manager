@@ -15,7 +15,7 @@ export function PublicHeader({
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-pitch text-sm font-bold text-white shadow-sm">OU</span>
           <span className="min-w-0 leading-tight">
             <span className="block truncate">Soccer Manager</span>
-            <span className="block text-xs font-medium text-slate-500">Public reports</span>
+            <span className="block text-xs font-medium text-slate-500">Report Gallery</span>
           </span>
         </Link>
         {returnHref ? (

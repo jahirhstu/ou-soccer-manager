@@ -1,13 +1,16 @@
 import { DataTable } from "@/components/DataTable";
 import { cn, money } from "@/lib/utils";
+import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import { Download } from "lucide-react";
 
+type SortKey = "player" | "season" | "status" | "paid" | "played" | "remaining" | "credit" | "owes";
+
 export default async function PaymentReportPage({
   searchParams
 }: {
-  searchParams: Promise<{ player?: string; sessionId?: string; status?: string }>;
+  searchParams: Promise<{ player?: string; sessionId?: string; status?: string; sort?: string }>;
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -19,12 +22,12 @@ export default async function PaymentReportPage({
       : Promise.resolve({ data: null })
   ]);
   const attendedPlayerIds = new Set((sessionAttendance ?? []).map((row) => row.player_id));
-  const filteredRows = (data ?? []).filter((row) => {
+  const filteredRows = sortRows((data ?? []).filter((row) => {
     if (filters.player && !String(row.player_name ?? "").toLowerCase().includes(filters.player.toLowerCase())) return false;
     if (filters.sessionId && !attendedPlayerIds.has(row.player_id)) return false;
     if (filters.status && filters.status !== "all" && paymentStatus(row) !== filters.status) return false;
     return true;
-  });
+  }), sortKey(filters.sort));
   const csv = [
     "Player,Season,Amount paid,Paid sessions,Played sessions,Remaining sessions,Used,Credit,Refund due,Owes",
     ...filteredRows.map((row) =>
@@ -104,6 +107,24 @@ function paymentStatusLabel(status: string) {
   if (status === "credit") return "Has credit";
   if (status === "no_payment") return "No payment";
   return "Settled";
+}
+
+function sortKey(value: string | undefined): SortKey {
+  if (value === "season" || value === "status" || value === "paid" || value === "played" || value === "remaining" || value === "credit" || value === "owes") return value;
+  return "player";
+}
+
+function sortRows(rows: any[], key: SortKey) {
+  return [...rows].sort((left, right) => {
+    if (key === "season") return compareText(left.season_name, right.season_name) || compareText(left.player_name, right.player_name);
+    if (key === "status") return compareText(paymentStatusLabel(paymentStatus(left)), paymentStatusLabel(paymentStatus(right))) || compareText(left.player_name, right.player_name);
+    if (key === "paid") return compareNumberDesc(left.total_paid_amount, right.total_paid_amount) || compareText(left.player_name, right.player_name);
+    if (key === "played") return compareNumberDesc(left.total_played_sessions, right.total_played_sessions) || compareText(left.player_name, right.player_name);
+    if (key === "remaining") return compareNumberDesc(left.remaining_sessions, right.remaining_sessions) || compareText(left.player_name, right.player_name);
+    if (key === "credit") return compareNumberDesc(left.credit_amount, right.credit_amount) || compareText(left.player_name, right.player_name);
+    if (key === "owes") return compareNumberDesc(left.owes_money, right.owes_money) || compareText(left.player_name, right.player_name);
+    return compareText(left.player_name, right.player_name) || compareText(left.season_name, right.season_name);
+  });
 }
 
 function BalanceBadge({ status }: { status: string }) {
