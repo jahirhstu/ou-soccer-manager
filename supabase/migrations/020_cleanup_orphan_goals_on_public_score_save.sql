@@ -1,0 +1,161 @@
+create or replace function public.public_save_game_scores(p_session_id uuid, p_games jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  game_item jsonb;
+  goal_item jsonb;
+  match_id uuid;
+  match_number integer;
+  team_a_id uuid;
+  team_b_id uuid;
+  scorer_id uuid;
+  assist_player_id uuid;
+  scorer_team_id uuid;
+  assist_team_id uuid;
+  scoring_team_id uuid;
+  goal_type text;
+  goal_count integer;
+  calculated_team_a_score integer;
+  calculated_team_b_score integer;
+  saved_games integer := 0;
+begin
+  if p_session_id is null or not exists (select 1 from public.sessions where id = p_session_id) then
+    return jsonb_build_object('error', 'Session was not found.');
+  end if;
+
+  if jsonb_typeof(coalesce(p_games, '[]'::jsonb)) <> 'array' then
+    return jsonb_build_object('error', 'Game score data is invalid.');
+  end if;
+
+  delete from public.goals
+  where session_id = p_session_id
+    and (match_id is not null or (match_id is null and session_team_id is null));
+  delete from public.session_matches where session_id = p_session_id;
+
+  for game_item in select value from jsonb_array_elements(p_games)
+  loop
+    if not coalesce(game_item->>'teamAId', '') ~* '^[0-9a-f-]{36}$'
+      or not coalesce(game_item->>'teamBId', '') ~* '^[0-9a-f-]{36}$'
+    then
+      continue;
+    end if;
+
+    match_number := case
+      when coalesce(game_item->>'matchNumber', '') ~ '^[0-9]+$' then greatest(1, (game_item->>'matchNumber')::integer)
+      else saved_games + 1
+    end;
+    team_a_id := (game_item->>'teamAId')::uuid;
+    team_b_id := (game_item->>'teamBId')::uuid;
+    calculated_team_a_score := 0;
+    calculated_team_b_score := 0;
+
+    if team_a_id = team_b_id then
+      continue;
+    end if;
+
+    if not exists (select 1 from public.session_teams where id = team_a_id and session_id = p_session_id)
+      or not exists (select 1 from public.session_teams where id = team_b_id and session_id = p_session_id)
+    then
+      continue;
+    end if;
+
+    insert into public.session_matches(session_id, match_number, team_a_id, team_b_id, team_a_score, team_b_score)
+    values (p_session_id, match_number, team_a_id, team_b_id, 0, 0)
+    on conflict (session_id, match_number) do update
+    set
+      team_a_id = excluded.team_a_id,
+      team_b_id = excluded.team_b_id,
+      team_a_score = 0,
+      team_b_score = 0
+    returning id into match_id;
+
+    for goal_item in
+      select value
+      from jsonb_array_elements(
+        case when jsonb_typeof(game_item->'goals') = 'array' then game_item->'goals' else '[]'::jsonb end
+      )
+    loop
+      if not coalesce(goal_item->>'scorerId', '') ~* '^[0-9a-f-]{36}$' then
+        continue;
+      end if;
+
+      scorer_id := (goal_item->>'scorerId')::uuid;
+      select session_team_id into scorer_team_id
+      from public.session_team_players
+      where session_id = p_session_id and player_id = scorer_id
+      limit 1;
+
+      if scorer_team_id is null or scorer_team_id not in (team_a_id, team_b_id) then
+        continue;
+      end if;
+
+      goal_type := case when goal_item->>'goalType' = 'own_goal' then 'own_goal' else 'goal' end;
+      scoring_team_id := case
+        when goal_type = 'own_goal' and scorer_team_id = team_a_id then team_b_id
+        when goal_type = 'own_goal' and scorer_team_id = team_b_id then team_a_id
+        else scorer_team_id
+      end;
+      goal_count := case
+        when coalesce(goal_item->>'goalCount', '') ~ '^[0-9]+$' then greatest(1, (goal_item->>'goalCount')::integer)
+        else 1
+      end;
+      assist_player_id := null;
+      assist_team_id := null;
+
+      if goal_type = 'goal' and coalesce(goal_item->>'assistPlayerId', '') ~* '^[0-9a-f-]{36}$' then
+        select player_id, session_team_id into assist_player_id, assist_team_id
+        from public.session_team_players
+        where session_id = p_session_id and player_id = (goal_item->>'assistPlayerId')::uuid
+        limit 1;
+        if assist_team_id is distinct from scorer_team_id then
+          assist_player_id := null;
+        end if;
+      end if;
+
+      insert into public.goals(
+        session_id,
+        match_id,
+        scorer_id,
+        assist_player_id,
+        session_team_id,
+        goal_type,
+        goal_count,
+        notes
+      )
+      values (
+        p_session_id,
+        match_id,
+        scorer_id,
+        assist_player_id,
+        scoring_team_id,
+        goal_type,
+        goal_count,
+        case when goal_type = 'own_goal' then 'Own goal' else null end
+      );
+
+      if scoring_team_id = team_a_id then
+        calculated_team_a_score := calculated_team_a_score + goal_count;
+      elsif scoring_team_id = team_b_id then
+        calculated_team_b_score := calculated_team_b_score + goal_count;
+      end if;
+    end loop;
+
+    update public.session_matches
+    set team_a_score = calculated_team_a_score, team_b_score = calculated_team_b_score
+    where id = match_id;
+
+    saved_games := saved_games + 1;
+  end loop;
+
+  if saved_games = 0 then
+    return jsonb_build_object('error', 'No valid games were saved. Select two different teams for at least one game.');
+  end if;
+
+  return jsonb_build_object('success', true, 'savedGames', saved_games);
+end;
+$$;
+
+grant execute on function public.public_save_game_scores(uuid, jsonb) to anon, authenticated, service_role;

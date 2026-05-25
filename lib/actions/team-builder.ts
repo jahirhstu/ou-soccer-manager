@@ -26,7 +26,13 @@ export async function saveSessionTeamBuilder(_: unknown, formData: FormData) {
     if (error) throw new Error(error.message);
 
     revalidatePath(`/public/sessions/${sessionId}/teams`);
+    revalidatePath(`/public/sessions/${sessionId}`);
+    revalidatePath(`/public/sessions/${sessionId}/scores`);
     revalidatePath(`/sessions/${sessionId}`);
+    revalidatePath(`/sessions/${sessionId}/scores`);
+    revalidatePath("/public/report");
+    revalidatePath("/public/leaderboards");
+    revalidatePath("/reports/leaderboards");
     return { success: true, message: "Teams saved successfully." };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

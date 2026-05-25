@@ -73,6 +73,7 @@ export function TeamBuilder({
   const assignedIds = new Set(teams.flatMap((team) => team.playerIds));
   const poolPlayers = players.filter((player) => !assignedIds.has(player.id));
   const savePayload = teams.map((team) => ({
+    id: isUuid(team.key) ? team.key : undefined,
     name: team.name,
     captainPlayerId: team.captainPlayerId || null,
     playerIds: team.playerIds
@@ -558,4 +559,8 @@ function shuffledKeys(teams: DraftTeam[]) {
 
 function maxExistingTeamSize(teams: TeamBuilderTeam[]) {
   return teams.reduce((max, team) => Math.max(max, team.players.length), 0);
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }

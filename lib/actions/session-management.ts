@@ -49,6 +49,14 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     const playerTeamIds = new Map((teamPlayers ?? []).map((row) => [String(row.player_id), String(row.session_team_id)]));
     let savedGames = 0;
 
+    const { error: orphanGoalError } = await supabase
+      .from("goals")
+      .delete()
+      .eq("session_id", sessionId)
+      .is("match_id", null)
+      .is("session_team_id", null);
+    if (orphanGoalError) throw new Error(orphanGoalError.message);
+
     const removedMatchIds = (existingMatches ?? [])
       .filter((match) => !requestedMatchNumbers.includes(Number(match.match_number)))
       .map((match) => match.id);

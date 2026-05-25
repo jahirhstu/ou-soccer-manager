@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, BarChart3, Menu } from "lucide-react";
+import { BarChart3, LogOut, Menu } from "lucide-react";
 import { AdminNav } from "@/components/AdminNav";
 import { PublicNav } from "@/components/PublicNav";
+import { logoutAction } from "@/lib/actions/auth";
 import { getCurrentProfile } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/types";
 
@@ -32,16 +33,18 @@ export async function PublicShell({
               <span className="block text-xs font-medium text-slate-500">{useAppNav ? "Club operations" : "Public dashboard"}</span>
             </span>
           </Link>
-          {returnHref ? (
-            <Link className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" href={returnHref}>
-              <ArrowLeft className="h-4 w-4" />
-              {returnLabel ?? "Return"}
-            </Link>
-          ) : !isLoggedIn ? (
+          {isLoggedIn ? (
+            <form action={logoutAction}>
+              <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm">
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </form>
+          ) : (
             <Link className="btn-primary min-h-9 px-3 text-xs sm:text-sm" href="/login">
               Login
             </Link>
-          ) : null}
+          )}
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl gap-5 px-3 py-5 sm:px-4 md:grid-cols-[230px_1fr]">
