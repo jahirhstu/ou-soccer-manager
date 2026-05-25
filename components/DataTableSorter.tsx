@@ -64,9 +64,9 @@ function updateButtons(buttons: HTMLButtonElement[], activeColumn: number, direc
     button.setAttribute("aria-label", isActive ? `Sort ${label} ${direction === "asc" ? "descending" : "ascending"}` : `Sort ${label} ascending`);
     for (const icon of Array.from(button.querySelectorAll("[data-sort-icon]"))) {
       if (icon.getAttribute("data-sort-icon") === (isActive ? direction : "none")) {
-        icon.removeAttribute("hidden");
+        icon.classList.remove("hidden");
       } else {
-        icon.setAttribute("hidden", "");
+        icon.classList.add("hidden");
       }
     }
   }
