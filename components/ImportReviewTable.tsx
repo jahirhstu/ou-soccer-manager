@@ -242,7 +242,7 @@ export function ImportReviewTable({
               return `${teamName}: ${captain}${row.players.join(", ")}`;
             })}
           />
-          <ReviewBlock title="Mini games" rows={(parsed.matches ?? []).map((row) => `Game ${row.matchNumber}: ${row.teamAName} ${row.teamAScore}-${row.teamBScore} ${row.teamBName}`)} />
+          <ReviewBlock title="Game scores" rows={(parsed.matches ?? []).map((row) => `Game ${row.matchNumber}: ${row.teamAName} ${row.teamAScore}-${row.teamBScore} ${row.teamBName}`)} />
           <ReviewBlock title="Dropouts" rows={parsed.dropouts.map((row) => `${row.originalPlayerName}${row.replacementPlayerName ? ` -> ${row.replacementPlayerName}` : ""}`)} />
           <ReviewBlock title="Goals" rows={parsed.goals.map((row) => `${row.scorerName}${row.assistName ? ` assisted by ${row.assistName}` : ""}${row.teamName ? ` (${row.teamName})` : ""} x${row.count ?? 1}`)} />
           <div className="panel p-4">

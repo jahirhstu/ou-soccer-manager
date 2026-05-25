@@ -21,12 +21,12 @@ type MiniGameInput = {
 export async function saveMiniGameScores(_: unknown, formData: FormData) {
   try {
     const profile = await getCurrentProfile();
-    if (!hasPermission(profile?.role, "manage_attendance")) return { error: "Only captains and admins can save mini-game scores." };
+    if (!hasPermission(profile?.role, "manage_attendance")) return { error: "Only captains and admins can save game scores." };
 
     const sessionId = String(formData.get("sessionId") ?? "");
     const games = JSON.parse(String(formData.get("gamesJson") ?? "[]")) as MiniGameInput[];
     if (!sessionId) return { error: "Session is missing." };
-    if (!Array.isArray(games)) return { error: "Mini-game data is invalid." };
+    if (!Array.isArray(games)) return { error: "Game score data is invalid." };
 
     const supabase = await createSupabaseServerClient();
     const seenMatchNumbers = new Set<number>();
@@ -114,16 +114,44 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
       savedGames += 1;
     }
 
-    if (!savedGames) return { error: "No valid mini-games were saved. Select two different teams for at least one game." };
+    if (!savedGames) return { error: "No valid games were saved. Select two different teams for at least one game." };
 
     revalidatePath(`/sessions/${sessionId}`);
     revalidatePath(`/sessions/${sessionId}/scores`);
     revalidatePath("/reports/leaderboards");
     revalidatePath("/reports/stats");
     revalidatePath("/public/report");
-    return { success: true, message: "Mini-game scores saved." };
+    return { success: true, message: "Game scores saved." };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Could not save mini-game scores." };
+    return { error: error instanceof Error ? error.message : "Could not save game scores." };
+  }
+}
+
+export async function savePublicGameScores(_: unknown, formData: FormData) {
+  try {
+    const sessionId = String(formData.get("sessionId") ?? "");
+    const games = JSON.parse(String(formData.get("gamesJson") ?? "[]")) as MiniGameInput[];
+    if (!sessionId) return { error: "Session is missing." };
+    if (!Array.isArray(games)) return { error: "Game score data is invalid." };
+
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("public_save_game_scores", {
+      p_games: games,
+      p_session_id: sessionId
+    });
+    if (error) throw new Error(error.message);
+    if (data && typeof data === "object" && "error" in data) return { error: String(data.error) };
+
+    revalidatePath(`/public/sessions/${sessionId}`);
+    revalidatePath(`/public/sessions/${sessionId}/scores`);
+    revalidatePath(`/sessions/${sessionId}`);
+    revalidatePath(`/sessions/${sessionId}/scores`);
+    revalidatePath("/public/report");
+    revalidatePath("/public/leaderboards");
+    revalidatePath("/reports/leaderboards");
+    return { success: true, message: "Game scores saved." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not save game scores." };
   }
 }
 
@@ -169,6 +197,19 @@ export async function saveTeamLineup(_: unknown, formData: FormData) {
     if (!Array.isArray(positions)) return { error: "Lineup positions are invalid." };
 
     const supabase = await createSupabaseServerClient();
+    if (profile?.role === "captain") {
+      if (!profile.player_id) return { error: "Your captain account is not linked to a player profile yet." };
+      const { data: team, error: teamError } = await supabase
+        .from("session_teams")
+        .select("id")
+        .eq("id", sessionTeamId)
+        .eq("session_id", sessionId)
+        .eq("captain_player_id", profile.player_id)
+        .maybeSingle();
+      if (teamError) throw new Error(teamError.message);
+      if (!team) return { error: "Captains can only save their own team lineup." };
+    }
+
     const { error } = await supabase.from("session_team_lineups").upsert(
       {
         session_id: sessionId,

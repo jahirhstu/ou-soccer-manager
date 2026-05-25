@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CalendarDays, Lock, MapPin, ShieldCheck } from "lucide-react";
-import { PublicHeader } from "@/components/PublicHeader";
+import { PublicShell } from "@/components/PublicShell";
 import { TeamBuilder, type TeamBuilderData } from "@/components/TeamBuilder";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
@@ -16,9 +16,8 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
   const canEdit = hasPermission(profile?.role, "manage_attendance");
 
   return (
-    <main className="min-h-screen">
-      <PublicHeader returnHref={canEdit ? `/sessions/${id}` : undefined} returnLabel="Return to session" />
-      <div className="mx-auto grid max-w-7xl gap-3 px-2 py-3 sm:gap-5 sm:px-4 sm:py-8">
+    <PublicShell returnHref={canEdit ? `/sessions/${id}` : undefined} returnLabel="Return">
+      <div className="grid gap-3 sm:gap-5">
         <header className="panel p-3 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 gap-3">
@@ -75,6 +74,6 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Session not found.</div>
         ) : null}
       </div>
-    </main>
+    </PublicShell>
   );
 }

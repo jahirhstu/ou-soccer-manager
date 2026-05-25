@@ -29,15 +29,23 @@ type GoalInput = {
 
 export function MiniGameScoresForm({
   existingGames,
+  heading = "Game scores",
+  saveAction = saveMiniGameScores,
   sessionId,
+  sessionLabel = "Session",
   teams
 }: {
   existingGames: MatchInput[];
+  heading?: string;
+  saveAction?: typeof saveMiniGameScores;
   sessionId: string;
+  sessionLabel?: string;
   teams: TeamOption[];
 }) {
-  const [state, action, pending] = useActionState(saveMiniGameScores, null as { success?: boolean; message?: string; error?: string } | null);
+  const [state, action, pending] = useActionState(saveAction, null as { success?: boolean; message?: string; error?: string } | null);
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
+  const [newTeamAId, setNewTeamAId] = useState(teams[0]?.id ?? "");
+  const [newTeamBId, setNewTeamBId] = useState(teams[1]?.id ?? "");
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -46,7 +54,8 @@ export function MiniGameScoresForm({
     }
     return map;
   }, [teams]);
-  const payload = games.map((game) => ({
+  const numberedGames = games.map((game, index) => ({ ...game, matchNumber: index + 1 }));
+  const payload = numberedGames.map((game) => ({
     matchNumber: game.matchNumber,
     teamAId: game.teamAId,
     teamBId: game.teamBId,
@@ -85,9 +94,9 @@ export function MiniGameScoresForm({
       ...current,
       {
         key: `new-game-${Date.now()}`,
-        matchNumber: current.length ? Math.max(...current.map((game) => game.matchNumber)) + 1 : 1,
-        teamAId: teams[0]?.id ?? "",
-        teamBId: teams[1]?.id ?? "",
+        matchNumber: current.length + 1,
+        teamAId: newTeamAId,
+        teamBId: newTeamBId,
         goals: []
       }
     ]);
@@ -97,15 +106,24 @@ export function MiniGameScoresForm({
     <form action={action} className="grid gap-4">
       <input name="sessionId" type="hidden" value={sessionId} />
       <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
-      <div className="panel flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
-        <p className="max-w-2xl text-sm text-slate-500">Pick teams for each mini-game. Scores are calculated automatically from goals, assists, and own goals.</p>
-        <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" onClick={addGame} type="button">
-          <Plus className="h-4 w-4" />
-          Add game
-        </button>
+      <div className="panel grid gap-3 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div>
+          <h1 className="page-title">{heading}</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {sessionLabel}: select teams, add a game, then record goals, assists, and own goals. Scores are calculated from goal events.
+          </p>
+        </div>
+        <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_auto] sm:items-end lg:w-auto">
+          <TeamSelect label="Team A" onChange={setNewTeamAId} teams={teams} value={newTeamAId} />
+          <TeamSelect label="Team B" onChange={setNewTeamBId} teams={teams} value={newTeamBId} />
+          <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={!newTeamAId || !newTeamBId || newTeamAId === newTeamBId} onClick={addGame} type="button">
+            <Plus className="h-4 w-4" />
+            Add game
+          </button>
+        </div>
       </div>
-      <div className="grid gap-3 xl:grid-cols-2">
-        {games.map((game) => {
+      <div className="grid gap-3">
+        {numberedGames.map((game) => {
           const selectablePlayers = uniquePlayers([
             ...(playersByTeam.get(game.teamAId) ?? []),
             ...(playersByTeam.get(game.teamBId) ?? [])
@@ -115,36 +133,27 @@ export function MiniGameScoresForm({
           const teamBName = teamName(teams, game.teamBId);
           return (
             <section className="panel overflow-hidden" key={game.key}>
-              <div className="flex items-center justify-between gap-3 border-b border-line bg-slate-50 px-3 py-2.5 sm:px-4">
-                <div className="flex items-center gap-2">
-                  <span className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">{game.matchNumber}</span>
-                  <div>
-                    <h2 className="text-sm font-semibold text-ink">Mini-game {game.matchNumber}</h2>
-                    <p className="text-xs text-slate-500">{teamAName} {gameScore.teamAScore}-{gameScore.teamBScore} {teamBName}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-slate-50 px-3 py-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">G{game.matchNumber}</div>
+                  <div className="truncate text-sm font-semibold text-ink">{teamAName}</div>
+                  <div className="grid h-8 min-w-16 place-items-center rounded-md border border-line bg-white px-2 text-base font-black text-ink">
+                    {gameScore.teamAScore}-{gameScore.teamBScore}
                   </div>
+                  <div className="truncate text-sm font-semibold text-ink">{teamBName}</div>
                 </div>
-                <button className="btn-secondary min-h-8 px-2" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
+                <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
                   <Trash2 className="h-4 w-4" />
+                  Remove
                 </button>
               </div>
-              <div className="grid gap-3 p-3 sm:p-4">
-                <div className="flex flex-wrap items-end gap-2">
-                  <label className="grid w-16 gap-1 text-xs font-semibold uppercase text-slate-500">
-                    Game
-                    <input className="input min-h-9 px-2 text-center text-sm font-semibold" max="99" min="1" onChange={(event) => updateGame(game.key, { matchNumber: Number(event.target.value) })} type="number" value={game.matchNumber} />
-                  </label>
-                  <TeamSelect className="w-44 max-w-full sm:w-52" label="Team A" onChange={(value) => updateGame(game.key, { teamAId: value })} teams={teams} value={game.teamAId} />
-                  <div className="grid min-h-9 w-12 place-items-center rounded-md border border-line bg-emerald-50 text-sm font-black text-emerald-700">{gameScore.teamAScore}</div>
-                </div>
-                <div className="flex flex-wrap items-end gap-2 sm:pl-[72px]">
-                  <TeamSelect className="w-44 max-w-full sm:w-52" label="Team B" onChange={(value) => updateGame(game.key, { teamBId: value })} teams={teams} value={game.teamBId} />
-                  <div className="grid min-h-9 w-12 place-items-center rounded-md border border-line bg-amber-50 text-sm font-black text-amber-700">{gameScore.teamBScore}</div>
-                </div>
-              </div>
 
-              <div className="grid gap-2 border-t border-line bg-white p-3 sm:p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-ink">Goals and assists</h3>
+              <div className="grid gap-2 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Goals and assists</h3>
+                    <p className="text-xs text-slate-500">{teamAName} vs {teamBName}</p>
+                  </div>
                   <button
                     className="btn-secondary min-h-8 px-3 text-xs"
                     onClick={() =>
@@ -166,7 +175,7 @@ export function MiniGameScoresForm({
                   const assistPlayers = goal.scorerId && scorerTeamId ? playersByTeam.get(scorerTeamId) ?? [] : selectablePlayers;
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
-                      <div className="grid gap-2 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(10rem,1.2fr)_minmax(10rem,1.2fr)]">
+                      <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
                         <GoalTypeSelect onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
                         <PlayerSelect
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
@@ -176,17 +185,17 @@ export function MiniGameScoresForm({
                         />
                         <PlayerSelect disabled={goal.goalType === "own_goal"} label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={assistPlayers} value={goal.assistPlayerId} optional />
                       </div>
-                      <div className="flex flex-wrap items-end justify-between gap-2">
-                        <div className="rounded-md border border-line bg-white px-3 py-2 text-xs text-slate-600">
-                          Score credit: <span className="font-semibold text-ink">{teamName(teams, inferScoringTeamId(goal, game, teamByPlayer))}</span>
-                        </div>
-                        <label className="grid w-24 gap-1 text-xs font-semibold uppercase text-slate-500">
-                          Goals
-                          <input className="input min-h-9 px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="grid w-20 shrink-0 gap-1 text-xs font-semibold uppercase text-slate-500">
+                          Count
+                          <input className="input min-h-9 w-full px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
                         </label>
-                        <button className="btn-secondary min-h-9 w-11 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
+                        <button className="btn-secondary min-h-9 w-11 shrink-0 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
                           <Trash2 className="h-4 w-4" />
                         </button>
+                        <div className="min-h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-2 py-2 text-xs text-slate-600">
+                          Credit: <span className="font-semibold text-ink">{teamName(teams, inferScoringTeamId(goal, game, teamByPlayer))}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -199,7 +208,7 @@ export function MiniGameScoresForm({
       </div>
       <button className="btn-primary sticky bottom-3 z-10 w-fit shadow-lg sm:static sm:shadow-sm" disabled={pending || !teams.length}>
         <Save className="h-4 w-4" />
-        {pending ? "Saving..." : "Save mini-games"}
+        {pending ? "Saving..." : "Save game scores"}
       </button>
     </form>
   );
@@ -241,14 +250,8 @@ function PlayerSelect({ className = "", disabled = false, label, onChange, optio
   );
 }
 
-function defaultGames(teams: TeamOption[]) {
-  return Array.from({ length: 6 }, (_, index) => ({
-    key: `game-${index + 1}`,
-    matchNumber: index + 1,
-    teamAId: teams[index % Math.max(teams.length, 1)]?.id ?? "",
-    teamBId: teams[(index + 1) % Math.max(teams.length, 1)]?.id ?? "",
-    goals: []
-  }));
+function defaultGames(_teams: TeamOption[]) {
+  return [];
 }
 
 function uniquePlayers(players: Array<{ id: string; name: string }>) {

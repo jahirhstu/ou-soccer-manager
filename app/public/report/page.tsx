@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Handshake, Search, ShieldCheck, Trophy } from "lucide-react";
-import { PublicHeader } from "@/components/PublicHeader";
+import { PublicShell } from "@/components/PublicShell";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
@@ -13,8 +13,6 @@ type PublicPlayerReportRow = {
   total_paid_amount: number | string | null;
   total_played_sessions: number | string | null;
   estimated_used_amount: number | string | null;
-  credit_amount: number | string | null;
-  owes_money: number | string | null;
   balance_amount: number | string | null;
   goals: number | null;
   assists: number | null;
@@ -22,14 +20,15 @@ type PublicPlayerReportRow = {
   last_attended_sessions: string[] | null;
 };
 
-type LatestSessionWinnerRow = {
-  session_id: string;
+type PublicHighlightRow = {
+  metric: "latest_winner" | "top_scorer" | "top_assist";
+  player_name: string | null;
+  team_name: string | null;
+  captain_name: string | null;
+  value: number | null;
   session_name: string | null;
   session_date: string | null;
-  winning_team_name: string | null;
-  winning_score: number | null;
-  runner_up_score: number | null;
-  is_draw: boolean | null;
+  score: string | null;
 };
 
 export default async function PublicPlayerReportPage({
@@ -39,58 +38,56 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [{ data, error }, { data: winnerData, error: winnerError }, profile] = await Promise.all([
+  const [{ data, error }, { data: highlightsData, error: highlightsError }, profile] = await Promise.all([
     supabase.rpc("public_player_report"),
-    supabase.rpc("public_latest_session_winner", { p_season_id: filters.season || null }),
+    supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
     getCurrentProfile()
   ]);
-  const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const rows = ((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
     if (filters.q && !String(row.player_name ?? "").toLowerCase().includes(filters.q.toLowerCase())) return false;
     if (filters.season && row.season_id !== filters.season) return false;
     return true;
   });
+  const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
-  const topScorer = topPlayer(rows, "goals");
-  const topAssist = topPlayer(rows, "assists");
-  const latestWinner = ((winnerData ?? []) as LatestSessionWinnerRow[])[0];
+  const highlights = ((highlightsData ?? []) as PublicHighlightRow[]).reduce((map, row) => map.set(row.metric, row), new Map<PublicHighlightRow["metric"], PublicHighlightRow>());
+  const topScorer = highlights.get("top_scorer");
+  const topAssist = highlights.get("top_assist");
+  const latestWinner = highlights.get("latest_winner");
 
   return (
-    <main className="min-h-screen">
-      <PublicHeader returnHref={showReturnLink ? "/reports/payments" : undefined} returnLabel="Return to report" />
-      <div className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:py-8">
+    <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
+      <div className="grid gap-5">
         <header className="panel overflow-hidden">
-          <div className="grid gap-5 bg-white p-5 sm:p-6 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="grid gap-5 bg-white p-5 sm:p-6 xl:grid-cols-[1fr_auto] xl:items-center">
             <div className="min-w-0">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Players status
-                </span>
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer players status</h1>
+              <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Public dashboard
+              </span>
+              <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer status</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Shared read-only view for player balances, goals, assists, appearances, and recent attendance.
+                Read-only player balances, recent attendance, scoring leaders, and latest winning team.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3 md:w-[34rem]">
+            <div className="grid gap-2 sm:grid-cols-3 xl:w-[38rem]">
               <SummaryCard
                 icon={<Trophy className="h-5 w-5 text-amber-600" />}
                 label="Top scorer"
-                subLabel={topScorer ? `${topScorer.value} goals` : "No goals yet"}
-                value={topScorer?.name ?? "-"}
+                subLabel={topScorer ? `${topScorer.value ?? 0} goals | ${topScorer.team_name ?? "No team"}` : "No goals yet"}
+                value={topScorer?.player_name ?? "-"}
               />
               <SummaryCard
                 icon={<Handshake className="h-5 w-5 text-pitch" />}
                 label="Top assist"
-                subLabel={topAssist ? `${topAssist.value} assists` : "No assists yet"}
-                value={topAssist?.name ?? "-"}
+                subLabel={topAssist ? `${topAssist.value ?? 0} assists | ${topAssist.team_name ?? "No team"}` : "No assists yet"}
+                value={topAssist?.player_name ?? "-"}
               />
               <SummaryCard
                 icon={<ShieldCheck className="h-5 w-5 text-emerald-600" />}
                 label="Latest winner"
-                subLabel={winnerError ? "Run latest migration" : latestWinner ? winnerScore(latestWinner) : "No scored session"}
-                value={latestWinner?.winning_team_name ?? "-"}
+                subLabel={highlightsError ? "Run latest migration" : latestWinner ? `${latestWinner.score ?? "-"} | Captain: ${latestWinner.captain_name ?? "-"}` : "No scored session"}
+                value={latestWinner?.team_name ?? "-"}
               />
             </div>
           </div>
@@ -116,7 +113,7 @@ export default async function PublicPlayerReportPage({
           </div>
         ) : null}
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <section className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {rows.map((row) => {
             const status = balanceStatus(row);
             return (
@@ -150,21 +147,11 @@ export default async function PublicPlayerReportPage({
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No player report rows match this filter.</div>
         ) : null}
       </div>
-    </main>
+    </PublicShell>
   );
 }
 
-function SummaryCard({
-  icon,
-  label,
-  subLabel,
-  value
-}: {
-  icon: ReactNode;
-  label: string;
-  subLabel: string;
-  value: string;
-}) {
+function SummaryCard({ icon, label, subLabel, value }: { icon: ReactNode; label: string; subLabel: string; value: string }) {
   return (
     <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
       {icon}
@@ -255,26 +242,4 @@ function uniqueSeasons(rows: PublicPlayerReportRow[]) {
     if (row.season_id) seasons.set(row.season_id, row.season_name ?? "Season");
   }
   return Array.from(seasons.entries()).map(([id, name]) => ({ id, name }));
-}
-
-function topPlayer(rows: PublicPlayerReportRow[], field: "goals" | "assists") {
-  const totalsByPlayer = rows.reduce((totals, row) => {
-    const value = Number(row[field] ?? 0);
-    if (value > 0) {
-      const current = totals.get(row.player_id) ?? { name: row.player_name ?? "Unknown player", value: 0 };
-      totals.set(row.player_id, { ...current, value: current.value + value });
-    }
-    return totals;
-  }, new Map<string, { name: string; value: number }>());
-
-  return Array.from(totalsByPlayer.values()).reduce<{ name: string; value: number } | null>((leader, row) => {
-    if (!leader || row.value > leader.value) return row;
-    return leader;
-  }, null);
-}
-
-function winnerScore(row: LatestSessionWinnerRow) {
-  if (row.winning_score == null) return row.session_name ?? "Latest scored session";
-  const score = row.runner_up_score == null ? String(row.winning_score) : `${row.winning_score}-${row.runner_up_score}`;
-  return `${score}${row.is_draw ? " draw" : ""}`;
 }

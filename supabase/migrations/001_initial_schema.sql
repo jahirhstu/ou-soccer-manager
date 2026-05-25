@@ -810,6 +810,11 @@ returns uuid language sql stable security definer set search_path = public as $$
   select player_id from public.profiles where id = auth.uid();
 $$;
 
+create or replace function public.app_player_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select public.current_player_id();
+$$;
+
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin

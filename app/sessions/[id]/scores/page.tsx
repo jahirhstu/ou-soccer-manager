@@ -50,18 +50,18 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   return (
     <AppShell>
       <div className="grid gap-5">
-        <section className="panel p-5">
-          <h1 className="page-title">Mini-game scores</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {session?.name ?? session?.session_date ?? "Session"}: choose teams and enter goals, assists, and own goals. Scores are calculated from goal events.
-          </p>
-        </section>
         {!canEdit ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can edit mini-game scores.</div>
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can edit game scores.</div>
         ) : teamOptions.length < 2 ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering mini-game scores.</div>
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
         ) : (
-          <MiniGameScoresForm existingGames={existingGames} sessionId={id} teams={teamOptions} />
+          <MiniGameScoresForm
+            existingGames={existingGames}
+            heading="Game scores"
+            sessionId={id}
+            sessionLabel={session?.name ?? session?.session_date ?? "Session"}
+            teams={teamOptions}
+          />
         )}
       </div>
     </AppShell>

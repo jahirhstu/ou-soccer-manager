@@ -40,7 +40,7 @@ export default async function LeaderboardsPage() {
       <div className="grid gap-6">
         <section className="panel p-5">
           <h1 className="page-title">Leaderboards</h1>
-          <p className="mt-2 text-sm text-slate-500">Overall mini-game performance across imported session matches.</p>
+          <p className="mt-2 text-sm text-slate-500">Overall game performance across imported session matches.</p>
         </section>
         <Leaderboard title="Team leaderboard" rows={teamRows} />
         <Leaderboard title="Captain leaderboard" rows={captainRows} />

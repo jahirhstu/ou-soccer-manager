@@ -32,7 +32,7 @@ export default async function DashboardPage() {
             <p className="text-sm text-slate-500">Active season: {activeSeason?.name ?? "No active season"}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn-secondary" href="/public/report"><ExternalLink className="h-4 w-4" /> Public Report</Link>
+            <Link className="btn-secondary" href="/public/report" rel="noopener noreferrer" target="_blank"><ExternalLink className="h-4 w-4" /> Public Report</Link>
             <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
           </div>
         </div>

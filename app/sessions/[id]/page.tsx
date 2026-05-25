@@ -1,15 +1,16 @@
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { completeSession, updateSessionPrice } from "@/lib/actions/crud";
+import { hasPermission } from "@/lib/permissions";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import Link from "next/link";
 
 export default async function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-  const [{ data: session }, { data: attendance }, { data: dropouts }, { data: goals }, { data: teams }, { data: matches }] = await Promise.all([
+  const [{ data: session }, { data: attendance }, { data: dropouts }, { data: goals }, { data: teams }, { data: matches }, profile] = await Promise.all([
     supabase.from("sessions").select("*,seasons(name),playgrounds(name)").eq("id", id).single(),
     supabase.from("attendance").select("*,players(display_name)").eq("session_id", id),
     supabase.from("dropouts").select("*,original:players!dropouts_original_player_id_fkey(display_name),replacement:players!dropouts_replacement_player_id_fkey(display_name)").eq("session_id", id),
@@ -23,8 +24,11 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
       .from("session_matches")
       .select("*,team_a:session_teams!session_matches_team_a_id_fkey(name),team_b:session_teams!session_matches_team_b_id_fkey(name)")
       .eq("session_id", id)
-      .order("match_number")
+      .order("match_number"),
+    getCurrentProfile()
   ]);
+  const isAdmin = hasPermission(profile?.role, "manage_all");
+  const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const matchRows = (matches ?? []) as MatchRow[];
   const standings = buildSessionStandings(matchRows);
   return (
@@ -39,36 +43,38 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             <span>{session?.price_per_session == null ? "Season default price" : `${money(session.price_per_session)} session price`}</span>
             {session?.status ? <StatusBadge status={session.status} /> : null}
           </div>
-          <form action={updateSessionPrice} className="mt-4 flex max-w-sm gap-2">
-            <input name="session_id" type="hidden" value={id} />
-            <input
-              className="input flex-1"
-              defaultValue={session?.price_per_session ?? ""}
-              name="price_per_session"
-              placeholder="Session price override"
-              step="0.01"
-              type="number"
-            />
-            <button className="btn-secondary">Update price</button>
-          </form>
+          {isAdmin ? (
+            <form action={updateSessionPrice} className="mt-4 flex max-w-sm gap-2">
+              <input name="session_id" type="hidden" value={id} />
+              <input
+                className="input flex-1"
+                defaultValue={session?.price_per_session ?? ""}
+                name="price_per_session"
+                placeholder="Session price override"
+                step="0.01"
+                type="number"
+              />
+              <button className="btn-secondary">Update price</button>
+            </form>
+          ) : null}
           {session?.status !== "completed" ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>Build teams</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/teams/edit`}>Edit team players</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Mini-game scores</Link>
+              {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
-              <form action={completeSession}>
-                <input name="session_id" type="hidden" value={id} />
-                <button className="btn-primary">
-                  Mark session completed
-                </button>
-              </form>
+              {isAdmin ? (
+                <form action={completeSession}>
+                  <input name="session_id" type="hidden" value={id} />
+                  <button className="btn-primary">
+                    Mark session completed
+                  </button>
+                </form>
+              ) : null}
             </div>
           ) : (
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View team builder</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/teams/edit`}>Edit team players</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Mini-game scores</Link>
+              {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
             </div>
           )}
@@ -84,7 +90,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
         <section className="grid gap-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <h2 className="section-title">Mini-game standings</h2>
+              <h2 className="section-title">Game standings</h2>
               <p className="text-sm text-slate-500">Win = 3 points, draw = 1 point. Head-to-head is shown for quick tie checks.</p>
             </div>
           </div>
@@ -103,7 +109,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           ]} />
         </section>
         <section className="grid gap-3">
-          <h2 className="section-title">Mini games</h2>
+          <h2 className="section-title">Game scores</h2>
           <DataTable rows={matchRows} columns={[
             { header: "Game", cell: (row) => row.match_number },
             { header: "Result", cell: (row) => `${row.team_a?.name ?? "-"} ${row.team_a_score}-${row.team_b_score} ${row.team_b?.name ?? "-"}` }

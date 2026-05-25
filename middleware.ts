@@ -5,6 +5,16 @@ import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public"];
+const captainAllowedPaths = ["/sessions", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
+
+function isCaptainAllowedRoute(pathname: string) {
+  if (pathname === "/sessions") return true;
+  if (captainAllowedPaths.some((path) => path !== "/sessions" && (pathname === path || pathname.startsWith(`${path}/`)))) {
+    return true;
+  }
+  if (/^\/sessions\/[^/]+$/.test(pathname)) return true;
+  return /^\/sessions\/[^/]+\/(?:lineups|scores)(?:\/.*)?$/.test(pathname);
+}
 
 type CookieToSet = {
   name: string;
@@ -41,8 +51,17 @@ export async function middleware(request: NextRequest) {
   if (!data.user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (data.user && request.nextUrl.pathname === "/") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (data.user && request.nextUrl.pathname === "/") return NextResponse.redirect(new URL("/public/report", request.url));
+  if (data.user && !isPublic) {
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
+    if (profile?.role === "player") {
+      return NextResponse.redirect(new URL("/public/report", request.url));
+    }
+    if (profile?.role === "captain") {
+      if (request.nextUrl.pathname === "/dashboard") return NextResponse.redirect(new URL("/sessions", request.url));
+      const isCaptainRoute = isCaptainAllowedRoute(request.nextUrl.pathname);
+      if (!isCaptainRoute) return NextResponse.redirect(new URL("/sessions", request.url));
+    }
   }
   return response;
 }

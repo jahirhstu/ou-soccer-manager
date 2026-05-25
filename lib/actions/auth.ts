@@ -9,6 +9,11 @@ export async function loginAction(formData: FormData): Promise<void> {
   const password = String(formData.get("password"));
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+  const { data: auth } = await supabase.auth.getUser();
+  if (auth.user) {
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle();
+    if (profile?.role === "captain") redirect("/sessions");
+  }
   redirect("/dashboard");
 }
 

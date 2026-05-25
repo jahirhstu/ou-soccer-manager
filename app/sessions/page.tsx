@@ -3,17 +3,22 @@ import { Plus } from "lucide-react";
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { hasPermission } from "@/lib/permissions";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 
 export default async function SessionsPage() {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.from("sessions").select("*,seasons(name),playgrounds(name)").order("session_date", { ascending: false });
+  const [{ data }, profile] = await Promise.all([
+    supabase.from("sessions").select("*,seasons(name),playgrounds(name)").order("session_date", { ascending: false }),
+    getCurrentProfile()
+  ]);
+  const isAdmin = hasPermission(profile?.role, "manage_all");
   return (
     <AppShell>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">Sessions</h1>
-        <Link className="btn-primary" href="/sessions/new"><Plus className="h-4 w-4" /> New session</Link>
+        {isAdmin ? <Link className="btn-primary" href="/sessions/new"><Plus className="h-4 w-4" /> New session</Link> : null}
       </div>
       <DataTable rows={data ?? []} columns={[
         { header: "Date", cell: (row) => <Link className="font-medium text-pitch" href={`/sessions/${row.id}`}>{row.session_date}</Link> },

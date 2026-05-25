@@ -8,28 +8,34 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
   const supabase = await createSupabaseServerClient();
   const profile = await getCurrentProfile();
   const canEdit = hasPermission(profile?.role, "manage_attendance");
+  const isAdmin = hasPermission(profile?.role, "manage_all");
+  const captainPlayerId = profile?.role === "captain" ? profile?.player_id : null;
   const [{ data: session }, { data: teams }, { data: lineups }] = await Promise.all([
     supabase.from("sessions").select("id,name,session_date").eq("id", id).single(),
     supabase
       .from("session_teams")
-      .select("id,name,session_team_players(players(id,display_name))")
+      .select("id,name,captain_player_id,session_team_players(players(id,display_name))")
       .eq("session_id", id)
       .order("name"),
     supabase.from("session_team_lineups").select("*").eq("session_id", id)
   ]);
-  const teamOptions = (teams ?? []).map((team: any) => ({
+  const visibleTeams = isAdmin ? teams ?? [] : (teams ?? []).filter((team: any) => team.captain_player_id === captainPlayerId);
+  const visibleTeamIds = new Set(visibleTeams.map((team: any) => team.id));
+  const teamOptions = visibleTeams.map((team: any) => ({
     id: team.id,
     name: team.name,
     players: (team.session_team_players ?? [])
       .map((row: any) => row.players ? { id: row.players.id, name: row.players.display_name } : null)
       .filter((player: { id: string; name: string } | null): player is { id: string; name: string } => Boolean(player))
   }));
-  const lineupRows = (lineups ?? []).map((lineup: any) => ({
-    sessionTeamId: lineup.session_team_id,
-    playerCount: lineup.player_count,
-    formation: lineup.formation,
-    positions: Array.isArray(lineup.positions) ? lineup.positions : []
-  }));
+  const lineupRows = (lineups ?? [])
+    .filter((lineup: any) => isAdmin || visibleTeamIds.has(lineup.session_team_id))
+    .map((lineup: any) => ({
+      sessionTeamId: lineup.session_team_id,
+      playerCount: lineup.player_count,
+      formation: lineup.formation,
+      positions: Array.isArray(lineup.positions) ? lineup.positions : []
+    }));
 
   return (
     <AppShell>
@@ -42,8 +48,10 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
         </section>
         {!canEdit ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can save lineups.</div>
+        ) : profile?.role === "captain" && !captainPlayerId ? (
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Your captain account is not linked to a player profile yet.</div>
         ) : !teamOptions.length ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Build teams before creating lineups.</div>
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No team is assigned to you as captain for this session.</div>
         ) : (
           <LineupBuilder lineups={lineupRows} sessionId={id} teams={teamOptions} />
         )}

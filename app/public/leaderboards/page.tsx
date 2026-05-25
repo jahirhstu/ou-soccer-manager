@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { PublicHeader } from "@/components/PublicHeader";
+import { PublicShell } from "@/components/PublicShell";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type LeaderboardRow = {
@@ -25,17 +24,13 @@ export default async function PublicLeaderboardsPage() {
   const captainRows = rows.filter((row) => row.board === "captain");
 
   return (
-    <main className="min-h-screen">
-      <PublicHeader />
-      <div className="mx-auto grid max-w-6xl gap-5 px-3 py-5 sm:px-4 sm:py-8">
+    <PublicShell>
+      <div className="grid gap-5">
         <section className="panel overflow-hidden">
           <div className="bg-pitch px-5 py-6 text-white">
             <p className="text-sm font-semibold uppercase tracking-normal text-emerald-100">OU Soccer</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Leaderboards</h1>
-            <p className="mt-2 max-w-2xl text-sm text-emerald-50">Public mini-game standings by team and captain.</p>
-          </div>
-          <div className="flex flex-wrap gap-2 p-4">
-            <Link className="btn-secondary" href="/public/report">Players status</Link>
+            <p className="mt-2 max-w-2xl text-sm text-emerald-50">Public game standings by team and captain.</p>
           </div>
         </section>
 
@@ -48,7 +43,7 @@ export default async function PublicLeaderboardsPage() {
         <Leaderboard title="Team leaderboard" rows={teamRows} />
         <Leaderboard title="Captain leaderboard" rows={captainRows} />
       </div>
-    </main>
+    </PublicShell>
   );
 }
 
