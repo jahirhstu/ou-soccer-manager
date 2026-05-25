@@ -20,8 +20,15 @@ import type { UserRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type NavVariant = "app" | "public";
+type NavItem = {
+  href: string;
+  label: string;
+  subLabel?: string;
+  icon: LucideIcon;
+  roles: UserRole[];
+};
 
-const navSections = [
+const navSections: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Club",
     items: [
@@ -52,16 +59,7 @@ const navSections = [
       { href: "/public/field-status", label: "Field Status", subLabel: "By playground", icon: MapPinned, roles: ["admin", "captain", "player"] }
     ]
   }
-] satisfies Array<{
-  label: string;
-  items: Array<{
-    href: string;
-    label: string;
-    subLabel?: string;
-    icon: LucideIcon;
-    roles: UserRole[];
-  }>;
-}>;
+];
 
 export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: NavVariant }) {
   const pathname = usePathname();
@@ -105,7 +103,7 @@ export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: N
   );
 }
 
-function isVisible(item: { href: string; roles: UserRole[] }, role: UserRole | undefined, variant: NavVariant) {
+function isVisible(item: NavItem, role: UserRole | undefined, variant: NavVariant) {
   if (variant === "public") return item.roles.includes("player");
   if (!role || !item.roles.includes(role)) return false;
   if ((role === "admin" || role === "captain") && item.href.startsWith("/public/") && item.href !== "/public/report") return false;
