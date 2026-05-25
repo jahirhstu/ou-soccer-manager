@@ -1,11 +1,14 @@
 import { DataTable } from "@/components/DataTable";
+import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
+
+type SortKey = "goals" | "playground" | "player" | "assists" | "appearances" | "rate";
 
 export default async function PlaygroundStatsReportPage({
   searchParams
 }: {
-  searchParams: Promise<{ player?: string; playground?: string }>;
+  searchParams: Promise<{ player?: string; playground?: string; sort?: string }>;
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -13,11 +16,11 @@ export default async function PlaygroundStatsReportPage({
     supabase.from("player_playground_stats_summary").select("*").order("goals", { ascending: false }),
     supabase.from("playgrounds").select("name").order("name")
   ]);
-  const rows = (data ?? []).filter((row) => {
+  const rows = sortRows((data ?? []).filter((row) => {
     if (filters.player && !String(row.player_name ?? "").toLowerCase().includes(filters.player.toLowerCase())) return false;
     if (filters.playground && String(row.playground_name ?? "") !== filters.playground) return false;
     return true;
-  });
+  }), sortKey(filters.sort));
 
   return (
     <AppShell>
@@ -45,4 +48,20 @@ export default async function PlaygroundStatsReportPage({
       </div>
     </AppShell>
   );
+}
+
+function sortKey(value: string | undefined): SortKey {
+  if (value === "playground" || value === "player" || value === "assists" || value === "appearances" || value === "rate") return value;
+  return "goals";
+}
+
+function sortRows(rows: any[], key: SortKey) {
+  return [...rows].sort((left, right) => {
+    if (key === "playground") return compareText(left.playground_name, right.playground_name) || compareText(left.player_name, right.player_name);
+    if (key === "player") return compareText(left.player_name, right.player_name) || compareText(left.playground_name, right.playground_name);
+    if (key === "assists") return compareNumberDesc(left.assists, right.assists) || compareText(left.player_name, right.player_name);
+    if (key === "appearances") return compareNumberDesc(left.appearances, right.appearances) || compareText(left.player_name, right.player_name);
+    if (key === "rate") return compareNumberDesc(left.goals_per_appearance, right.goals_per_appearance) || compareText(left.player_name, right.player_name);
+    return compareNumberDesc(left.goals, right.goals) || compareNumberDesc(left.assists, right.assists) || compareText(left.player_name, right.player_name);
+  });
 }

@@ -12,6 +12,7 @@ import {
   MapPinned,
   MessageSquareText,
   Settings,
+  Target,
   Trophy,
   Users
 } from "lucide-react";
@@ -51,9 +52,10 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
     ]
   },
   {
-    label: "Public",
+    label: "Report Gallery",
     items: [
       { href: "/public/report", label: "Status", subLabel: "Players and balances", icon: ClipboardList, roles: ["admin", "captain", "player"] },
+      { href: "/public/goals-assists", label: "Goals & Assists", subLabel: "Players and rates", icon: Target, roles: ["admin", "captain", "player"] },
       { href: "/public/sessions", label: "Sessions", subLabel: "Games and scores", icon: CalendarDays, roles: ["admin", "captain", "player"] },
       { href: "/public/leaderboards", label: "Leaderboards", subLabel: "Teams and captains", icon: Trophy, roles: ["admin", "captain", "player"] },
       { href: "/public/field-status", label: "Field Status", subLabel: "By playground", icon: MapPinned, roles: ["admin", "captain", "player"] }

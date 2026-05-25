@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Handshake, Search, ShieldCheck, Trophy } from "lucide-react";
 import { PublicShell } from "@/components/PublicShell";
 import { hasPermission } from "@/lib/permissions";
+import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
 
@@ -31,10 +32,12 @@ type PublicHighlightRow = {
   score: string | null;
 };
 
+type SortKey = "name" | "balance" | "goals" | "assists" | "played" | "season";
+
 export default async function PublicPlayerReportPage({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string; season?: string }>;
+  searchParams: Promise<{ q?: string; season?: string; sort?: string }>;
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -43,11 +46,11 @@ export default async function PublicPlayerReportPage({
     supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
     getCurrentProfile()
   ]);
-  const rows = ((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
+  const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
     if (filters.q && !String(row.player_name ?? "").toLowerCase().includes(filters.q.toLowerCase())) return false;
     if (filters.season && row.season_id !== filters.season) return false;
     return true;
-  });
+  }), sortKey(filters.sort));
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
   const highlights = ((highlightsData ?? []) as PublicHighlightRow[]).reduce((map, row) => map.set(row.metric, row), new Map<PublicHighlightRow["metric"], PublicHighlightRow>());
@@ -63,7 +66,7 @@ export default async function PublicPlayerReportPage({
             <div className="min-w-0">
               <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Public dashboard
+                Report Gallery
               </span>
               <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer status</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
@@ -231,15 +234,26 @@ function toneClasses(tone: "credit" | "owes" | "neutral") {
   return { soft: "border-line bg-white", text: "text-slate-800" };
 }
 
-function numberValue(value: number | string | null | undefined) {
-  const number = Number(value ?? 0);
-  return Number.isFinite(number) ? number : 0;
-}
-
 function uniqueSeasons(rows: PublicPlayerReportRow[]) {
   const seasons = new Map<string, string>();
   for (const row of rows) {
     if (row.season_id) seasons.set(row.season_id, row.season_name ?? "Season");
   }
   return Array.from(seasons.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function sortKey(value: string | undefined): SortKey {
+  if (value === "balance" || value === "goals" || value === "assists" || value === "played" || value === "season") return value;
+  return "name";
+}
+
+function sortRows(rows: PublicPlayerReportRow[], key: SortKey) {
+  return [...rows].sort((left, right) => {
+    if (key === "balance") return compareNumberDesc(left.balance_amount, right.balance_amount) || compareText(left.player_name, right.player_name);
+    if (key === "goals") return compareNumberDesc(left.goals, right.goals) || compareText(left.player_name, right.player_name);
+    if (key === "assists") return compareNumberDesc(left.assists, right.assists) || compareText(left.player_name, right.player_name);
+    if (key === "played") return compareNumberDesc(left.appearances ?? left.total_played_sessions, right.appearances ?? right.total_played_sessions) || compareText(left.player_name, right.player_name);
+    if (key === "season") return compareText(left.season_name, right.season_name) || compareText(left.player_name, right.player_name);
+    return compareText(left.player_name, right.player_name) || compareText(left.season_name, right.season_name);
+  });
 }
