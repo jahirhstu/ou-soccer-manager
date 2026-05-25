@@ -31,6 +31,9 @@ export type TeamBuilderData = {
     status?: string | null;
     seasonName?: string | null;
   } | null;
+  settings?: {
+    playersPerTeam?: number | null;
+  } | null;
   players: TeamBuilderPlayer[];
   teams: TeamBuilderTeam[];
 };
@@ -60,11 +63,15 @@ export function TeamBuilder({
   const router = useRouter();
   const lastLocalSaveAt = useRef(0);
   const tossTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveChannelRef = useRef<any>(null);
+  const liveClientId = useRef(`team-builder-${Math.random().toString(36).slice(2)}`);
+  const applyingRemoteUpdate = useRef(false);
   const players = data.players ?? [];
   const existingTeams = data.teams ?? [];
+  const savedPlayersPerTeam = Number(data.settings?.playersPerTeam ?? 0);
   const serverTeamSignature = useMemo(() => JSON.stringify(existingTeams), [existingTeams]);
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
-  const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, maxExistingTeamSize(existingTeams) || 8));
+  const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, savedPlayersPerTeam || 8));
   const [teams, setTeams] = useState<DraftTeam[]>(() => initialTeams(existingTeams, 2));
   const [isTossing, setIsTossing] = useState(false);
   const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(null);
@@ -90,10 +97,45 @@ export function TeamBuilder({
     if (state?.error) toast.error(state.error);
   }, [state]);
 
+  function broadcastLive(snapshot: Partial<{
+    teams: DraftTeam[];
+    playersPerTeam: number;
+    isTossing: boolean;
+    tossOrderKeys: string[] | null;
+    rouletteRotation: number;
+  }>) {
+    if (!canEdit || applyingRemoteUpdate.current || !liveChannelRef.current) return;
+    void liveChannelRef.current.send({
+      type: "broadcast",
+      event: "team_builder_state",
+      payload: {
+        senderId: liveClientId.current,
+        teams,
+        playersPerTeam,
+        isTossing,
+        tossOrderKeys,
+        rouletteRotation,
+        ...snapshot
+      }
+    });
+  }
+
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     const channel = supabase
       .channel(`session-team-updates-${sessionId}`)
+      .on("broadcast", { event: "team_builder_state" }, ({ payload }) => {
+        if (!payload || payload.senderId === liveClientId.current) return;
+        applyingRemoteUpdate.current = true;
+        if (Array.isArray(payload.teams)) setTeams(payload.teams);
+        if (Number(payload.playersPerTeam) > 0) setPlayersPerTeam(Number(payload.playersPerTeam));
+        if (typeof payload.isTossing === "boolean") setIsTossing(payload.isTossing);
+        if (Array.isArray(payload.tossOrderKeys) || payload.tossOrderKeys === null) setTossOrderKeys(payload.tossOrderKeys);
+        if (Number.isFinite(Number(payload.rouletteRotation))) setRouletteRotation(Number(payload.rouletteRotation));
+        window.setTimeout(() => {
+          applyingRemoteUpdate.current = false;
+        }, 0);
+      })
       .on(
         "postgres_changes",
         {
@@ -110,17 +152,19 @@ export function TeamBuilder({
         }
       )
       .subscribe();
+    liveChannelRef.current = channel;
 
     return () => {
+      liveChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
   }, [router, sessionId]);
 
   useEffect(() => {
     setTeams((current) => initialTeams(existingTeams, current.length || 2));
-    setPlayersPerTeam((current) => Math.max(1, maxExistingTeamSize(existingTeams) || current));
+    setPlayersPerTeam((current) => Math.max(1, savedPlayersPerTeam || current || 8));
     setTossOrderKeys(null);
-  }, [existingTeams, serverTeamSignature]);
+  }, [existingTeams, savedPlayersPerTeam, serverTeamSignature]);
 
   useEffect(() => {
     return () => {
@@ -132,8 +176,9 @@ export function TeamBuilder({
     setTossOrderKeys(null);
     setTeams((current) => {
       if (count === current.length) return current;
+      let nextTeams: DraftTeam[];
       if (count > current.length) {
-        return [
+        nextTeams = [
           ...current,
           ...Array.from({ length: count - current.length }, (_, index) => ({
             key: `team-${Date.now()}-${index}`,
@@ -142,26 +187,39 @@ export function TeamBuilder({
             playerIds: []
           }))
         ];
+        broadcastLive({ teams: nextTeams, tossOrderKeys: null });
+        return nextTeams;
       }
       const kept = current.slice(0, count);
       const removedPlayerIds = current.slice(count).flatMap((team) => team.playerIds);
-      return kept.map((team, index) => index === kept.length - 1 ? { ...team, playerIds: [...team.playerIds, ...removedPlayerIds] } : team);
+      nextTeams = kept.map((team, index) => index === kept.length - 1 ? { ...team, playerIds: [...team.playerIds, ...removedPlayerIds] } : team);
+      broadcastLive({ teams: nextTeams, tossOrderKeys: null });
+      return nextTeams;
     });
   }
 
   function updateTeam(teamKey: string, patch: Partial<DraftTeam>) {
-    setTeams((current) => current.map((team) => team.key === teamKey ? { ...team, ...patch } : team));
+    setTeams((current) => {
+      const nextTeams = current.map((team) => team.key === teamKey ? { ...team, ...patch } : team);
+      broadcastLive({ teams: nextTeams });
+      return nextTeams;
+    });
   }
 
   function movePlayer(playerId: string, targetTeamKey: string | "pool") {
     setTeams((current) => {
       const removed = current.map((team) => ({ ...team, playerIds: team.playerIds.filter((id) => id !== playerId) }));
-      if (targetTeamKey === "pool") return removed;
-      return removed.map((team) => {
+      if (targetTeamKey === "pool") {
+        broadcastLive({ teams: removed });
+        return removed;
+      }
+      const nextTeams = removed.map((team) => {
         if (team.key !== targetTeamKey) return team;
         if (team.playerIds.includes(playerId) || team.playerIds.length >= playersPerTeam) return team;
         return { ...team, playerIds: [...team.playerIds, playerId] };
       });
+      broadcastLive({ teams: nextTeams });
+      return nextTeams;
     });
   }
 
@@ -169,11 +227,17 @@ export function TeamBuilder({
     if (isTossing) return;
     setIsTossing(true);
     setTossOrderKeys(null);
+    broadcastLive({ isTossing: true, tossOrderKeys: null });
 
     if (tossTimerRef.current) clearInterval(tossTimerRef.current);
     tossTimerRef.current = setInterval(() => {
-      setRouletteRotation((current) => current + 23);
-      setTossOrderKeys(shuffledKeys(teams));
+      const nextOrder = shuffledKeys(teams);
+      setRouletteRotation((current) => {
+        const nextRotation = current + 23;
+        broadcastLive({ isTossing: true, rouletteRotation: nextRotation, tossOrderKeys: nextOrder });
+        return nextRotation;
+      });
+      setTossOrderKeys(nextOrder);
     }, 60);
   }
 
@@ -188,6 +252,11 @@ export function TeamBuilder({
     setRouletteRotation((current) => current + extraTurns + Math.max(firstIndex, 0) * segment + segment / 2);
     setTossOrderKeys(shuffled.map((team) => team.key));
     setIsTossing(false);
+    broadcastLive({
+      isTossing: false,
+      rouletteRotation: rouletteRotation + extraTurns + Math.max(firstIndex, 0) * segment + segment / 2,
+      tossOrderKeys: shuffled.map((team) => team.key)
+    });
     const firstPick = shuffled[0]?.name ?? "";
     toast.success(firstPick ? `Toss complete. ${firstPick} picks first.` : "Toss complete. Pick order updated.");
   }
@@ -226,7 +295,11 @@ export function TeamBuilder({
                 className="input min-h-9"
                 disabled={!canEdit}
                 min="1"
-                onChange={(event) => setPlayersPerTeam(Math.max(1, Number(event.target.value) || 1))}
+                onChange={(event) => {
+                  const nextPlayersPerTeam = Math.max(1, Number(event.target.value) || 1);
+                  setPlayersPerTeam(nextPlayersPerTeam);
+                  broadcastLive({ playersPerTeam: nextPlayersPerTeam });
+                }}
                 type="number"
                 value={playersPerTeam}
               />
@@ -387,6 +460,7 @@ export function TeamBuilder({
       {canEdit ? (
         <form action={action} className="sticky bottom-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-white/95 p-2 shadow-sm backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
           <input name="sessionId" type="hidden" value={sessionId} />
+          <input name="playersPerTeam" type="hidden" value={playersPerTeam} />
           <input name="teamsJson" type="hidden" value={JSON.stringify(savePayload)} />
           <button className="btn-primary min-h-9" disabled={pending || Boolean(overfilledTeam)}>
             <Save className="h-4 w-4" />

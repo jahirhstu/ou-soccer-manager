@@ -79,6 +79,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             {session?.status ? <StatusBadge status={session.status} /> : null}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
+            <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View teams</Link>
             <Link className="btn-primary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
           </div>
         </section>

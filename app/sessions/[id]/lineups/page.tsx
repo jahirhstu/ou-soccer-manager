@@ -1,3 +1,4 @@
+import { CaptainProfileLinker } from "@/components/CaptainProfileLinker";
 import { LineupBuilder } from "@/components/LineupBuilder";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
@@ -10,15 +11,19 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
   const canEdit = hasPermission(profile?.role, "manage_attendance");
   const isAdmin = hasPermission(profile?.role, "manage_all");
   const captainPlayerId = profile?.role === "captain" ? profile?.player_id : null;
-  const [{ data: session }, { data: teams }, { data: lineups }] = await Promise.all([
+  const [{ data: session }, { data: teams }, { data: lineups }, { data: players }, { data: linkedProfiles }] = await Promise.all([
     supabase.from("sessions").select("id,name,session_date").eq("id", id).single(),
     supabase
       .from("session_teams")
       .select("id,name,captain_player_id,session_team_players(players(id,display_name))")
       .eq("session_id", id)
       .order("name"),
-    supabase.from("session_team_lineups").select("*").eq("session_id", id)
+    supabase.from("session_team_lineups").select("*").eq("session_id", id),
+    supabase.from("players").select("id,display_name").eq("status", "active").order("display_name"),
+    supabase.from("profiles").select("player_id").not("player_id", "is", null)
   ]);
+  const linkedPlayerIds = new Set((linkedProfiles ?? []).map((row) => row.player_id).filter(Boolean));
+  const linkablePlayers = (players ?? []).filter((player) => !linkedPlayerIds.has(player.id));
   const visibleTeams = isAdmin ? teams ?? [] : (teams ?? []).filter((team: any) => team.captain_player_id === captainPlayerId);
   const visibleTeamIds = new Set(visibleTeams.map((team: any) => team.id));
   const teamOptions = visibleTeams.map((team: any) => ({
@@ -49,7 +54,7 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
         {!canEdit ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can save lineups.</div>
         ) : profile?.role === "captain" && !captainPlayerId ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Your captain account is not linked to a player profile yet.</div>
+          <CaptainProfileLinker players={linkablePlayers} sessionId={id} />
         ) : !teamOptions.length ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No team is assigned to you as captain for this session.</div>
         ) : (

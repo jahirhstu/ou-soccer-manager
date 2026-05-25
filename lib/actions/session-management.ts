@@ -238,3 +238,24 @@ export async function saveTeamLineup(_: unknown, formData: FormData) {
     return { error: error instanceof Error ? error.message : "Could not save lineup." };
   }
 }
+
+export async function linkCaptainPlayerProfile(_: unknown, formData: FormData) {
+  try {
+    const profile = await getCurrentProfile();
+    if (profile?.role !== "captain") return { error: "Only captain accounts can link a player profile here." };
+    if (profile.player_id) return { error: "This captain account is already linked to a player profile." };
+
+    const playerId = String(formData.get("playerId") ?? "");
+    const sessionId = String(formData.get("sessionId") ?? "");
+    if (!playerId) return { error: "Choose the player profile that belongs to you." };
+
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.rpc("link_current_captain_player_profile", { p_player_id: playerId });
+    if (error) throw new Error(error.message);
+
+    if (sessionId) revalidatePath(`/sessions/${sessionId}/lineups`);
+    return { success: true, message: "Captain profile linked. You can now manage your team lineup." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not link captain profile." };
+  }
+}

@@ -12,6 +12,7 @@ export async function saveSessionTeamBuilder(_: unknown, formData: FormData) {
     }
 
     const sessionId = String(formData.get("sessionId") ?? "");
+    const playersPerTeam = Math.max(1, Number(formData.get("playersPerTeam") ?? 0) || 8);
     const teamsJson = String(formData.get("teamsJson") ?? "[]");
     const teams = JSON.parse(teamsJson);
 
@@ -20,6 +21,7 @@ export async function saveSessionTeamBuilder(_: unknown, formData: FormData) {
 
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.rpc("save_session_team_builder", {
+      p_players_per_team: playersPerTeam,
       p_session_id: sessionId,
       p_teams: teams
     });

@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { CalendarDays, Lock, MapPin, ShieldCheck } from "lucide-react";
+import { CalendarDays, MapPin, ShieldCheck } from "lucide-react";
 import { PublicShell } from "@/components/PublicShell";
 import { TeamBuilder, type TeamBuilderData } from "@/components/TeamBuilder";
 import { hasPermission } from "@/lib/permissions";
@@ -53,12 +52,7 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
               <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                 Captain/admin edit mode
               </span>
-            ) : (
-              <Link className="btn-secondary" href="/login">
-                <Lock className="h-4 w-4" />
-                Login to save
-              </Link>
-            )}
+            ) : null}
           </div>
         </header>
 
