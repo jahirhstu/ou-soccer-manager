@@ -35,6 +35,8 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
     getCurrentProfile()
   ]);
   const canManage = hasPermission(profile?.role, "manage_all");
+  const standingRows = (standings ?? []) as StandingRow[];
+  const teamRows = (teams ?? []) as LeagueTeamRow[];
 
   return (
     <AppShell>
@@ -58,7 +60,7 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
 
         <section className="grid gap-3">
           <h2 className="section-title">Standings</h2>
-          <DataTable rows={standings ?? []} columns={[
+          <DataTable rows={standingRows} columns={[
             { header: "Rank", cell: (row) => row.rank },
             { header: "Team", cell: (row) => row.team_name },
             { header: "P", cell: (row) => row.played },
@@ -101,10 +103,10 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
 
         <section className="grid gap-3">
           <h2 className="section-title">Teams</h2>
-          <DataTable rows={teams ?? []} columns={[
+          <DataTable rows={teamRows} columns={[
             { header: "Team", cell: (row) => row.name },
-            { header: "Captain", cell: (row: any) => row.captain?.display_name ?? "-" },
-            { header: "Players", cell: (row: any) => (row.league_team_players ?? []).map((item: any) => item.players?.display_name).filter(Boolean).join(", ") || "-" }
+            { header: "Captain", cell: (row) => row.captain?.display_name ?? "-" },
+            { header: "Players", cell: (row) => row.league_team_players.map((item) => item.players?.display_name).filter(Boolean).join(", ") || "-" }
           ]} />
           {canManage ? <LeagueTeamForm leagueId={id} players={players ?? []} /> : null}
         </section>
@@ -112,6 +114,27 @@ export default async function LeagueDetailPage({ params }: { params: Promise<{ i
     </AppShell>
   );
 }
+
+type StandingRow = {
+  team_id: string;
+  team_name: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goals_for: number;
+  goals_against: number;
+  goal_difference: number;
+  points: number;
+  rank: number;
+};
+
+type LeagueTeamRow = {
+  id: string;
+  name: string;
+  captain?: { display_name?: string | null } | null;
+  league_team_players: Array<{ players?: { display_name?: string | null } | null }>;
+};
 
 function signed(value: number) {
   return value > 0 ? `+${value}` : String(value);
