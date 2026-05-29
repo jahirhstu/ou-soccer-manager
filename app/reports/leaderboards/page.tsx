@@ -5,6 +5,7 @@ import { AppShell } from "../../(shell)";
 type MatchRow = {
   team_a_id: string;
   team_b_id: string;
+  away_team_id?: string | null;
   team_a_score: number;
   team_b_score: number;
   team_a?: { name?: string | null; captain?: { display_name?: string | null } | null } | null;
@@ -21,6 +22,7 @@ type BoardRow = {
   goalsFor: number;
   goalsAgainst: number;
   goalDifference: number;
+  awayGoals: number;
   points: number;
   pointsPerGame: string;
   winRate: string;
@@ -30,7 +32,7 @@ export default async function LeaderboardsPage() {
   const supabase = await createSupabaseServerClient();
   const { data: matches } = await supabase
     .from("session_matches")
-    .select("team_a_id,team_b_id,team_a_score,team_b_score,team_a:session_teams!session_matches_team_a_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name)),team_b:session_teams!session_matches_team_b_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name))");
+    .select("team_a_id,team_b_id,away_team_id,team_a_score,team_b_score,team_a:session_teams!session_matches_team_a_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name)),team_b:session_teams!session_matches_team_b_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name))");
   const matchRows = (matches ?? []) as MatchRow[];
   const teamRows = leaderboardRows(matchRows, "team");
   const captainRows = leaderboardRows(matchRows, "captain");
@@ -63,6 +65,7 @@ function Leaderboard({ title, rows }: { title: string; rows: BoardRow[] }) {
         { header: "GF", cell: (row) => row.goalsFor },
         { header: "GA", cell: (row) => row.goalsAgainst },
         { header: "GD", cell: (row) => signed(row.goalDifference) },
+        { header: "AG", cell: (row) => row.awayGoals },
         { header: "Pts", cell: (row) => <span className="font-semibold text-ink">{row.points}</span> },
         { header: "Pts/Game", cell: (row) => row.pointsPerGame },
         { header: "Win %", cell: (row) => row.winRate }
@@ -85,6 +88,7 @@ function leaderboardRows(matches: MatchRow[], mode: "team" | "captain") {
         goalsFor: 0,
         goalsAgainst: 0,
         goalDifference: 0,
+        awayGoals: 0,
         points: 0,
         pointsPerGame: "0.00",
         winRate: "0%"
@@ -96,8 +100,8 @@ function leaderboardRows(matches: MatchRow[], mode: "team" | "captain") {
   for (const match of matches) {
     const teamAName = mode === "team" ? match.team_a?.name : match.team_a?.captain?.display_name;
     const teamBName = mode === "team" ? match.team_b?.name : match.team_b?.captain?.display_name;
-    if (teamAName) applyResult(ensure(teamAName), Number(match.team_a_score ?? 0), Number(match.team_b_score ?? 0));
-    if (teamBName) applyResult(ensure(teamBName), Number(match.team_b_score ?? 0), Number(match.team_a_score ?? 0));
+    if (teamAName) applyResult(ensure(teamAName), Number(match.team_a_score ?? 0), Number(match.team_b_score ?? 0), match.away_team_id === match.team_a_id);
+    if (teamBName) applyResult(ensure(teamBName), Number(match.team_b_score ?? 0), Number(match.team_a_score ?? 0), match.away_team_id === match.team_b_id);
   }
 
   return Array.from(rows.values())
@@ -111,15 +115,17 @@ function leaderboardRows(matches: MatchRow[], mode: "team" | "captain") {
       right.points - left.points ||
       right.goalDifference - left.goalDifference ||
       right.goalsFor - left.goalsFor ||
+      right.awayGoals - left.awayGoals ||
       left.name.localeCompare(right.name)
     )
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function applyResult(row: BoardRow, goalsFor: number, goalsAgainst: number) {
+function applyResult(row: BoardRow, goalsFor: number, goalsAgainst: number, isAway = false) {
   row.played += 1;
   row.goalsFor += goalsFor;
   row.goalsAgainst += goalsAgainst;
+  if (isAway) row.awayGoals += goalsFor;
   if (goalsFor > goalsAgainst) {
     row.wins += 1;
     row.points += 3;

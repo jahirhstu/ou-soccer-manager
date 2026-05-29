@@ -38,6 +38,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     matchNumber: match.match_number,
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
+    awayTeamId: match.away_team_id ?? "",
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,

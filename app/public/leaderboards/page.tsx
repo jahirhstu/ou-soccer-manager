@@ -11,6 +11,7 @@ type LeaderboardRow = {
   goals_for: number;
   goals_against: number;
   goal_difference: number;
+  away_goals: number;
   points: number;
   points_per_game: number;
   win_rate: number;
@@ -63,9 +64,10 @@ function Leaderboard({ rows, title }: { rows: LeaderboardRow[]; title: string })
                 {row.played} played | {row.wins}W {row.draws}D {row.losses}L | GF {row.goals_for} GA {row.goals_against}
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-56">
+            <div className="grid grid-cols-4 gap-2 text-center text-xs sm:min-w-64">
               <Stat label="Pts" value={row.points} />
               <Stat label="GD" value={signed(row.goal_difference)} />
+              <Stat label="AG" value={row.away_goals} />
               <Stat label="Win" value={`${row.win_rate}%`} />
             </div>
           </article>

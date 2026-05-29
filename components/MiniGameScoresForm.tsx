@@ -16,6 +16,7 @@ export type MatchInput = {
   matchNumber: number;
   teamAId: string;
   teamBId: string;
+  awayTeamId?: string;
   goals: GoalInput[];
 };
 
@@ -46,6 +47,7 @@ export function MiniGameScoresForm({
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [newTeamAId, setNewTeamAId] = useState(teams[0]?.id ?? "");
   const [newTeamBId, setNewTeamBId] = useState(teams[1]?.id ?? "");
+  const [newAwayTeamId, setNewAwayTeamId] = useState("");
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -59,6 +61,7 @@ export function MiniGameScoresForm({
     matchNumber: game.matchNumber,
     teamAId: game.teamAId,
     teamBId: game.teamBId,
+    awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
     goals: game.goals
       .filter((goal) => goal.scorerId)
       .map((goal) => ({
@@ -74,6 +77,10 @@ export function MiniGameScoresForm({
     if (state?.success) toast.success(state.message ?? "Scores saved.");
     if (state?.error) toast.error(state.error);
   }, [state]);
+
+  useEffect(() => {
+    if (newAwayTeamId && newAwayTeamId !== newTeamAId && newAwayTeamId !== newTeamBId) setNewAwayTeamId("");
+  }, [newAwayTeamId, newTeamAId, newTeamBId]);
 
   function updateGame(key: string, patch: Partial<MatchInput>) {
     setGames((current) => current.map((game) => game.key === key ? { ...game, ...patch } : game));
@@ -97,6 +104,7 @@ export function MiniGameScoresForm({
         matchNumber: current.length + 1,
         teamAId: newTeamAId,
         teamBId: newTeamBId,
+        awayTeamId: newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : "",
         goals: []
       }
     ]);
@@ -113,9 +121,16 @@ export function MiniGameScoresForm({
             {sessionLabel}: select teams, add a game, then record goals, assists, and own goals. Scores are calculated from goal events.
           </p>
         </div>
-        <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_auto] sm:items-end lg:w-auto">
+        <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_180px_auto] sm:items-end lg:w-auto">
           <TeamSelect label="Team A" onChange={setNewTeamAId} teams={teams} value={newTeamAId} />
           <TeamSelect label="Team B" onChange={setNewTeamBId} teams={teams} value={newTeamBId} />
+          <TeamSelect
+            label="Away team"
+            onChange={setNewAwayTeamId}
+            optional
+            teams={teams.filter((team) => team.id === newTeamAId || team.id === newTeamBId)}
+            value={newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : ""}
+          />
           <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={!newTeamAId || !newTeamBId || newTeamAId === newTeamBId} onClick={addGame} type="button">
             <Plus className="h-4 w-4" />
             Add game
@@ -131,6 +146,9 @@ export function MiniGameScoresForm({
           const gameScore = calculateGameScore(game, teamByPlayer);
           const teamAName = teamName(teams, game.teamAId);
           const teamBName = teamName(teams, game.teamBId);
+          const awayTeamId = game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : "";
+          const homeTeamName = awayTeamId ? teamName(teams, awayTeamId === game.teamAId ? game.teamBId : game.teamAId) : "";
+          const awayTeamName = awayTeamId ? teamName(teams, awayTeamId) : "";
           return (
             <section className="panel overflow-hidden" key={game.key}>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-slate-50 px-3 py-2">
@@ -141,6 +159,11 @@ export function MiniGameScoresForm({
                     {gameScore.teamAScore}-{gameScore.teamBScore}
                   </div>
                   <div className="truncate text-sm font-semibold text-ink">{teamBName}</div>
+                  {awayTeamId ? (
+                    <div className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-pitch ring-1 ring-emerald-100">
+                      {homeTeamName} home | {awayTeamName} away
+                    </div>
+                  ) : null}
                 </div>
                 <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
                   <Trash2 className="h-4 w-4" />
@@ -214,12 +237,12 @@ export function MiniGameScoresForm({
   );
 }
 
-function TeamSelect({ className = "", compact = false, label, onChange, teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; teams: TeamOption[]; value: string }) {
+function TeamSelect({ className = "", compact = false, label, onChange, optional = false, teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; optional?: boolean; teams: TeamOption[]; value: string }) {
   return (
     <label className={`grid gap-1 ${className} ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
       {label}
       <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">Select team</option>
+        <option value="">{optional ? "No away team" : "Select team"}</option>
         {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
       </select>
     </label>

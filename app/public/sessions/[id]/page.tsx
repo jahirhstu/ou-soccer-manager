@@ -87,7 +87,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
         <section className="grid gap-3">
           <div>
             <h2 className="section-title">Game standings</h2>
-            <p className="text-sm text-slate-500">Win = 3 points, draw = 1 point. Head-to-head is shown for quick tie checks.</p>
+            <p className="text-sm text-slate-500">Win = 3 points, draw = 1 point. Away goals break ties after goals scored when an away team is selected.</p>
           </div>
           <DataTable
             rows={standings}
@@ -101,6 +101,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
               { header: "GF", cell: (row) => row.goalsFor },
               { header: "GA", cell: (row) => row.goalsAgainst },
               { header: "GD", cell: (row) => signed(row.goalDifference) },
+              { header: "AG", cell: (row) => row.awayGoals },
               { header: "Pts", cell: (row) => <span className="font-semibold text-ink">{row.points}</span> },
               { header: "Head-to-head", cell: (row) => row.headToHead || "-" }
             ]}
@@ -113,7 +114,8 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             rows={matches}
             columns={[
               { header: "Game", cell: (row) => row.matchNumber },
-              { header: "Result", cell: (row) => `${row.teamAName ?? "-"} ${row.teamAScore ?? 0}-${row.teamBScore ?? 0} ${row.teamBName ?? "-"}` }
+              { header: "Result", cell: (row) => `${row.teamAName ?? "-"} ${row.teamAScore ?? 0}-${row.teamBScore ?? 0} ${row.teamBName ?? "-"}` },
+              { header: "Home/Away", cell: (row) => homeAwayLabel(row) }
             ]}
           />
         </section>
@@ -176,6 +178,7 @@ type MatchRow = {
   matchNumber: number;
   teamAId: string;
   teamBId: string;
+  awayTeamId?: string | null;
   teamAName: string | null;
   teamBName: string | null;
   teamAScore: number | string | null;
@@ -192,6 +195,7 @@ type Standing = {
   goalsFor: number;
   goalsAgainst: number;
   goalDifference: number;
+  awayGoals: number;
   points: number;
   headToHead: string;
   rank: number;
@@ -211,6 +215,7 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
         goalsFor: 0,
         goalsAgainst: 0,
         goalDifference: 0,
+        awayGoals: 0,
         points: 0,
         headToHead: "",
         rank: 0
@@ -222,8 +227,8 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
   for (const match of matches) {
     const teamA = ensure(match.teamAId, match.teamAName ?? "Team A");
     const teamB = ensure(match.teamBId, match.teamBName ?? "Team B");
-    applyResult(teamA, numberValue(match.teamAScore), numberValue(match.teamBScore));
-    applyResult(teamB, numberValue(match.teamBScore), numberValue(match.teamAScore));
+    applyResult(teamA, numberValue(match.teamAScore), numberValue(match.teamBScore), match.awayTeamId === match.teamAId);
+    applyResult(teamB, numberValue(match.teamBScore), numberValue(match.teamAScore), match.awayTeamId === match.teamBId);
   }
 
   return Array.from(rows.values())
@@ -236,15 +241,17 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
       right.points - left.points ||
       right.goalDifference - left.goalDifference ||
       right.goalsFor - left.goalsFor ||
+      right.awayGoals - left.awayGoals ||
       left.teamName.localeCompare(right.teamName)
     )
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function applyResult(row: Standing, goalsFor: number, goalsAgainst: number) {
+function applyResult(row: Standing, goalsFor: number, goalsAgainst: number, isAway = false) {
   row.played += 1;
   row.goalsFor += goalsFor;
   row.goalsAgainst += goalsAgainst;
+  if (isAway) row.awayGoals += goalsFor;
   if (goalsFor > goalsAgainst) {
     row.wins += 1;
     row.points += 3;
@@ -254,6 +261,12 @@ function applyResult(row: Standing, goalsFor: number, goalsAgainst: number) {
   } else {
     row.losses += 1;
   }
+}
+
+function homeAwayLabel(match: MatchRow) {
+  if (match.awayTeamId === match.teamAId) return `${match.teamBName ?? "Team B"} home, ${match.teamAName ?? "Team A"} away`;
+  if (match.awayTeamId === match.teamBId) return `${match.teamAName ?? "Team A"} home, ${match.teamBName ?? "Team B"} away`;
+  return "-";
 }
 
 function headToHeadSummary(teamId: string, matches: MatchRow[]) {

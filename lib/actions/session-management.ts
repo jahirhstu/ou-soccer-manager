@@ -15,6 +15,7 @@ type MiniGameInput = {
   matchNumber: number;
   teamAId: string;
   teamBId: string;
+  awayTeamId?: string;
   goals?: MiniGameGoalInput[];
 };
 
@@ -73,6 +74,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
       if (!game.teamAId || !game.teamBId || game.teamAId === game.teamBId) continue;
       if (seenMatchNumbers.has(matchNumber)) continue;
       seenMatchNumbers.add(matchNumber);
+      const awayTeamId = game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : null;
 
       const normalizedGoals = normalizeMiniGameGoals(game, playerTeamIds);
       const teamAScore = normalizedGoals
@@ -90,6 +92,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
             match_number: matchNumber,
             team_a_id: game.teamAId,
             team_b_id: game.teamBId,
+            away_team_id: awayTeamId,
             team_a_score: teamAScore,
             team_b_score: teamBScore,
             created_by: profile.id
@@ -127,6 +130,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     revalidatePath(`/sessions/${sessionId}`);
     revalidatePath(`/sessions/${sessionId}/scores`);
     revalidatePath("/reports/leaderboards");
+    revalidatePath("/public/leaderboards");
     revalidatePath("/reports/stats");
     revalidatePath("/public/report");
     return { success: true, message: "Game scores saved." };
