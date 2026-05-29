@@ -14,7 +14,21 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
         </div>
         {error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
         <input className="input" name="displayName" placeholder="Display name" required />
-        <input className="input" name="email" placeholder="Email" type="email" required />
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          One word name
+          <span className="flex min-h-10 items-center overflow-hidden rounded-md border border-line bg-white shadow-sm focus-within:border-pitch focus-within:ring-2 focus-within:ring-emerald-100">
+            <input
+              autoCapitalize="none"
+              autoComplete="username"
+              className="min-h-10 min-w-0 flex-1 bg-transparent px-3 text-sm outline-none"
+              name="emailName"
+              pattern="[A-Za-z0-9._-]+"
+              placeholder="put your one word name here, e.g. wali or jahir"
+              required
+            />
+            <span className="shrink-0 border-l border-line bg-slate-50 px-3 text-sm font-medium text-slate-500">@ou.soccer</span>
+          </span>
+        </label>
         <input className="input" name="password" placeholder="Password" type="password" required />
         <button className="btn-primary justify-center">Sign up</button>
         <Link className="text-sm font-semibold text-pitch hover:text-ink" href="/login">Log in instead</Link>

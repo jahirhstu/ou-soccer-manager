@@ -33,7 +33,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <div>
               <h2 className="section-title text-rose-900">Admin data cleanup</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Remove club operating data including seasons, sessions, teams, players, payments, attendance, goals, imports, and ledger entries.
+                Remove club operating data including leagues, seasons, sessions, teams, players, payments, attendance, goals, imports, and ledger entries.
                 Playgrounds are also removed. Login users, profiles, roles, and access information are kept.
               </p>
             </div>

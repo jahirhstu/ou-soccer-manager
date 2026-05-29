@@ -14,6 +14,7 @@ import {
   Settings,
   Target,
   Trophy,
+  UserCog,
   Users
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -33,22 +34,24 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Club",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: Gauge, roles: ["admin"] },
-      { href: "/sessions", label: "Sessions", icon: CalendarDays, roles: ["admin", "captain"] },
-      { href: "/attendance", label: "Attendance", icon: ClipboardCheck, roles: ["admin", "captain"] },
-      { href: "/reports/leaderboards", label: "Leaderboards", icon: Trophy, roles: ["admin", "captain"] },
-      { href: "/reports/playground-stats", label: "Field stats", icon: MapPinned, roles: ["admin", "captain"] }
+      { href: "/dashboard", label: "Dashboard", subLabel: "Club overview", icon: Gauge, roles: ["admin"] },
+      { href: "/sessions", label: "Sessions", subLabel: "Games and attendance", icon: CalendarDays, roles: ["admin", "captain"] },
+      { href: "/leagues", label: "Leagues", subLabel: "Teams and fixtures", icon: Trophy, roles: ["admin", "captain"] },
+      { href: "/attendance", label: "Attendance", subLabel: "Player check-ins", icon: ClipboardCheck, roles: ["admin", "captain"] },
+      { href: "/reports/leaderboards", label: "Leaderboards", subLabel: "Teams and captains", icon: Trophy, roles: ["admin", "captain"] },
+      { href: "/reports/playground-stats", label: "Field stats", subLabel: "By playground", icon: MapPinned, roles: ["admin", "captain"] }
     ]
   },
   {
     label: "Admin",
     items: [
-      { href: "/seasons", label: "Seasons", icon: Trophy, roles: ["admin"] },
-      { href: "/players", label: "Players", icon: Users, roles: ["admin"] },
-      { href: "/payments", label: "Payments", icon: CreditCard, roles: ["admin"] },
-      { href: "/import-whatsapp", label: "WhatsApp", icon: MessageSquareText, roles: ["admin"] },
-      { href: "/reports/payments", label: "Payments report", icon: BarChart3, roles: ["admin"] },
-      { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] }
+      { href: "/seasons", label: "Seasons", subLabel: "Session groups", icon: Trophy, roles: ["admin"] },
+      { href: "/players", label: "Players", subLabel: "Profiles and status", icon: Users, roles: ["admin"] },
+      { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"] },
+      { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"] },
+      { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"] },
+      { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"] },
+      { href: "/settings", label: "Settings", subLabel: "Roles and cleanup", icon: Settings, roles: ["admin"] }
     ]
   },
   {
@@ -85,7 +88,7 @@ export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: N
               <Link
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "grid min-h-10 grid-cols-[20px_1fr] items-center gap-x-3 rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-pitch",
+                  "grid min-h-12 grid-cols-[20px_1fr] items-center gap-x-3 rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-pitch",
                   active && "bg-emerald-50 font-semibold text-pitch ring-1 ring-emerald-100"
                 )}
                 href={href}

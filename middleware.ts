@@ -5,7 +5,7 @@ import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public"];
-const captainAllowedPaths = ["/sessions", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
+const captainAllowedPaths = ["/sessions", "/leagues", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
 
 function isCaptainAllowedRoute(pathname: string) {
   if (pathname === "/sessions") return true;
@@ -54,10 +54,18 @@ export async function middleware(request: NextRequest) {
   if (data.user && request.nextUrl.pathname === "/") return NextResponse.redirect(new URL("/public/report", request.url));
   if (data.user && !isPublic) {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
-    if (profile?.role === "player") {
+    const { data: membership } = await supabase
+      .from("organization_members")
+      .select("role")
+      .eq("profile_id", data.user.id)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    const role = profile?.role === "admin" ? "admin" : membership?.role === "owner" ? "admin" : membership?.role ?? profile?.role;
+    if (role === "player") {
       return NextResponse.redirect(new URL("/public/report", request.url));
     }
-    if (profile?.role === "captain") {
+    if (role === "captain") {
       if (request.nextUrl.pathname === "/dashboard") return NextResponse.redirect(new URL("/sessions", request.url));
       const isCaptainRoute = isCaptainAllowedRoute(request.nextUrl.pathname);
       if (!isCaptainRoute) return NextResponse.redirect(new URL("/sessions", request.url));

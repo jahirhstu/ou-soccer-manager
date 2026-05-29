@@ -20,7 +20,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <span className="grid h-9 w-9 place-items-center rounded-lg bg-pitch text-sm font-bold text-white shadow-sm">OU</span>
             <span className="leading-tight">
               <span className="block">Soccer Manager</span>
-              <span className="block text-xs font-medium text-slate-500">Club operations</span>
+              <span className="block text-xs font-medium text-slate-500">{profile?.organization_name ?? "Club operations"}</span>
             </span>
           </Link>
           <form action={logoutAction}>
@@ -51,6 +51,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-500">
               Signed in as <span className="font-medium text-ink">{profile?.display_name ?? profile?.email ?? "Unknown"}</span>
+              {profile?.organization_name ? <span> - {profile.organization_name}</span> : null}
             </div>
             {profile?.role ? (
               <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold capitalize text-emerald-800">

@@ -25,6 +25,8 @@ export type Profile = {
   email: string | null;
   role: UserRole;
   player_id: string | null;
+  organization_id?: string | null;
+  organization_name?: string | null;
 };
 
 export type Player = {
@@ -74,6 +76,23 @@ export type Session = {
   end_time: string | null;
   price_per_session: number | null;
   status: SessionStatus;
+  notes: string | null;
+};
+
+export type LeagueStatus = "draft" | "active" | "completed" | "archived";
+
+export type League = {
+  id: string;
+  organization_id: string;
+  season_id: string | null;
+  name: string;
+  slug: string;
+  status: LeagueStatus;
+  points_for_win: number;
+  points_for_draw: number;
+  points_for_loss: number;
+  start_date: string | null;
+  end_date: string | null;
   notes: string | null;
 };
 

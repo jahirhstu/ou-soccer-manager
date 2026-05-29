@@ -60,6 +60,26 @@ export const attendanceSchema = z.object({
   notes: z.string().optional().nullable()
 });
 
+export const leagueSchema = z.object({
+  season_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
+  name: z.string().min(2),
+  status: z.enum(["draft", "active", "completed", "archived"]).default("draft"),
+  points_for_win: z.coerce.number().int().nonnegative().default(3),
+  points_for_draw: z.coerce.number().int().nonnegative().default(1),
+  points_for_loss: z.coerce.number().int().nonnegative().default(0),
+  start_date: z.string().optional().nullable(),
+  end_date: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
+});
+
+export const leagueTeamSchema = z.object({
+  league_id: z.string().uuid(),
+  name: z.string().min(1),
+  captain_player_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
+  seed_order: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.coerce.number().int().nonnegative().optional()),
+  player_ids: z.array(z.string().uuid()).default([])
+});
+
 export const whatsappInputSchema = z.object({
   rawText: z.string().min(2),
   seasonId: z.union([z.string().uuid(), z.literal("__create__")]).optional(),
