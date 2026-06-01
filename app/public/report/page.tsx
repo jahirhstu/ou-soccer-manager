@@ -19,6 +19,8 @@ type PublicPlayerReportRow = {
   assists: number | null;
   appearances: number | null;
   last_attended_sessions: string[] | null;
+  latest_session?: string | null;
+  upcoming_session?: string | null;
 };
 
 type PublicHighlightRow = {
@@ -140,7 +142,10 @@ export default async function PublicPlayerReportPage({
                   <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} />
                   <MiniMetric label="Played" value={String(row.appearances ?? row.total_played_sessions ?? 0)} />
                 </div>
-                <RecentSessions sessions={row.last_attended_sessions ?? []} />
+                <SessionStatus
+                  latestSession={row.latest_session ?? row.last_attended_sessions?.[0] ?? null}
+                  upcomingSession={row.upcoming_session ?? null}
+                />
               </article>
             );
           })}
@@ -174,21 +179,27 @@ function StatBox({ label, value, tone = "neutral" }: { label: string; value: str
   );
 }
 
-function RecentSessions({ sessions }: { sessions: string[] }) {
+function SessionStatus({
+  latestSession,
+  upcomingSession
+}: {
+  latestSession: string | null;
+  upcomingSession: string | null;
+}) {
   return (
-    <div className="mt-3 rounded-md bg-slate-50 p-2 text-xs">
-      <div className="font-semibold uppercase text-slate-500">Last 3 attended</div>
-      {sessions.length ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {sessions.map((session, index) => (
-            <span className="rounded bg-white px-2 py-1 font-medium text-slate-700 ring-1 ring-slate-200" key={`${session}-${index}`}>
-              {session}
-            </span>
-          ))}
+    <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-slate-50 p-2 text-xs">
+      <div className="min-w-0 text-left">
+        <div className="font-semibold uppercase text-slate-500">Latest session</div>
+        <div className="mt-1 truncate font-semibold text-slate-800" title={latestSession ?? "No attended sessions yet"}>
+          {latestSession ?? "None yet"}
         </div>
-      ) : (
-        <p className="mt-1 text-slate-500">No attended sessions yet.</p>
-      )}
+      </div>
+      <div className="min-w-0 text-right">
+        <div className="font-semibold uppercase text-slate-500">Upcoming session</div>
+        <div className="mt-1 truncate font-semibold text-slate-800" title={upcomingSession ?? "No upcoming session"}>
+          {upcomingSession ?? "None scheduled"}
+        </div>
+      </div>
     </div>
   );
 }
