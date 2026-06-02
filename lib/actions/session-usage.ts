@@ -17,12 +17,13 @@ export async function applySessionUsage({
 }) {
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id,season_id,price_per_session,seasons(price_per_session)")
+    .select("id,season_id,session_date,status,price_per_session,seasons(price_per_session)")
     .eq("id", sessionId)
     .single();
   if (sessionError) throw new Error(sessionError.message);
 
   const effectivePrice = Number(session.price_per_session ?? (session.seasons as any)?.price_per_session ?? 0);
+  const shouldMarkConfirmedPlayed = markSessionCompleted || session.status === "completed" || String(session.session_date) < currentDateString();
 
   const { data: attendance, error: attendanceError } = await supabase
     .from("attendance")
@@ -35,7 +36,7 @@ export async function applySessionUsage({
     .filter((row) => row.status === "confirmed")
     .map((row) => row.player_id);
 
-  if (confirmedPlayerIds.length) {
+  if (shouldMarkConfirmedPlayed && confirmedPlayerIds.length) {
     const { error } = await supabase
       .from("attendance")
       .update({ status: "played" })
@@ -65,7 +66,11 @@ export async function applySessionUsage({
       throw new Error(error.message);
     }
 
-    newCharges.push({ chargeId: charge.id, playerId: charge.player_id, status: row.status });
+    newCharges.push({
+      chargeId: charge.id,
+      playerId: charge.player_id,
+      status: row.status === "confirmed" && shouldMarkConfirmedPlayed ? "played" : row.status
+    });
   }
 
   const ledgerRows = newCharges.map((charge) => ({
@@ -109,18 +114,29 @@ export async function applySessionUsage({
       charged_players: ledgerRows.length,
       skipped_existing_charges: (attendance ?? []).length - newCharges.length,
       price_per_session: effectivePrice,
-      confirmed_changed_to_played: confirmedPlayerIds.length
+      confirmed_changed_to_played: shouldMarkConfirmedPlayed ? confirmedPlayerIds.length : 0
     }
   });
 
   return {
     chargedPlayers: ledgerRows.length,
     skippedExistingCharges: (attendance ?? []).length - newCharges.length,
-    confirmedChangedToPlayed: confirmedPlayerIds.length,
+    confirmedChangedToPlayed: shouldMarkConfirmedPlayed ? confirmedPlayerIds.length : 0,
     effectivePrice
   };
 }
 
 function isUniqueViolation(error: { code?: string; message?: string }) {
   return error.code === "23505" || /duplicate key value violates unique constraint/i.test(error.message ?? "");
+}
+
+function currentDateString() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Toronto",
+    year: "numeric"
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }

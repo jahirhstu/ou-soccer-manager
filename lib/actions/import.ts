@@ -77,6 +77,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       formData,
       actorId: profile.id
     });
+    const targetSession = targetSessionId ? await getSessionStatusForImport(supabase, targetSessionId) : null;
 
     const playerIds = await resolveImportedPlayers({
       supabase,
@@ -110,6 +111,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     if (parsed.importType === "session_update" && !targetSessionId && hasSessionRows(parsed)) {
       return { error: "Choose a target session or choose Create session before confirming attendance, goals, or dropouts." };
     }
+    normalizeImportedAttendanceStatuses(parsed, targetSession);
 
     let teamIds = new Map<string, string>();
     if (targetSessionId && parsed.teams?.length) {
@@ -262,7 +264,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         {
           session_id: targetSessionId,
           player_id: row.matchedPlayerId,
-          status: row.status,
+          status: normalizedImportedAttendanceStatus(row.status, targetSession),
           created_by: profile.id
         },
         { onConflict: "session_id,player_id" }
@@ -388,6 +390,43 @@ function friendlyImportError(error: unknown, step: "parse" | "confirm") {
   }
 
   return `${prefix} ${message || "Review the parsed details and try again."}`;
+}
+
+async function getSessionStatusForImport(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, sessionId: string) {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("session_date,status")
+    .eq("id", sessionId)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as { session_date: string; status: string | null } | null;
+}
+
+function normalizeImportedAttendanceStatuses(parsed: any, session: { session_date: string; status: string | null } | null) {
+  for (const row of parsed.attendance ?? []) {
+    row.status = normalizedImportedAttendanceStatus(row.status, session);
+  }
+}
+
+function normalizedImportedAttendanceStatus(status: string | null | undefined, session: { session_date: string; status: string | null } | null) {
+  if (status !== "played") return status ?? "confirmed";
+  if (!session) return "played";
+  return isSessionEffectivelyPlayed(session) ? "played" : "confirmed";
+}
+
+function isSessionEffectivelyPlayed(session: { session_date: string; status: string | null }) {
+  return session.status === "completed" || String(session.session_date) < currentDateString();
+}
+
+function currentDateString() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Toronto",
+    year: "numeric"
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 async function resolveTargetSeasonId({

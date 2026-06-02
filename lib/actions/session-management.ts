@@ -198,7 +198,7 @@ function normalizeMiniGameGoals(game: MiniGameInput, playerTeamIds: Map<string, 
 export async function saveTeamLineup(_: unknown, formData: FormData) {
   try {
     const profile = await getCurrentProfile();
-    if (!hasPermission(profile?.role, "manage_attendance")) return { error: "Only captains and admins can save lineups." };
+    if (!profile?.player_id) return { error: "Your account must be linked to a player profile before you can save a lineup." };
 
     const sessionId = String(formData.get("sessionId") ?? "");
     const sessionTeamId = String(formData.get("sessionTeamId") ?? "");
@@ -209,18 +209,15 @@ export async function saveTeamLineup(_: unknown, formData: FormData) {
     if (!Array.isArray(positions)) return { error: "Lineup positions are invalid." };
 
     const supabase = await createSupabaseServerClient();
-    if (profile?.role === "captain") {
-      if (!profile.player_id) return { error: "Your captain account is not linked to a player profile yet." };
-      const { data: team, error: teamError } = await supabase
-        .from("session_teams")
-        .select("id")
-        .eq("id", sessionTeamId)
-        .eq("session_id", sessionId)
-        .eq("captain_player_id", profile.player_id)
-        .maybeSingle();
-      if (teamError) throw new Error(teamError.message);
-      if (!team) return { error: "Captains can only save their own team lineup." };
-    }
+    const { data: teamPlayer, error: teamPlayerError } = await supabase
+      .from("session_team_players")
+      .select("id")
+      .eq("session_id", sessionId)
+      .eq("session_team_id", sessionTeamId)
+      .eq("player_id", profile.player_id)
+      .maybeSingle();
+    if (teamPlayerError) throw new Error(teamPlayerError.message);
+    if (!teamPlayer) return { error: "Only players assigned to this team can save its lineup." };
 
     const { error } = await supabase.from("session_team_lineups").upsert(
       {

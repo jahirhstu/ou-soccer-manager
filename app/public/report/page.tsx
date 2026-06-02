@@ -13,6 +13,7 @@ type PublicPlayerReportRow = {
   season_name: string | null;
   total_paid_amount: number | string | null;
   total_played_sessions: number | string | null;
+  confirmed_sessions?: number | string | null;
   estimated_used_amount: number | string | null;
   balance_amount: number | string | null;
   goals: number | null;
@@ -137,10 +138,11 @@ export default async function PublicPlayerReportPage({
                   <StatBox label="Goals" value={String(row.goals ?? 0)} />
                   <StatBox label="Assists" value={String(row.assists ?? 0)} />
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <MiniMetric label="Paid" value={money(numberValue(row.total_paid_amount))} />
                   <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} />
                   <MiniMetric label="Played" value={String(row.appearances ?? row.total_played_sessions ?? 0)} />
+                  <MiniMetric label="Confirmed" value={String(numberValue(row.confirmed_sessions))} />
                 </div>
                 <SessionStatus
                   latestSession={row.latest_session ?? row.last_attended_sessions?.[0] ?? null}

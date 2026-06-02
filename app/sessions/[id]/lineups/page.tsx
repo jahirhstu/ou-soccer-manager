@@ -1,6 +1,4 @@
-import { CaptainProfileLinker } from "@/components/CaptainProfileLinker";
 import { LineupBuilder } from "@/components/LineupBuilder";
-import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { AppShell } from "../../../(shell)";
 
@@ -8,33 +6,17 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
   const profile = await getCurrentProfile();
-  const canEdit = hasPermission(profile?.role, "manage_attendance");
-  const isAdmin = hasPermission(profile?.role, "manage_all");
-  const captainPlayerId = profile?.role === "captain" ? profile?.player_id : null;
-  const [{ data: session }, { data: teams }, { data: lineups }, { data: players }, { data: linkedProfiles }] = await Promise.all([
+  const [{ data: session }, { data: teams }, { data: lineups }] = await Promise.all([
     supabase.from("sessions").select("id,name,session_date").eq("id", id).single(),
-    supabase
-      .from("session_teams")
-      .select("id,name,captain_player_id,session_team_players(players(id,display_name))")
-      .eq("session_id", id)
-      .order("name"),
-    supabase.from("session_team_lineups").select("*").eq("session_id", id),
-    supabase.from("players").select("id,display_name").eq("status", "active").order("display_name"),
-    supabase.from("profiles").select("player_id").not("player_id", "is", null)
+    supabase.rpc("lineup_builder_teams", { p_session_id: id }),
+    supabase.rpc("lineup_builder_lineups", { p_session_id: id })
   ]);
-  const linkedPlayerIds = new Set((linkedProfiles ?? []).map((row) => row.player_id).filter(Boolean));
-  const linkablePlayers = (players ?? []).filter((player) => !linkedPlayerIds.has(player.id));
-  const visibleTeams = isAdmin ? teams ?? [] : (teams ?? []).filter((team: any) => team.captain_player_id === captainPlayerId);
-  const visibleTeamIds = new Set(visibleTeams.map((team: any) => team.id));
-  const teamOptions = visibleTeams.map((team: any) => ({
+  const teamOptions = (teams ?? []).map((team: any) => ({
     id: team.id,
     name: team.name,
-    players: (team.session_team_players ?? [])
-      .map((row: any) => row.players ? { id: row.players.id, name: row.players.display_name } : null)
-      .filter((player: { id: string; name: string } | null): player is { id: string; name: string } => Boolean(player))
+    players: Array.isArray(team.players) ? team.players : []
   }));
   const lineupRows = (lineups ?? [])
-    .filter((lineup: any) => isAdmin || visibleTeamIds.has(lineup.session_team_id))
     .map((lineup: any) => ({
       sessionTeamId: lineup.session_team_id,
       playerCount: lineup.player_count,
@@ -51,12 +33,10 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
             {session?.name ?? session?.session_date ?? "Session"}: choose a player count and place team players on the field.
           </p>
         </section>
-        {!canEdit ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can save lineups.</div>
-        ) : profile?.role === "captain" && !captainPlayerId ? (
-          <CaptainProfileLinker players={linkablePlayers} sessionId={id} />
+        {!profile?.player_id ? (
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Your account must be linked to a player profile before you can edit a team lineup.</div>
         ) : !teamOptions.length ? (
-          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No team is assigned to you as captain for this session.</div>
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">You are not assigned to a team for this session.</div>
         ) : (
           <LineupBuilder lineups={lineupRows} sessionId={id} teams={teamOptions} />
         )}

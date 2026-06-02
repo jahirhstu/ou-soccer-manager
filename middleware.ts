@@ -16,6 +16,10 @@ function isCaptainAllowedRoute(pathname: string) {
   return /^\/sessions\/[^/]+\/(?:lineups|scores)(?:\/.*)?$/.test(pathname);
 }
 
+function isPlayerAllowedRoute(pathname: string) {
+  return /^\/sessions\/[^/]+\/lineups(?:\/.*)?$/.test(pathname);
+}
+
 type CookieToSet = {
   name: string;
   value: string;
@@ -63,6 +67,7 @@ export async function middleware(request: NextRequest) {
       .maybeSingle();
     const role = profile?.role === "admin" ? "admin" : membership?.role === "owner" ? "admin" : membership?.role ?? profile?.role;
     if (role === "player") {
+      if (isPlayerAllowedRoute(request.nextUrl.pathname)) return response;
       return NextResponse.redirect(new URL("/public/report", request.url));
     }
     if (role === "captain") {
