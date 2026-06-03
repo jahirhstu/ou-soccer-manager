@@ -18,6 +18,7 @@ type PublicScoreData = {
   matches?: Array<{
     id: string;
     matchNumber: number;
+    displayOrder?: number | null;
     teamAId: string;
     teamBId: string;
     awayTeamId?: string | null;
@@ -44,6 +45,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   const existingGames: MatchInput[] = (scoreData.matches ?? []).map((match) => ({
     key: match.id,
     matchNumber: match.matchNumber,
+    displayOrder: match.displayOrder ?? undefined,
     teamAId: match.teamAId,
     teamBId: match.teamBId,
     awayTeamId: match.awayTeamId ?? "",

@@ -119,7 +119,7 @@ export default async function PublicPlayerReportPage({
           </div>
         ) : null}
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => {
             const status = balanceStatus(row);
             return (

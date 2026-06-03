@@ -15,7 +15,12 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       .select("id,name,session_team_players(players(id,display_name))")
       .eq("session_id", id)
       .order("name"),
-    supabase.from("session_matches").select("*").eq("session_id", id).order("match_number"),
+    supabase
+      .from("session_matches")
+      .select("*")
+      .eq("session_id", id)
+      .order("display_order", { ascending: true, nullsFirst: false })
+      .order("match_number"),
     supabase
       .from("goals")
       .select("id,match_id,scorer_id,assist_player_id,goal_type,goal_count")
@@ -36,6 +41,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   const existingGames: MatchInput[] = (matches ?? []).map((match: any) => ({
     key: match.id,
     matchNumber: match.match_number,
+    displayOrder: match.display_order ?? undefined,
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
     awayTeamId: match.away_team_id ?? "",

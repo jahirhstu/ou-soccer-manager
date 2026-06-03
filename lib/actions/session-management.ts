@@ -13,6 +13,7 @@ type MiniGameGoalInput = {
 
 type MiniGameInput = {
   matchNumber: number;
+  displayOrder?: number;
   teamAId: string;
   teamBId: string;
   awayTeamId?: string;
@@ -90,6 +91,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
           {
             session_id: sessionId,
             match_number: matchNumber,
+            display_order: Number.isFinite(Number(game.displayOrder)) && Number(game.displayOrder) > 0 ? Number(game.displayOrder) : savedGames + 1,
             team_a_id: game.teamAId,
             team_b_id: game.teamBId,
             away_team_id: awayTeamId,

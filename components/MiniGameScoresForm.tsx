@@ -14,6 +14,7 @@ export type TeamOption = {
 export type MatchInput = {
   key: string;
   matchNumber: number;
+  displayOrder?: number;
   teamAId: string;
   teamBId: string;
   awayTeamId?: string;
@@ -56,9 +57,9 @@ export function MiniGameScoresForm({
     }
     return map;
   }, [teams]);
-  const numberedGames = games.map((game, index) => ({ ...game, matchNumber: index + 1 }));
-  const payload = numberedGames.map((game) => ({
+  const payload = games.map((game, index) => ({
     matchNumber: game.matchNumber,
+    displayOrder: index + 1,
     teamAId: game.teamAId,
     teamBId: game.teamBId,
     awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
@@ -97,17 +98,20 @@ export function MiniGameScoresForm({
   }
 
   function addGame() {
-    setGames((current) => [
-      ...current,
-      {
-        key: `new-game-${Date.now()}`,
-        matchNumber: current.length + 1,
-        teamAId: newTeamAId,
-        teamBId: newTeamBId,
-        awayTeamId: newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : "",
-        goals: []
-      }
-    ]);
+    setGames((current) => {
+      const nextMatchNumber = Math.max(0, ...current.map((game) => Number(game.matchNumber) || 0)) + 1;
+      return [
+        {
+          key: `new-game-${Date.now()}`,
+          matchNumber: nextMatchNumber,
+          teamAId: newTeamAId,
+          teamBId: newTeamBId,
+          awayTeamId: newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : "",
+          goals: []
+        },
+        ...current
+      ];
+    });
   }
 
   return (
@@ -138,7 +142,7 @@ export function MiniGameScoresForm({
         </div>
       </div>
       <div className="grid gap-3">
-        {numberedGames.map((game) => {
+        {games.map((game) => {
           const selectablePlayers = uniquePlayers([
             ...(playersByTeam.get(game.teamAId) ?? []),
             ...(playersByTeam.get(game.teamBId) ?? [])
