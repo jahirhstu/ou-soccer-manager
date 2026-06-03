@@ -285,7 +285,7 @@ function PlayerSelect({ className = "", disabled = false, label, onChange, optio
   return (
     <label className={`grid gap-1 text-xs font-semibold uppercase text-slate-500 ${className}`}>
       {label}
-      <select className="input min-h-9 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" disabled={disabled} onChange={(event) => onChange(event.target.value)} value={disabled ? "" : value}>
+      <select className="input min-h-9 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">{optional ? "No assist" : "Select player"}</option>
         {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
       </select>
