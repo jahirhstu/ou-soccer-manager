@@ -32,6 +32,8 @@ type GoalInput = {
 export function MiniGameScoresForm({
   existingGames,
   heading = "Game scores",
+  readOnly = false,
+  readOnlyReason = "Scores are read-only for this session.",
   saveAction = saveMiniGameScores,
   sessionId,
   sessionLabel = "Session",
@@ -39,6 +41,8 @@ export function MiniGameScoresForm({
 }: {
   existingGames: MatchInput[];
   heading?: string;
+  readOnly?: boolean;
+  readOnlyReason?: string;
   saveAction?: typeof saveMiniGameScores;
   sessionId: string;
   sessionLabel?: string;
@@ -59,7 +63,7 @@ export function MiniGameScoresForm({
   }, [teams]);
   const payload = games.map((game, index) => ({
     matchNumber: game.matchNumber,
-    displayOrder: index + 1,
+    displayOrder: game.matchNumber || index + 1,
     teamAId: game.teamAId,
     teamBId: game.teamBId,
     awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
@@ -124,22 +128,25 @@ export function MiniGameScoresForm({
           <p className="mt-1 text-sm text-slate-500">
             {sessionLabel}: select teams, add a game, then record goals, assists, and own goals. Scores are calculated from goal events.
           </p>
+          {readOnly ? <p className="mt-2 text-sm font-medium text-amber-700">{readOnlyReason}</p> : null}
         </div>
-        <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_180px_auto] sm:items-end lg:w-auto">
-          <TeamSelect label="Team A" onChange={setNewTeamAId} teams={teams} value={newTeamAId} />
-          <TeamSelect label="Team B" onChange={setNewTeamBId} teams={teams} value={newTeamBId} />
-          <TeamSelect
-            label="Away team"
-            onChange={setNewAwayTeamId}
-            optional
-            teams={teams.filter((team) => team.id === newTeamAId || team.id === newTeamBId)}
-            value={newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : ""}
-          />
-          <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={!newTeamAId || !newTeamBId || newTeamAId === newTeamBId} onClick={addGame} type="button">
-            <Plus className="h-4 w-4" />
-            Add game
-          </button>
-        </div>
+        {!readOnly ? (
+          <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_180px_auto] sm:items-end lg:w-auto">
+            <TeamSelect label="Team A" onChange={setNewTeamAId} teams={teams} value={newTeamAId} />
+            <TeamSelect label="Team B" onChange={setNewTeamBId} teams={teams} value={newTeamBId} />
+            <TeamSelect
+              label="Away team"
+              onChange={setNewAwayTeamId}
+              optional
+              teams={teams.filter((team) => team.id === newTeamAId || team.id === newTeamBId)}
+              value={newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : ""}
+            />
+            <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={!newTeamAId || !newTeamBId || newTeamAId === newTeamBId} onClick={addGame} type="button">
+              <Plus className="h-4 w-4" />
+              Add game
+            </button>
+          </div>
+        ) : null}
       </div>
       <div className="grid gap-3">
         {games.map((game) => {
@@ -169,10 +176,12 @@ export function MiniGameScoresForm({
                     </div>
                   ) : null}
                 </div>
-                <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
-                  <Trash2 className="h-4 w-4" />
-                  Remove
-                </button>
+                {!readOnly ? (
+                  <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </button>
+                ) : null}
               </div>
 
               <div className="grid gap-2 bg-white p-3">
@@ -181,21 +190,23 @@ export function MiniGameScoresForm({
                     <h3 className="text-sm font-semibold text-ink">Goals and assists</h3>
                     <p className="text-xs text-slate-500">{teamAName} vs {teamBName}</p>
                   </div>
-                  <button
-                    className="btn-secondary min-h-8 px-3 text-xs"
-                    onClick={() =>
-                      updateGame(game.key, {
-                        goals: [
-                          ...game.goals,
-                          { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 }
-                        ]
-                      })
-                    }
-                    type="button"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add goal
-                  </button>
+                  {!readOnly ? (
+                    <button
+                      className="btn-secondary min-h-8 px-3 text-xs"
+                      onClick={() =>
+                        updateGame(game.key, {
+                          goals: [
+                            ...game.goals,
+                            { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 }
+                          ]
+                        })
+                      }
+                      type="button"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add goal
+                    </button>
+                  ) : null}
                 </div>
                 {game.goals.map((goal) => {
                   const scorerTeamId = teamByPlayer.get(goal.scorerId) ?? "";
@@ -203,23 +214,26 @@ export function MiniGameScoresForm({
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
                       <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
-                        <GoalTypeSelect onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
+                        <GoalTypeSelect disabled={readOnly} onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
                         <PlayerSelect
+                          disabled={readOnly}
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
                           onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, assistPlayerId: "" })}
                           players={selectablePlayers}
                           value={goal.scorerId}
                         />
-                        <PlayerSelect disabled={goal.goalType === "own_goal"} label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={assistPlayers} value={goal.assistPlayerId} optional />
+                        <PlayerSelect disabled={readOnly || goal.goalType === "own_goal"} label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={assistPlayers} value={goal.assistPlayerId} optional />
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="grid w-20 shrink-0 gap-1 text-xs font-semibold uppercase text-slate-500">
                           Count
-                          <input className="input min-h-9 w-full px-2 text-center text-sm font-semibold" min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
+                          <input className="input min-h-9 w-full px-2 text-center text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-400" disabled={readOnly} min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
                         </label>
-                        <button className="btn-secondary min-h-9 w-11 shrink-0 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {!readOnly ? (
+                          <button className="btn-secondary min-h-9 w-11 shrink-0 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
                         <div className="min-h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-2 py-2 text-xs text-slate-600">
                           Credit: <span className="font-semibold text-ink">{teamName(teams, inferScoringTeamId(goal, game, teamByPlayer))}</span>
                         </div>
@@ -233,10 +247,12 @@ export function MiniGameScoresForm({
           );
         })}
       </div>
-      <button className="btn-primary sticky bottom-3 z-10 w-fit shadow-lg sm:static sm:shadow-sm" disabled={pending || !teams.length}>
-        <Save className="h-4 w-4" />
-        {pending ? "Saving..." : "Save game scores"}
-      </button>
+      {!readOnly ? (
+        <button className="btn-primary sticky bottom-3 z-10 w-fit shadow-lg sm:static sm:shadow-sm" disabled={pending || !teams.length}>
+          <Save className="h-4 w-4" />
+          {pending ? "Saving..." : "Save game scores"}
+        </button>
+      ) : null}
     </form>
   );
 }
@@ -253,11 +269,11 @@ function TeamSelect({ className = "", compact = false, label, onChange, optional
   );
 }
 
-function GoalTypeSelect({ onChange, value }: { onChange: (value: GoalInput["goalType"]) => void; value: GoalInput["goalType"] }) {
+function GoalTypeSelect({ disabled = false, onChange, value }: { disabled?: boolean; onChange: (value: GoalInput["goalType"]) => void; value: GoalInput["goalType"] }) {
   return (
     <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
       Type
-      <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value as GoalInput["goalType"])} value={value}>
+      <select className="input min-h-9 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" disabled={disabled} onChange={(event) => onChange(event.target.value as GoalInput["goalType"])} value={value}>
         <option value="goal">Goal</option>
         <option value="own_goal">Own goal</option>
       </select>

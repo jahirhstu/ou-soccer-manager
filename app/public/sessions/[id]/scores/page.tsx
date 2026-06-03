@@ -9,6 +9,7 @@ type PublicScoreData = {
     id: string;
     name: string | null;
     sessionDate: string;
+    status?: string | null;
   } | null;
   teams?: Array<{
     id: string;
@@ -42,21 +43,24 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
   const teamOptions = scoreData.teams ?? [];
-  const existingGames: MatchInput[] = (scoreData.matches ?? []).map((match) => ({
-    key: match.id,
-    matchNumber: match.matchNumber,
-    displayOrder: match.displayOrder ?? undefined,
-    teamAId: match.teamAId,
-    teamBId: match.teamBId,
-    awayTeamId: match.awayTeamId ?? "",
-    goals: (match.goals ?? []).map((goal) => ({
-      key: goal.id,
-      scorerId: goal.scorerId,
-      assistPlayerId: goal.assistPlayerId ?? "",
-      goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
-      goalCount: goal.goalCount ?? 1
-    }))
-  }));
+  const readOnly = isLockedSession(scoreData.session ?? null);
+  const existingGames: MatchInput[] = [...(scoreData.matches ?? [])]
+    .sort((left, right) => Number(left.matchNumber) - Number(right.matchNumber))
+    .map((match) => ({
+      key: match.id,
+      matchNumber: match.matchNumber,
+      displayOrder: match.displayOrder ?? undefined,
+      teamAId: match.teamAId,
+      teamBId: match.teamBId,
+      awayTeamId: match.awayTeamId ?? "",
+      goals: (match.goals ?? []).map((goal) => ({
+        key: goal.id,
+        scorerId: goal.scorerId,
+        assistPlayerId: goal.assistPlayerId ?? "",
+        goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
+        goalCount: goal.goalCount ?? 1
+      }))
+    }));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -71,6 +75,8 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
           <MiniGameScoresForm
             existingGames={existingGames}
             heading="Game scores"
+            readOnly={readOnly}
+            readOnlyReason="Scores are read-only because this session is completed or past its date."
             saveAction={savePublicGameScores}
             sessionId={id}
             sessionLabel={scoreData.session?.name ?? scoreData.session?.sessionDate ?? "Session"}
@@ -80,4 +86,20 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
       </div>
     </PublicShell>
   );
+}
+
+function isLockedSession(session: { sessionDate?: string | null; status?: string | null } | null) {
+  if (!session) return false;
+  return session.status === "completed" || String(session.sessionDate ?? "") < currentTorontoDate();
+}
+
+function currentTorontoDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Toronto",
+    year: "numeric"
+  }).formatToParts(new Date());
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }

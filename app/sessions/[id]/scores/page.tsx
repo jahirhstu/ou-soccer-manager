@@ -9,7 +9,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   const profile = await getCurrentProfile();
   const canEdit = hasPermission(profile?.role, "manage_attendance");
   const [{ data: session }, { data: teams }, { data: matches }, { data: goals }] = await Promise.all([
-    supabase.from("sessions").select("id,name,session_date").eq("id", id).single(),
+    supabase.from("sessions").select("id,name,session_date,status").eq("id", id).single(),
     supabase
       .from("session_teams")
       .select("id,name,session_team_players(players(id,display_name))")
@@ -19,7 +19,6 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       .from("session_matches")
       .select("*")
       .eq("session_id", id)
-      .order("display_order", { ascending: true, nullsFirst: false })
       .order("match_number"),
     supabase
       .from("goals")
@@ -27,6 +26,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       .eq("session_id", id)
       .not("match_id", "is", null)
   ]);
+  const readOnly = isLockedSession(session);
   const teamOptions = (teams ?? []).map((team: any) => ({
     id: team.id,
     name: team.name,
@@ -65,6 +65,8 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
           <MiniGameScoresForm
             existingGames={existingGames}
             heading="Game scores"
+            readOnly={readOnly}
+            readOnlyReason="Scores are read-only because this session is completed or past its date."
             sessionId={id}
             sessionLabel={session?.name ?? session?.session_date ?? "Session"}
             teams={teamOptions}
@@ -73,4 +75,20 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       </div>
     </AppShell>
   );
+}
+
+function isLockedSession(session: { session_date?: string | null; status?: string | null } | null) {
+  if (!session) return false;
+  return session.status === "completed" || String(session.session_date ?? "") < currentTorontoDate();
+}
+
+function currentTorontoDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Toronto",
+    year: "numeric"
+  }).formatToParts(new Date());
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }

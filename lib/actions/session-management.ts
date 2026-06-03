@@ -31,6 +31,9 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     if (!Array.isArray(games)) return { error: "Game score data is invalid." };
 
     const supabase = await createSupabaseServerClient();
+    const lockError = await lockedSessionError(supabase, sessionId);
+    if (lockError) return { error: lockError };
+
     const seenMatchNumbers = new Set<number>();
     const requestedMatchNumbers = games
       .map((game) => Number(game.matchNumber))
@@ -91,7 +94,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
           {
             session_id: sessionId,
             match_number: matchNumber,
-            display_order: Number.isFinite(Number(game.displayOrder)) && Number(game.displayOrder) > 0 ? Number(game.displayOrder) : savedGames + 1,
+            display_order: Number.isFinite(Number(game.displayOrder)) && Number(game.displayOrder) > 0 ? Number(game.displayOrder) : matchNumber,
             team_a_id: game.teamAId,
             team_b_id: game.teamBId,
             away_team_id: awayTeamId,
@@ -130,7 +133,6 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     if (!savedGames) return { error: "No valid games were saved. Select two different teams for at least one game." };
 
     revalidatePath(`/sessions/${sessionId}`);
-    revalidatePath(`/sessions/${sessionId}/scores`);
     revalidatePath("/reports/leaderboards");
     revalidatePath("/public/leaderboards");
     revalidatePath("/reports/stats");
@@ -157,9 +159,7 @@ export async function savePublicGameScores(_: unknown, formData: FormData) {
     if (data && typeof data === "object" && "error" in data) return { error: String(data.error) };
 
     revalidatePath(`/public/sessions/${sessionId}`);
-    revalidatePath(`/public/sessions/${sessionId}/scores`);
     revalidatePath(`/sessions/${sessionId}`);
-    revalidatePath(`/sessions/${sessionId}/scores`);
     revalidatePath("/public/report");
     revalidatePath("/public/leaderboards");
     revalidatePath("/reports/leaderboards");
@@ -167,6 +167,31 @@ export async function savePublicGameScores(_: unknown, formData: FormData) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not save game scores." };
   }
+}
+
+async function lockedSessionError(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, sessionId: string) {
+  const { data: session, error } = await supabase
+    .from("sessions")
+    .select("session_date,status")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!session) return "Session was not found.";
+  if (session.status === "completed" || String(session.session_date ?? "") < currentTorontoDate()) {
+    return "Scores are read-only because this session is completed or past its date.";
+  }
+  return null;
+}
+
+function currentTorontoDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Toronto",
+    year: "numeric"
+  }).formatToParts(new Date());
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function normalizeMiniGameGoals(game: MiniGameInput, playerTeamIds: Map<string, string>) {

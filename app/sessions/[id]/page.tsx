@@ -24,7 +24,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
       .from("session_matches")
       .select("*,team_a:session_teams!session_matches_team_a_id_fkey(name),team_b:session_teams!session_matches_team_b_id_fkey(name)")
       .eq("session_id", id)
-      .order("display_order", { ascending: true, nullsFirst: false })
       .order("match_number"),
     getCurrentProfile()
   ]);
