@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
+import { FixtureScheduleCard } from "@/components/FixtureScheduleCard";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
@@ -59,6 +60,15 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
   const session = detail.session;
   const matches = detail.matches ?? [];
   const standings = buildSessionStandings(matches);
+  const fixtureMatches = matches.map((match) => ({
+    matchNumber: match.matchNumber,
+    teamAName: match.teamAName,
+    teamBName: match.teamBName,
+    homeTeamName: homeTeamName(match),
+    awayTeamName: awayTeamName(match),
+    scheduledStartTime: match.scheduledStartTime,
+    scheduledEndTime: match.scheduledEndTime
+  }));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -108,6 +118,8 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             ]}
           />
         </section>
+
+        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.sessionDate ?? "Session"} />
 
         <section className="grid gap-3">
           <h2 className="section-title">Game scores</h2>
@@ -180,6 +192,8 @@ type MatchRow = {
   teamAId: string;
   teamBId: string;
   awayTeamId?: string | null;
+  scheduledStartTime?: string | null;
+  scheduledEndTime?: string | null;
   teamAName: string | null;
   teamBName: string | null;
   teamAScore: number | string | null;
@@ -265,9 +279,22 @@ function applyResult(row: Standing, goalsFor: number, goalsAgainst: number, isAw
 }
 
 function homeAwayLabel(match: MatchRow) {
-  if (match.awayTeamId === match.teamAId) return `${match.teamBName ?? "Team B"} home, ${match.teamAName ?? "Team A"} away`;
-  if (match.awayTeamId === match.teamBId) return `${match.teamAName ?? "Team A"} home, ${match.teamBName ?? "Team B"} away`;
+  const home = homeTeamName(match);
+  const away = awayTeamName(match);
+  if (home && away) return `${home} home, ${away} away`;
   return "-";
+}
+
+function homeTeamName(match: MatchRow) {
+  if (match.awayTeamId === match.teamAId) return match.teamBName ?? "Team B";
+  if (match.awayTeamId === match.teamBId) return match.teamAName ?? "Team A";
+  return null;
+}
+
+function awayTeamName(match: MatchRow) {
+  if (match.awayTeamId === match.teamAId) return match.teamAName ?? "Team A";
+  if (match.awayTeamId === match.teamBId) return match.teamBName ?? "Team B";
+  return null;
 }
 
 function headToHeadSummary(teamId: string, matches: MatchRow[]) {

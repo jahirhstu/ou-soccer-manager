@@ -1,4 +1,5 @@
 import { DataTable } from "@/components/DataTable";
+import { FixtureScheduleCard } from "@/components/FixtureScheduleCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { completeSession, updateSessionPrice } from "@/lib/actions/crud";
 import { hasPermission } from "@/lib/permissions";
@@ -31,6 +32,15 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const matchRows = (matches ?? []) as MatchRow[];
   const standings = buildSessionStandings(matchRows);
+  const fixtureMatches = matchRows.map((match) => ({
+    matchNumber: match.match_number,
+    teamAName: match.team_a?.name ?? null,
+    teamBName: match.team_b?.name ?? null,
+    homeTeamName: homeTeamName(match),
+    awayTeamName: awayTeamName(match),
+    scheduledStartTime: match.scheduled_start_time,
+    scheduledEndTime: match.scheduled_end_time
+  }));
   return (
     <AppShell>
       <div className="grid gap-6">
@@ -101,6 +111,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             { header: "Head-to-head", cell: (row) => row.headToHead || "-" }
           ]} />
         </section>
+        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.session_date ?? "Session"} />
         <section className="grid gap-3">
           <h2 className="section-title">Game scores</h2>
           <DataTable rows={matchRows} columns={[
@@ -153,6 +164,8 @@ type MatchRow = {
   team_a_id: string;
   team_b_id: string;
   away_team_id?: string | null;
+  scheduled_start_time?: string | null;
+  scheduled_end_time?: string | null;
   team_a_score: number;
   team_b_score: number;
   team_a?: { name?: string | null } | null;
@@ -252,9 +265,22 @@ function headToHeadSummary(teamId: string, matches: MatchRow[]) {
 }
 
 function homeAwayLabel(match: MatchRow) {
-  if (match.away_team_id === match.team_a_id) return `${match.team_b?.name ?? "Team B"} home, ${match.team_a?.name ?? "Team A"} away`;
-  if (match.away_team_id === match.team_b_id) return `${match.team_a?.name ?? "Team A"} home, ${match.team_b?.name ?? "Team B"} away`;
+  const home = homeTeamName(match);
+  const away = awayTeamName(match);
+  if (home && away) return `${home} home, ${away} away`;
   return "-";
+}
+
+function homeTeamName(match: MatchRow) {
+  if (match.away_team_id === match.team_a_id) return match.team_b?.name ?? "Team B";
+  if (match.away_team_id === match.team_b_id) return match.team_a?.name ?? "Team A";
+  return null;
+}
+
+function awayTeamName(match: MatchRow) {
+  if (match.away_team_id === match.team_a_id) return match.team_a?.name ?? "Team A";
+  if (match.away_team_id === match.team_b_id) return match.team_b?.name ?? "Team B";
+  return null;
 }
 
 function signed(value: number) {

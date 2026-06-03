@@ -17,6 +17,8 @@ type MiniGameInput = {
   teamAId: string;
   teamBId: string;
   awayTeamId?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
   goals?: MiniGameGoalInput[];
 };
 
@@ -98,6 +100,8 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
             team_a_id: game.teamAId,
             team_b_id: game.teamBId,
             away_team_id: awayTeamId,
+            scheduled_start_time: validTimeOrNull(game.scheduledStartTime),
+            scheduled_end_time: validTimeOrNull(game.scheduledEndTime),
             team_a_score: teamAScore,
             team_b_score: teamBScore,
             created_by: profile.id
@@ -192,6 +196,11 @@ function currentTorontoDate() {
   }).formatToParts(new Date());
   const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function validTimeOrNull(value?: string | null) {
+  const text = String(value ?? "");
+  return /^\d{2}:\d{2}(:\d{2})?$/.test(text) ? text : null;
 }
 
 function normalizeMiniGameGoals(game: MiniGameInput, playerTeamIds: Map<string, string>) {

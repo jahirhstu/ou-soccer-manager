@@ -9,7 +9,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   const profile = await getCurrentProfile();
   const canEdit = hasPermission(profile?.role, "manage_attendance");
   const [{ data: session }, { data: teams }, { data: matches }, { data: goals }] = await Promise.all([
-    supabase.from("sessions").select("id,name,session_date,status").eq("id", id).single(),
+    supabase.from("sessions").select("id,name,session_date,start_time,end_time,status").eq("id", id).single(),
     supabase
       .from("session_teams")
       .select("id,name,session_team_players(players(id,display_name))")
@@ -45,6 +45,8 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
     awayTeamId: match.away_team_id ?? "",
+    scheduledStartTime: match.scheduled_start_time ?? "",
+    scheduledEndTime: match.scheduled_end_time ?? "",
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,
@@ -63,12 +65,15 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
         ) : (
           <MiniGameScoresForm
+            canGenerateFixture={canEdit}
             existingGames={existingGames}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason="Scores are read-only because this session is completed or past its date."
+            sessionEndTime={session?.end_time ?? null}
             sessionId={id}
             sessionLabel={session?.name ?? session?.session_date ?? "Session"}
+            sessionStartTime={session?.start_time ?? null}
             teams={teamOptions}
           />
         )}

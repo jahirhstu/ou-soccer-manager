@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { Fragment, useActionState, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Save, Trash2, Wand2 } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
 
 export type TeamOption = {
@@ -18,6 +18,8 @@ export type MatchInput = {
   teamAId: string;
   teamBId: string;
   awayTeamId?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
   goals: GoalInput[];
 };
 
@@ -30,22 +32,28 @@ type GoalInput = {
 };
 
 export function MiniGameScoresForm({
+  canGenerateFixture = false,
   existingGames,
   heading = "Game scores",
   readOnly = false,
   readOnlyReason = "Scores are read-only for this session.",
   saveAction = saveMiniGameScores,
+  sessionEndTime,
   sessionId,
   sessionLabel = "Session",
+  sessionStartTime,
   teams
 }: {
+  canGenerateFixture?: boolean;
   existingGames: MatchInput[];
   heading?: string;
   readOnly?: boolean;
   readOnlyReason?: string;
   saveAction?: typeof saveMiniGameScores;
+  sessionEndTime?: string | null;
   sessionId: string;
   sessionLabel?: string;
+  sessionStartTime?: string | null;
   teams: TeamOption[];
 }) {
   const [state, action, pending] = useActionState(saveAction, null as { success?: boolean; message?: string; error?: string } | null);
@@ -53,6 +61,13 @@ export function MiniGameScoresForm({
   const [newTeamAId, setNewTeamAId] = useState(teams[0]?.id ?? "");
   const [newTeamBId, setNewTeamBId] = useState(teams[1]?.id ?? "");
   const [newAwayTeamId, setNewAwayTeamId] = useState("");
+  const [avoidFirstTeamId, setAvoidFirstTeamId] = useState("");
+  const [repeatMatchups, setRepeatMatchups] = useState(teams.length === 2 ? 3 : 2);
+  const [breakAfterGames, setBreakAfterGames] = useState(3);
+  const [breakLengthMinutes, setBreakLengthMinutes] = useState(10);
+  const [firstSegmentMinutes, setFirstSegmentMinutes] = useState(15);
+  const [secondSegmentMinutes, setSecondSegmentMinutes] = useState(18);
+  const [draggedGameKey, setDraggedGameKey] = useState<string | null>(null);
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -67,6 +82,8 @@ export function MiniGameScoresForm({
     teamAId: game.teamAId,
     teamBId: game.teamBId,
     awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
+    scheduledStartTime: game.scheduledStartTime || undefined,
+    scheduledEndTime: game.scheduledEndTime || undefined,
     goals: game.goals
       .filter((goal) => goal.scorerId)
       .map((goal) => ({
@@ -118,6 +135,56 @@ export function MiniGameScoresForm({
     });
   }
 
+  function generateFixture() {
+    if (teams.length < 2) return;
+    if (games.some((game) => game.goals.length) && !window.confirm("This will replace the current fixture and remove entered goal rows. Continue?")) return;
+
+    const pairings = generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId);
+    const timedGames = applyFixtureTimes(
+      pairings.map((pairing, index) => ({
+        key: randomKey("fixture-game"),
+        matchNumber: index + 1,
+        teamAId: pairing.teamAId,
+        teamBId: pairing.teamBId,
+        awayTeamId: pairing.teamBId,
+        goals: []
+      })),
+      {
+        breakAfterGames: Math.max(0, Number(breakAfterGames) || 0),
+        breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
+        firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
+        secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+        sessionStartTime
+      }
+    );
+    setGames(timedGames);
+  }
+
+  function reorderGames(targetKey: string) {
+    if (!draggedGameKey || draggedGameKey === targetKey) return;
+    setGames((current) => {
+      const fromIndex = current.findIndex((game) => game.key === draggedGameKey);
+      const toIndex = current.findIndex((game) => game.key === targetKey);
+      if (fromIndex < 0 || toIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return renumberAndRetiming(next);
+    });
+  }
+
+  function renumberAndRetiming(rows: MatchInput[]) {
+    const renumbered = rows.map((game, index) => ({ ...game, matchNumber: index + 1 }));
+    if (!renumbered.some((game) => game.scheduledStartTime || game.scheduledEndTime)) return renumbered;
+    return applyFixtureTimes(renumbered, {
+      breakAfterGames: Math.max(0, Number(breakAfterGames) || 0),
+      breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
+      firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
+      secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+      sessionStartTime
+    });
+  }
+
   return (
     <form action={action} className="grid gap-4">
       <input name="sessionId" type="hidden" value={sessionId} />
@@ -148,8 +215,35 @@ export function MiniGameScoresForm({
           </div>
         ) : null}
       </div>
+      {!readOnly && canGenerateFixture ? (
+        <section className="panel grid gap-3 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Fixture generator</h2>
+              <p className="text-xs text-slate-500">
+                Uses the {teams.length} configured session teams. Drag rows after generating to reorder games.
+              </p>
+            </div>
+            <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={teams.length < 2} onClick={generateFixture} type="button">
+              <Wand2 className="h-4 w-4" />
+              Generate fixture
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <TeamSelect label="Avoid first game" onChange={setAvoidFirstTeamId} optional optionalLabel="No preference" teams={teams} value={avoidFirstTeamId} />
+            <NumberInput label="Repeats" min={1} onChange={setRepeatMatchups} value={repeatMatchups} />
+            <NumberInput label="Break after" min={0} onChange={setBreakAfterGames} value={breakAfterGames} />
+            <NumberInput label="Break min" min={0} onChange={setBreakLengthMinutes} value={breakLengthMinutes} />
+            <NumberInput label="First games min" min={1} onChange={setFirstSegmentMinutes} value={firstSegmentMinutes} />
+            <NumberInput label="Later games min" min={1} onChange={setSecondSegmentMinutes} value={secondSegmentMinutes} />
+          </div>
+          <p className="text-xs text-slate-500">
+            Session time: {formatSessionTimeRange(sessionStartTime, sessionEndTime)}. Generated fixtures use Team A as home and Team B as away, then reverse home/away on repeated matchups.
+          </p>
+        </section>
+      ) : null}
       <div className="grid gap-3">
-        {games.map((game) => {
+        {games.map((game, index) => {
           const selectablePlayers = uniquePlayers([
             ...(playersByTeam.get(game.teamAId) ?? []),
             ...(playersByTeam.get(game.teamBId) ?? [])
@@ -160,11 +254,36 @@ export function MiniGameScoresForm({
           const awayTeamId = game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : "";
           const homeTeamName = awayTeamId ? teamName(teams, awayTeamId === game.teamAId ? game.teamBId : game.teamAId) : "";
           const awayTeamName = awayTeamId ? teamName(teams, awayTeamId) : "";
+          const previousGame = index > 0 ? games[index - 1] : null;
+          const breakMinutes = minutesBetween(previousGame?.scheduledEndTime, game.scheduledStartTime);
           return (
-            <section className="panel overflow-hidden" key={game.key}>
+            <Fragment key={game.key}>
+            {breakMinutes > 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+                Break: {breakMinutes} min
+              </div>
+            ) : null}
+            <section
+              className="panel overflow-hidden"
+              draggable={!readOnly}
+              key={game.key}
+              onDragEnd={() => setDraggedGameKey(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDragStart={() => setDraggedGameKey(game.key)}
+              onDrop={(event) => {
+                event.preventDefault();
+                reorderGames(game.key);
+              }}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-slate-50 px-3 py-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  {!readOnly ? <GripVertical className="h-4 w-4 cursor-grab text-slate-400" aria-label="Drag game" /> : null}
                   <div className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">G{game.matchNumber}</div>
+                  {game.scheduledStartTime && game.scheduledEndTime ? (
+                    <div className="rounded-md border border-line bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                      {formatTime(game.scheduledStartTime)}-{formatTime(game.scheduledEndTime)}
+                    </div>
+                  ) : null}
                   <div className="truncate text-sm font-semibold text-ink">{teamAName}</div>
                   <div className="grid h-8 min-w-16 place-items-center rounded-md border border-line bg-white px-2 text-base font-black text-ink">
                     {gameScore.teamAScore}-{gameScore.teamBScore}
@@ -244,6 +363,7 @@ export function MiniGameScoresForm({
                 {!game.goals.length ? <p className="text-sm text-slate-500">No goal details added for this game.</p> : null}
               </div>
             </section>
+            </Fragment>
           );
         })}
       </div>
@@ -257,14 +377,23 @@ export function MiniGameScoresForm({
   );
 }
 
-function TeamSelect({ className = "", compact = false, label, onChange, optional = false, teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; optional?: boolean; teams: TeamOption[]; value: string }) {
+function TeamSelect({ className = "", compact = false, label, onChange, optional = false, optionalLabel = "No away team", teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; optional?: boolean; optionalLabel?: string; teams: TeamOption[]; value: string }) {
   return (
-    <label className={`grid gap-1 ${className} ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
+    <label className={`grid min-w-0 gap-1 ${className} ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
       {label}
-      <select className="input min-h-9 px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">{optional ? "No away team" : "Select team"}</option>
+      <select className="input min-h-9 w-full px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">{optional ? optionalLabel : "Select team"}</option>
         {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
       </select>
+    </label>
+  );
+}
+
+function NumberInput({ label, min, onChange, value }: { label: string; min: number; onChange: (value: number) => void; value: number }) {
+  return (
+    <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase text-slate-500">
+      {label}
+      <input className="input min-h-9 w-full px-2 text-sm" min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
     </label>
   );
 }
@@ -330,4 +459,98 @@ function inferScoringTeamId(goal: GoalInput, game: Pick<MatchInput, "teamAId" | 
 
 function teamName(teams: TeamOption[], teamId: string) {
   return teams.find((team) => team.id === teamId)?.name ?? "-";
+}
+
+function generatePairings(teams: TeamOption[], repeats: number, avoidFirstTeamId: string) {
+  const basePairs: Array<{ teamAId: string; teamBId: string }> = [];
+  for (let left = 0; left < teams.length; left += 1) {
+    for (let right = left + 1; right < teams.length; right += 1) {
+      basePairs.push({ teamAId: teams[left].id, teamBId: teams[right].id });
+    }
+  }
+
+  if (avoidFirstTeamId) {
+    const preferredIndex = basePairs.findIndex((pair) => pair.teamAId !== avoidFirstTeamId && pair.teamBId !== avoidFirstTeamId);
+    if (preferredIndex > 0) {
+      const [preferred] = basePairs.splice(preferredIndex, 1);
+      basePairs.unshift(preferred);
+    }
+  }
+
+  const pairings: Array<{ teamAId: string; teamBId: string }> = [];
+  for (let repeat = 0; repeat < repeats; repeat += 1) {
+    for (const pair of basePairs) {
+      pairings.push(repeat % 2 === 0 ? pair : { teamAId: pair.teamBId, teamBId: pair.teamAId });
+    }
+  }
+  return pairings;
+}
+
+function applyFixtureTimes(
+  rows: MatchInput[],
+  options: {
+    breakAfterGames: number;
+    breakLengthMinutes: number;
+    firstSegmentMinutes: number;
+    secondSegmentMinutes: number;
+    sessionStartTime?: string | null;
+  }
+) {
+  const startMinutes = parseTimeToMinutes(options.sessionStartTime);
+  if (startMinutes == null) {
+    return rows.map((row) => ({ ...row, scheduledStartTime: "", scheduledEndTime: "" }));
+  }
+
+  let cursor = startMinutes;
+  return rows.map((row, index) => {
+    if (options.breakAfterGames > 0 && index === options.breakAfterGames) cursor += options.breakLengthMinutes;
+    const duration = options.breakAfterGames > 0 && index >= options.breakAfterGames
+      ? options.secondSegmentMinutes
+      : options.firstSegmentMinutes;
+    const scheduledStartTime = minutesToTime(cursor);
+    cursor += duration;
+    return {
+      ...row,
+      scheduledStartTime,
+      scheduledEndTime: minutesToTime(cursor)
+    };
+  });
+}
+
+function parseTimeToMinutes(value?: string | null) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(value: number) {
+  const minutesInDay = 24 * 60;
+  const normalized = ((value % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "";
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function formatSessionTimeRange(start?: string | null, end?: string | null) {
+  if (!start && !end) return "not configured";
+  if (!end) return `${formatTime(start)} start`;
+  if (!start) return `${formatTime(end)} end`;
+  return `${formatTime(start)}-${formatTime(end)}`;
+}
+
+function minutesBetween(start?: string | null, end?: string | null) {
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+  if (startMinutes == null || endMinutes == null) return 0;
+  return Math.max(0, endMinutes - startMinutes);
 }

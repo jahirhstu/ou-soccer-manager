@@ -9,6 +9,8 @@ type PublicScoreData = {
     id: string;
     name: string | null;
     sessionDate: string;
+    startTime?: string | null;
+    endTime?: string | null;
     status?: string | null;
   } | null;
   teams?: Array<{
@@ -23,6 +25,8 @@ type PublicScoreData = {
     teamAId: string;
     teamBId: string;
     awayTeamId?: string | null;
+    scheduledStartTime?: string | null;
+    scheduledEndTime?: string | null;
     goals: Array<{
       id: string;
       scorerId: string;
@@ -41,6 +45,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
+  const canGenerateFixture = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
   const teamOptions = scoreData.teams ?? [];
   const readOnly = isLockedSession(scoreData.session ?? null);
@@ -53,6 +58,8 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
       teamAId: match.teamAId,
       teamBId: match.teamBId,
       awayTeamId: match.awayTeamId ?? "",
+      scheduledStartTime: match.scheduledStartTime ?? "",
+      scheduledEndTime: match.scheduledEndTime ?? "",
       goals: (match.goals ?? []).map((goal) => ({
         key: goal.id,
         scorerId: goal.scorerId,
@@ -73,13 +80,16 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
         ) : (
           <MiniGameScoresForm
+            canGenerateFixture={canGenerateFixture}
             existingGames={existingGames}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason="Scores are read-only because this session is completed or past its date."
             saveAction={savePublicGameScores}
+            sessionEndTime={scoreData.session?.endTime ?? null}
             sessionId={id}
             sessionLabel={scoreData.session?.name ?? scoreData.session?.sessionDate ?? "Session"}
+            sessionStartTime={scoreData.session?.startTime ?? null}
             teams={teamOptions}
           />
         )}
