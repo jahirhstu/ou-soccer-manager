@@ -16,3 +16,14 @@ export function hasPermission(role: UserRole | undefined, permission: Permission
 export function canManageFinance(role: UserRole | undefined) {
   return hasPermission(role, "manage_finance");
 }
+
+export function isSessionScoreReadOnly(
+  role: UserRole | undefined,
+  session: { session_date?: string | null; sessionDate?: string | null; status?: string | null } | null,
+  currentDate: string
+) {
+  if (!session) return false;
+  if (session.status === "completed") return true;
+  const sessionDate = String(session.session_date ?? session.sessionDate ?? "");
+  return sessionDate < currentDate && role !== "admin";
+}

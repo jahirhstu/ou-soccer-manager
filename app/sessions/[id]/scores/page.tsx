@@ -1,5 +1,5 @@
 import { MiniGameScoresForm, type MatchInput } from "@/components/MiniGameScoresForm";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, isSessionScoreReadOnly } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { AppShell } from "../../../(shell)";
 
@@ -26,7 +26,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       .eq("session_id", id)
       .not("match_id", "is", null)
   ]);
-  const readOnly = isLockedSession(session);
+  const readOnly = isSessionScoreReadOnly(profile?.role, session, currentTorontoDate());
   const teamOptions = (teams ?? []).map((team: any) => ({
     id: team.id,
     name: team.name,
@@ -80,11 +80,6 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       </div>
     </AppShell>
   );
-}
-
-function isLockedSession(session: { session_date?: string | null; status?: string | null } | null) {
-  if (!session) return false;
-  return session.status === "completed" || String(session.session_date ?? "") < currentTorontoDate();
 }
 
 function currentTorontoDate() {

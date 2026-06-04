@@ -1,7 +1,7 @@
 import { MiniGameScoresForm, type MatchInput } from "@/components/MiniGameScoresForm";
 import { PublicShell } from "@/components/PublicShell";
-import { savePublicGameScores } from "@/lib/actions/session-management";
-import { hasPermission } from "@/lib/permissions";
+import { saveMiniGameScores, savePublicGameScores } from "@/lib/actions/session-management";
+import { hasPermission, isSessionScoreReadOnly } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 
 type PublicScoreData = {
@@ -45,10 +45,11 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
+  const isAdmin = profile?.role === "admin";
   const canGenerateFixture = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
   const teamOptions = scoreData.teams ?? [];
-  const readOnly = isLockedSession(scoreData.session ?? null);
+  const readOnly = isSessionScoreReadOnly(profile?.role, scoreData.session ?? null, currentTorontoDate());
   const existingGames: MatchInput[] = [...(scoreData.matches ?? [])]
     .sort((left, right) => Number(left.matchNumber) - Number(right.matchNumber))
     .map((match) => ({
@@ -85,7 +86,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason="Scores are read-only because this session is completed or past its date."
-            saveAction={savePublicGameScores}
+            saveAction={isAdmin ? saveMiniGameScores : savePublicGameScores}
             sessionEndTime={scoreData.session?.endTime ?? null}
             sessionId={id}
             sessionLabel={scoreData.session?.name ?? scoreData.session?.sessionDate ?? "Session"}
@@ -96,11 +97,6 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
       </div>
     </PublicShell>
   );
-}
-
-function isLockedSession(session: { sessionDate?: string | null; status?: string | null } | null) {
-  if (!session) return false;
-  return session.status === "completed" || String(session.sessionDate ?? "") < currentTorontoDate();
 }
 
 function currentTorontoDate() {

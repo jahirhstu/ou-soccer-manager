@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { hasPermission } from "../permissions";
+import { hasPermission, isSessionScoreReadOnly } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 
 type MiniGameGoalInput = {
@@ -33,7 +33,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     if (!Array.isArray(games)) return { error: "Game score data is invalid." };
 
     const supabase = await createSupabaseServerClient();
-    const lockError = await lockedSessionError(supabase, sessionId);
+    const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError };
 
     const seenMatchNumbers = new Set<number>();
@@ -137,6 +137,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     if (!savedGames) return { error: "No valid games were saved. Select two different teams for at least one game." };
 
     revalidatePath(`/sessions/${sessionId}`);
+    revalidatePath(`/public/sessions/${sessionId}`);
     revalidatePath("/reports/leaderboards");
     revalidatePath("/public/leaderboards");
     revalidatePath("/reports/stats");
@@ -173,7 +174,7 @@ export async function savePublicGameScores(_: unknown, formData: FormData) {
   }
 }
 
-async function lockedSessionError(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, sessionId: string) {
+async function lockedSessionError(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, sessionId: string, role: Parameters<typeof isSessionScoreReadOnly>[0]) {
   const { data: session, error } = await supabase
     .from("sessions")
     .select("session_date,status")
@@ -181,7 +182,7 @@ async function lockedSessionError(supabase: Awaited<ReturnType<typeof createSupa
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!session) return "Session was not found.";
-  if (session.status === "completed" || String(session.session_date ?? "") < currentTorontoDate()) {
+  if (isSessionScoreReadOnly(role, session, currentTorontoDate())) {
     return "Scores are read-only because this session is completed or past its date.";
   }
   return null;
