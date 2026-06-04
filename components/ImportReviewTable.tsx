@@ -605,7 +605,9 @@ function ImpactPreview({
                   </td>
                   <td className="px-4 py-3">{signedMoney(row.currentBalance)}</td>
                   <td className="px-4 py-3 text-emerald-700">{row.paymentAdded ? `+${money(row.paymentAdded)}` : money(0)}</td>
-                  <td className="px-4 py-3 text-rose-700">{row.sessionCharge ? `-${money(row.sessionCharge)}` : money(0)}</td>
+                  <td className={`px-4 py-3 ${row.sessionCharge < 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                    {row.sessionCharge > 0 ? `-${money(row.sessionCharge)}` : row.sessionCharge < 0 ? `+${money(Math.abs(row.sessionCharge))}` : money(0)}
+                  </td>
                   <td className="px-4 py-3 font-semibold">{signedMoney(row.afterBalance)}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-1 text-xs font-semibold ${changeTone(row.changeStatus)}`}>{row.changeStatus}</span>
@@ -655,6 +657,10 @@ function buildImpactRows({
   parsed.players.forEach((row) => names.add(row.name));
   parsed.attendance.forEach((row) => names.add(row.playerName));
   parsed.payments.forEach((row) => names.add(row.playerName));
+  parsed.dropouts.forEach((row) => {
+    names.add(row.originalPlayerName);
+    if (row.replacementPlayerName) names.add(row.replacementPlayerName);
+  });
 
   return Array.from(names)
     .map((name) => {
@@ -779,11 +785,13 @@ function estimateSessionCharge({
 }) {
   if (!playerId || !selectedSession || !sessionPrice) return 0;
   const attendance = parsed.attendance.find((row) => normalizeName(row.playerName) === normalizeName(playerName));
-  if (!attendance || !["confirmed", "played", "replacement"].includes(attendance.status)) return 0;
+  if (!attendance) return 0;
   const matchedPlayerId = getDefaultMatchedPlayerId(attendance.playerName, players, playersByName, aliasesByName);
   if (matchedPlayerId !== playerId) return 0;
   const existingCharge = sessionCharges.some((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
-  return existingCharge ? 0 : sessionPrice;
+  const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
+  if (billable) return existingCharge ? 0 : sessionPrice;
+  return existingCharge ? -sessionPrice : 0;
 }
 
 function getDefaultMatchedPlayerId(
@@ -852,6 +860,7 @@ function impactChangeStatus({ matched, paymentAdded, sessionCharge }: { matched:
   if (paymentAdded > 0 && sessionCharge > 0) return "Payment + charge";
   if (paymentAdded > 0) return "Payment added";
   if (sessionCharge > 0) return "Charge added";
+  if (sessionCharge < 0) return "Charge removed";
   return "No balance change";
 }
 
@@ -860,6 +869,7 @@ function changeTone(status: string) {
   if (status === "Payment added") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (status === "Charge added") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
   if (status === "Payment + charge") return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+  if (status === "Charge removed") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 

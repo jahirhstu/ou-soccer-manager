@@ -28,11 +28,19 @@ export async function applySessionUsage({
   const { data: attendance, error: attendanceError } = await supabase
     .from("attendance")
     .select("player_id,status")
-    .eq("session_id", sessionId)
-    .in("status", ["confirmed", "played", "replacement"]);
+    .eq("session_id", sessionId);
   if (attendanceError) throw new Error(attendanceError.message);
 
-  const confirmedPlayerIds = (attendance ?? [])
+  const billableAttendance = (attendance ?? []).filter((row) => ["confirmed", "played", "replacement"].includes(row.status));
+  const nonBillablePlayerIds = (attendance ?? [])
+    .filter((row) => !["confirmed", "played", "replacement"].includes(row.status))
+    .map((row) => row.player_id);
+
+  const removedCharges = nonBillablePlayerIds.length
+    ? await removeNonBillableSessionCharges({ supabase, sessionId, playerIds: nonBillablePlayerIds })
+    : 0;
+
+  const confirmedPlayerIds = billableAttendance
     .filter((row) => row.status === "confirmed")
     .map((row) => row.player_id);
 
@@ -46,7 +54,7 @@ export async function applySessionUsage({
   }
 
   const newCharges = [];
-  for (const row of attendance ?? []) {
+  for (const row of billableAttendance) {
     const { data: charge, error } = await supabase
       .from("session_player_charges")
       .insert({
@@ -112,7 +120,8 @@ export async function applySessionUsage({
     entity_id: sessionId,
     new_data: {
       charged_players: ledgerRows.length,
-      skipped_existing_charges: (attendance ?? []).length - newCharges.length,
+      skipped_existing_charges: billableAttendance.length - newCharges.length,
+      removed_non_billable_charges: removedCharges,
       price_per_session: effectivePrice,
       confirmed_changed_to_played: shouldMarkConfirmedPlayed ? confirmedPlayerIds.length : 0
     }
@@ -120,10 +129,48 @@ export async function applySessionUsage({
 
   return {
     chargedPlayers: ledgerRows.length,
-    skippedExistingCharges: (attendance ?? []).length - newCharges.length,
+    skippedExistingCharges: billableAttendance.length - newCharges.length,
+    removedNonBillableCharges: removedCharges,
     confirmedChangedToPlayed: shouldMarkConfirmedPlayed ? confirmedPlayerIds.length : 0,
     effectivePrice
   };
+}
+
+async function removeNonBillableSessionCharges({
+  supabase,
+  sessionId,
+  playerIds
+}: {
+  supabase: SupabaseClient;
+  sessionId: string;
+  playerIds: string[];
+}) {
+  const { data: charges, error } = await supabase
+    .from("session_player_charges")
+    .select("id,ledger_entry_id")
+    .eq("session_id", sessionId)
+    .in("player_id", playerIds);
+  if (error) throw new Error(error.message);
+  if (!charges?.length) return 0;
+
+  const chargeIds = charges.map((charge) => charge.id);
+  const ledgerEntryIds = charges.map((charge) => charge.ledger_entry_id).filter(Boolean);
+
+  const { error: chargeDeleteError } = await supabase
+    .from("session_player_charges")
+    .delete()
+    .in("id", chargeIds);
+  if (chargeDeleteError) throw new Error(chargeDeleteError.message);
+
+  if (ledgerEntryIds.length) {
+    const { error: ledgerDeleteError } = await supabase
+      .from("ledger_entries")
+      .delete()
+      .in("id", ledgerEntryIds);
+    if (ledgerDeleteError) throw new Error(ledgerDeleteError.message);
+  }
+
+  return charges.length;
 }
 
 function isUniqueViolation(error: { code?: string; message?: string }) {

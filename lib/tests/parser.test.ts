@@ -106,6 +106,30 @@ describe("RuleBasedWhatsAppParser", () => {
     ]);
   });
 
+  it("pairs replacement-of roster rows with dropped players", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, June 03rd
+      9. Ayaan Shahreir - Dropped
+      16. Sazzad - Dropped
+      25. Habib - Replacement of Ayaan Shahreir
+      26. Mim - Replacement of Sazzad
+    `);
+
+    expect(result.attendance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Ayaan Shahreir", status: "dropped" }),
+        expect.objectContaining({ playerName: "Sazzad", status: "dropped" }),
+        expect.objectContaining({ playerName: "Habib", status: "replacement" }),
+        expect.objectContaining({ playerName: "Mim", status: "replacement" })
+      ])
+    );
+    expect(result.dropouts).toEqual([
+      expect.objectContaining({ originalPlayerName: "Ayaan Shahreir", replacementPlayerName: "Habib" }),
+      expect.objectContaining({ originalPlayerName: "Sazzad", replacementPlayerName: "Mim" })
+    ]);
+  });
+
   it("extracts mini-game match scores", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`
