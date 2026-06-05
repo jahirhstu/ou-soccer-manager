@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Handshake, Search, ShieldCheck, Trophy } from "lucide-react";
+import { Flame, Handshake, Search, ShieldCheck, TrendingDown, Trophy } from "lucide-react";
 import { PublicShell } from "@/components/PublicShell";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
@@ -35,6 +35,18 @@ type PublicHighlightRow = {
   score: string | null;
 };
 
+type PublicPlayerStreakRow = {
+  streak_type: "winning" | "losing";
+  player_id: string;
+  player_name: string | null;
+  season_id: string;
+  season_name: string | null;
+  streak_count: number | string | null;
+  start_session_date: string | null;
+  end_session_date: string | null;
+  session_names: string[] | null;
+};
+
 type SortKey = "name" | "balance" | "goals" | "assists" | "played" | "season";
 
 export default async function PublicPlayerReportPage({
@@ -44,9 +56,10 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [{ data, error }, { data: highlightsData, error: highlightsError }, profile] = await Promise.all([
+  const [{ data, error }, { data: highlightsData, error: highlightsError }, { data: streaksData, error: streaksError }, profile] = await Promise.all([
     supabase.rpc("public_player_report"),
     supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
+    supabase.rpc("public_player_session_streaks", { p_season_id: filters.season || null }),
     getCurrentProfile()
   ]);
   const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
@@ -60,23 +73,22 @@ export default async function PublicPlayerReportPage({
   const topScorer = highlights.get("top_scorer");
   const topAssist = highlights.get("top_assist");
   const latestWinner = highlights.get("latest_winner");
+  const streakRows = (streaksData ?? []) as PublicPlayerStreakRow[];
+  const topWinningStreak = streakRows.find((row) => row.streak_type === "winning");
+  const topLosingStreak = streakRows.find((row) => row.streak_type === "losing");
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
         <header className="panel overflow-hidden">
-          <div className="grid gap-5 bg-white p-5 sm:p-6 xl:grid-cols-[1fr_auto] xl:items-center">
-            <div className="min-w-0">
+          <div className="grid gap-4 bg-white p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3">
               <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Report Gallery
               </span>
-              <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">OU Soccer status</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Read-only player balances, recent attendance, scoring leaders, and latest winning team.
-              </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3 xl:w-[38rem]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <SummaryCard
                 icon={<Trophy className="h-5 w-5 text-amber-600" />}
                 label={topScorer?.score === "joint_top_scorer" ? "Joint top scorer" : "Top scorer"}
@@ -94,6 +106,18 @@ export default async function PublicPlayerReportPage({
                 label="Latest winner"
                 subLabel={highlightsError ? "Run latest migration" : latestWinner ? `${latestWinner.score ?? "-"} | Captain: ${latestWinner.captain_name ?? "-"}` : "No scored session"}
                 value={latestWinner?.team_name ?? "-"}
+              />
+              <SummaryCard
+                icon={<Flame className="h-5 w-5 text-amber-600" />}
+                label="Winning streak"
+                subLabel={streaksError ? "Run latest migration" : topWinningStreak ? `${numberValue(topWinningStreak.streak_count)} sessions | ${topWinningStreak.season_name ?? "Season"}` : "No streaks yet"}
+                value={topWinningStreak?.player_name ?? "-"}
+              />
+              <SummaryCard
+                icon={<TrendingDown className="h-5 w-5 text-rose-600" />}
+                label="Losing streak"
+                subLabel={streaksError ? "Run latest migration" : topLosingStreak ? `${numberValue(topLosingStreak.streak_count)} sessions | ${topLosingStreak.season_name ?? "Season"}` : "No streaks yet"}
+                value={topLosingStreak?.player_name ?? "-"}
               />
             </div>
           </div>
