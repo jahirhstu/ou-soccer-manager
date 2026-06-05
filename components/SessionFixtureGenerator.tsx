@@ -326,9 +326,9 @@ function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string
     }
 
     const [next] = remaining.splice(bestIndex, 1);
-    const previous = ordered[ordered.length - 1];
-    if (previous) {
-      for (const teamId of sharedTeamIds(previous, next)) {
+    const previousGame = ordered[ordered.length - 1];
+    if (previousGame) {
+      for (const teamId of sharedTeamIds(previousGame, next)) {
         backToBackCounts.set(teamId, (backToBackCounts.get(teamId) ?? 0) + 1);
       }
     }
