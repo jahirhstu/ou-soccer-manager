@@ -27,6 +27,16 @@ type FixtureTeam = {
   id: string;
 };
 
+type FixtureGameInput = {
+  matchNumber: number;
+  displayOrder?: number;
+  teamAId: string;
+  teamBId: string;
+  awayTeamId?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+};
+
 export async function saveMiniGameScores(_: unknown, formData: FormData) {
   try {
     const profile = await getCurrentProfile();
@@ -172,6 +182,80 @@ export async function savePublicGameScores(_: unknown, formData: FormData) {
   }
 }
 
+export async function saveSessionFixture(_: unknown, formData: FormData) {
+  try {
+    const profile = await getCurrentProfile();
+    if (!hasPermission(profile?.role, "manage_attendance")) return { error: "Only captains and admins can save fixtures." };
+
+    const sessionId = String(formData.get("sessionId") ?? "");
+    const games = JSON.parse(String(formData.get("gamesJson") ?? "[]")) as FixtureGameInput[];
+    if (!sessionId) return { error: "Session is missing." };
+    if (!Array.isArray(games)) return { error: "Fixture data is invalid." };
+
+    const supabase = await createSupabaseServerClient();
+    const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
+    if (lockError) return { error: lockError.replace("Scores", "Fixtures") };
+
+    const [{ data: teams, error: teamsError }, { data: playedMatches, error: playedError }] = await Promise.all([
+      supabase.from("session_teams").select("id").eq("session_id", sessionId),
+      supabase.from("session_matches").select("id").eq("session_id", sessionId).eq("result_status", "played").limit(1)
+    ]);
+    if (teamsError) throw new Error(teamsError.message);
+    if (playedError) throw new Error(playedError.message);
+    if (!teams || teams.length < 2) return { error: "Create at least two teams before saving fixtures." };
+    if (playedMatches?.length) return { error: "Fixture cannot be changed after game scores have been saved." };
+
+    const teamIds = new Set(teams.map((team) => String(team.id)));
+    const rows = [];
+    for (const [index, game] of games.entries()) {
+      const matchNumber = Number(game.matchNumber || index + 1);
+      const teamAId = String(game.teamAId ?? "");
+      const teamBId = String(game.teamBId ?? "");
+      const awayTeamId = game.awayTeamId === teamAId || game.awayTeamId === teamBId ? game.awayTeamId : null;
+      if (!Number.isFinite(matchNumber) || matchNumber <= 0) continue;
+      if (!teamIds.has(teamAId) || !teamIds.has(teamBId) || teamAId === teamBId) continue;
+      rows.push({
+        session_id: sessionId,
+        match_number: matchNumber,
+        display_order: index + 1,
+        team_a_id: teamAId,
+        team_b_id: teamBId,
+        away_team_id: awayTeamId,
+        scheduled_start_time: validTimeOrNull(game.scheduledStartTime),
+        scheduled_end_time: validTimeOrNull(game.scheduledEndTime),
+        result_status: "scheduled",
+        team_a_score: 0,
+        team_b_score: 0,
+        created_by: profile.id
+      });
+    }
+
+    if (!rows.length) return { error: "No valid fixture games were saved." };
+
+    const { data: existingMatches, error: existingError } = await supabase
+      .from("session_matches")
+      .select("id")
+      .eq("session_id", sessionId);
+    if (existingError) throw new Error(existingError.message);
+
+    const existingMatchIds = (existingMatches ?? []).map((match) => match.id);
+    if (existingMatchIds.length) {
+      const { error: deleteGoalsError } = await supabase.from("goals").delete().in("match_id", existingMatchIds);
+      if (deleteGoalsError) throw new Error(deleteGoalsError.message);
+      const { error: deleteMatchesError } = await supabase.from("session_matches").delete().in("id", existingMatchIds);
+      if (deleteMatchesError) throw new Error(deleteMatchesError.message);
+    }
+
+    const { error: insertError } = await supabase.from("session_matches").insert(rows);
+    if (insertError) throw new Error(insertError.message);
+
+    revalidateSessionViews(sessionId);
+    return { success: true, message: "Fixture saved." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not save fixture." };
+  }
+}
+
 export async function generateSessionFixture(_: unknown, formData: FormData) {
   try {
     const profile = await getCurrentProfile();
@@ -291,6 +375,7 @@ function validTimeOrNull(value?: string | null) {
 
 function revalidateSessionViews(sessionId: string) {
   revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath(`/sessions/${sessionId}/fixture`);
   revalidatePath(`/sessions/${sessionId}/scores`);
   revalidatePath(`/public/sessions/${sessionId}`);
   revalidatePath(`/public/sessions/${sessionId}/summary`);

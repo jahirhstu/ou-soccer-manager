@@ -3,6 +3,7 @@ import { PublicShell } from "@/components/PublicShell";
 import { saveMiniGameScores, savePublicGameScores } from "@/lib/actions/session-management";
 import { hasPermission, isSessionScoreReadOnly } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import Link from "next/link";
 
 type PublicScoreData = {
   session?: {
@@ -47,6 +48,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const isAdmin = profile?.role === "admin";
+  const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
   const teamOptions = scoreData.teams ?? [];
   const readOnly = isSessionScoreReadOnly(profile?.role, scoreData.session ?? null, currentTorontoDate());
@@ -80,6 +82,11 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
           </div>
         ) : teamOptions.length < 2 ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
+        ) : !existingGames.length ? (
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">
+            Generate a fixture before entering game scores.
+            {canManageSessionActivity ? <div className="mt-3"><Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link></div> : null}
+          </div>
         ) : (
           <MiniGameScoresForm
             existingGames={existingGames}

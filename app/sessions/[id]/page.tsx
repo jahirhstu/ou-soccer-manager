@@ -1,6 +1,5 @@
 import { DataTable } from "@/components/DataTable";
 import { FixtureScheduleCard } from "@/components/FixtureScheduleCard";
-import { SessionFixtureGenerator } from "@/components/SessionFixtureGenerator";
 import { StatusBadge } from "@/components/StatusBadge";
 import { completeSession, updateSessionPrice } from "@/lib/actions/crud";
 import { hasPermission } from "@/lib/permissions";
@@ -33,8 +32,6 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const matchRows = (matches ?? []) as MatchRow[];
   const standings = buildSessionStandings(matchRows);
-  const fixtureTeams = (teams ?? []).map((team: any) => ({ id: team.id, name: team.name }));
-  const hasPlayedMatches = matchRows.some((match) => match.result_status === "played");
   const fixtureMatches = matchRows.map((match) => ({
     matchNumber: match.match_number,
     teamAName: match.team_a?.name ?? null,
@@ -73,6 +70,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           {session?.status !== "completed" ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>Build teams</Link>
+              {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link> : null}
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
@@ -88,23 +86,13 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           ) : (
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View team builder</Link>
+              {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>View fixture</Link> : null}
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             </div>
           )}
         </section>
-        {canManageSessionActivity ? (
-          <SessionFixtureGenerator
-            disabled={session?.status === "completed"}
-            existingFixtureCount={matchRows.length}
-            hasPlayedMatches={hasPlayedMatches}
-            sessionEndTime={session?.end_time ?? null}
-            sessionId={id}
-            sessionStartTime={session?.start_time ?? null}
-            teams={fixtureTeams}
-          />
-        ) : null}
         <section className="grid gap-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>

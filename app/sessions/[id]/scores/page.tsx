@@ -2,6 +2,7 @@ import { MiniGameScoresForm, type MatchInput } from "@/components/MiniGameScores
 import { hasPermission, isSessionScoreReadOnly } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { AppShell } from "../../../(shell)";
+import Link from "next/link";
 
 export default async function MiniGameScoresPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -64,6 +65,11 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can edit game scores.</div>
         ) : teamOptions.length < 2 ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
+        ) : !existingGames.length ? (
+          <div className="panel border-dashed p-10 text-center text-sm text-slate-500">
+            Generate a fixture before entering game scores.
+            <div className="mt-3"><Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link></div>
+          </div>
         ) : (
           <MiniGameScoresForm
             existingGames={existingGames}

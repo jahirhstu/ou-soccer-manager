@@ -13,7 +13,7 @@ function isCaptainAllowedRoute(pathname: string) {
     return true;
   }
   if (/^\/sessions\/[^/]+$/.test(pathname)) return true;
-  return /^\/sessions\/[^/]+\/(?:lineups|scores)(?:\/.*)?$/.test(pathname);
+  return /^\/sessions\/[^/]+\/(?:fixture|lineups|scores)(?:\/.*)?$/.test(pathname);
 }
 
 function isPlayerAllowedRoute(pathname: string) {

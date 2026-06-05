@@ -1,83 +1,228 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Wand2 } from "lucide-react";
-import { generateSessionFixture } from "@/lib/actions/session-management";
+import { ArrowDown, ArrowUp, Save, Wand2 } from "lucide-react";
+import { saveSessionFixture } from "@/lib/actions/session-management";
 
-type FixtureTeam = {
+export type FixtureTeam = {
   id: string;
   name: string;
 };
 
+export type FixtureGame = {
+  key: string;
+  matchNumber: number;
+  displayOrder?: number;
+  teamAId: string;
+  teamBId: string;
+  awayTeamId?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+};
+
 export function SessionFixtureGenerator({
-  disabled = false,
-  existingFixtureCount = 0,
+  existingGames,
   hasPlayedMatches = false,
+  readOnly = false,
   sessionEndTime,
   sessionId,
+  sessionLabel = "Session",
   sessionStartTime,
   teams
 }: {
-  disabled?: boolean;
-  existingFixtureCount?: number;
+  existingGames: FixtureGame[];
   hasPlayedMatches?: boolean;
+  readOnly?: boolean;
   sessionEndTime?: string | null;
   sessionId: string;
+  sessionLabel?: string;
   sessionStartTime?: string | null;
   teams: FixtureTeam[];
 }) {
-  const [state, action, pending] = useActionState(generateSessionFixture, null as { success?: boolean; message?: string; error?: string } | null);
+  const [state, action, pending] = useActionState(saveSessionFixture, null as { success?: boolean; message?: string; error?: string } | null);
+  const [games, setGames] = useState<FixtureGame[]>(() => renumberGames(existingGames));
   const [avoidFirstTeamId, setAvoidFirstTeamId] = useState("");
   const [repeatMatchups, setRepeatMatchups] = useState(teams.length === 2 ? 3 : 2);
   const [breakAfterGames, setBreakAfterGames] = useState(3);
   const [breakLengthMinutes, setBreakLengthMinutes] = useState(10);
   const [firstSegmentMinutes, setFirstSegmentMinutes] = useState(15);
   const [secondSegmentMinutes, setSecondSegmentMinutes] = useState(18);
-  const cannotGenerate = disabled || pending || teams.length < 2 || hasPlayedMatches;
+  const teamsById = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams]);
+  const locked = readOnly || hasPlayedMatches;
+  const payload = renumberGames(games).map((game, index) => ({
+    matchNumber: index + 1,
+    displayOrder: index + 1,
+    teamAId: game.teamAId,
+    teamBId: game.teamBId,
+    awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
+    scheduledStartTime: game.scheduledStartTime || undefined,
+    scheduledEndTime: game.scheduledEndTime || undefined
+  }));
 
   useEffect(() => {
-    if (state?.success) toast.success(state.message ?? "Fixture generated.");
+    if (state?.success) toast.success(state.message ?? "Fixture saved.");
     if (state?.error) toast.error(state.error);
   }, [state]);
 
+  function generateFixture() {
+    if (teams.length < 2 || locked) return;
+    const pairings = generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId);
+    const timedGames = applyFixtureTimes(
+      pairings.map((pairing, index) => ({
+        key: randomKey("fixture-game"),
+        matchNumber: index + 1,
+        teamAId: pairing.teamAId,
+        teamBId: pairing.teamBId,
+        awayTeamId: pairing.teamBId
+      })),
+      {
+        breakAfterGames: Math.max(0, Number(breakAfterGames) || 0),
+        breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
+        firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
+        secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+        sessionStartTime
+      }
+    );
+    setGames(timedGames);
+  }
+
+  function moveGame(index: number, direction: -1 | 1) {
+    setGames((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return retimeGames(renumberGames(next));
+    });
+  }
+
+  function retimeGames(rows: FixtureGame[]) {
+    if (!rows.some((game) => game.scheduledStartTime || game.scheduledEndTime)) return rows;
+    return applyFixtureTimes(rows, {
+      breakAfterGames: Math.max(0, Number(breakAfterGames) || 0),
+      breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
+      firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
+      secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+      sessionStartTime
+    });
+  }
+
+  function updateAwayTeam(gameKey: string, awayTeamId: string) {
+    setGames((current) =>
+      current.map((game) => game.key === gameKey
+        ? { ...game, awayTeamId: awayTeamId === game.teamAId || awayTeamId === game.teamBId ? awayTeamId : "" }
+        : game
+      )
+    );
+  }
+
   return (
-    <form action={action} className="panel grid gap-3 p-3">
+    <form action={action} className="grid gap-4">
       <input name="sessionId" type="hidden" value={sessionId} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">Fixture generator</h2>
-          <p className="text-xs text-slate-500">
-            Uses the configured session teams. Generated fixtures appear in the schedule and start standings at zero.
-          </p>
+      <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
+
+      <section className="panel grid gap-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="page-title">Generate fixture</h1>
+            <p className="mt-1 text-sm text-slate-500">{sessionLabel}: generate, order, and save the session fixture.</p>
+          </div>
+          <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={locked || teams.length < 2} onClick={generateFixture} type="button">
+            <Wand2 className="h-4 w-4" />
+            {games.length ? "Regenerate draft" : "Generate draft"}
+          </button>
         </div>
-        <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={cannotGenerate} type="submit">
-          <Wand2 className="h-4 w-4" />
-          {pending ? "Generating..." : existingFixtureCount ? "Regenerate fixture" : "Generate fixture"}
-        </button>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <TeamSelect label="Avoid first game" name="avoidFirstTeamId" onChange={setAvoidFirstTeamId} optionalLabel="No preference" teams={teams} value={avoidFirstTeamId} />
-        <NumberInput label="Repeats" min={1} name="repeatMatchups" onChange={setRepeatMatchups} value={repeatMatchups} />
-        <NumberInput label="Break after" min={0} name="breakAfterGames" onChange={setBreakAfterGames} value={breakAfterGames} />
-        <NumberInput label="Break min" min={0} name="breakLengthMinutes" onChange={setBreakLengthMinutes} value={breakLengthMinutes} />
-        <NumberInput label="First games min" min={1} name="firstSegmentMinutes" onChange={setFirstSegmentMinutes} value={firstSegmentMinutes} />
-        <NumberInput label="Later games min" min={1} name="secondSegmentMinutes" onChange={setSecondSegmentMinutes} value={secondSegmentMinutes} />
-      </div>
-      <p className="text-xs text-slate-500">
-        Session time: {formatSessionTimeRange(sessionStartTime, sessionEndTime)}. Repeated matchups reverse home/away.
-      </p>
-      {teams.length < 2 ? <p className="text-xs font-medium text-amber-700">Create at least two teams before generating fixtures.</p> : null}
-      {hasPlayedMatches ? <p className="text-xs font-medium text-amber-700">Fixture cannot be regenerated after game scores have been saved.</p> : null}
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TeamSelect label="Avoid first game" onChange={setAvoidFirstTeamId} optionalLabel="No preference" teams={teams} value={avoidFirstTeamId} />
+          <NumberInput label="Repeats" min={1} onChange={setRepeatMatchups} value={repeatMatchups} />
+          <NumberInput label="Break after" min={0} onChange={setBreakAfterGames} value={breakAfterGames} />
+          <NumberInput label="Break min" min={0} onChange={setBreakLengthMinutes} value={breakLengthMinutes} />
+          <NumberInput label="First games min" min={1} onChange={setFirstSegmentMinutes} value={firstSegmentMinutes} />
+          <NumberInput label="Later games min" min={1} onChange={setSecondSegmentMinutes} value={secondSegmentMinutes} />
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Session time: {formatSessionTimeRange(sessionStartTime, sessionEndTime)}. Repeated matchups reverse home/away by default.
+        </p>
+        {teams.length < 2 ? <p className="text-xs font-medium text-amber-700">Create at least two teams before generating fixtures.</p> : null}
+        {hasPlayedMatches ? <p className="text-xs font-medium text-amber-700">Fixture cannot be changed after game scores have been saved.</p> : null}
+      </section>
+
+      <section className="grid gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="section-title">Fixture games</h2>
+            <p className="text-sm text-slate-500">Use arrows to reorder games and choose the away team for each matchup.</p>
+          </div>
+          {!locked ? (
+            <button className="btn-primary" disabled={pending || !games.length || teams.length < 2}>
+              <Save className="h-4 w-4" />
+              {pending ? "Saving..." : "Save fixture"}
+            </button>
+          ) : null}
+        </div>
+
+        {games.map((game, index) => {
+          const teamAName = teamsById.get(game.teamAId) ?? "Team A";
+          const teamBName = teamsById.get(game.teamBId) ?? "Team B";
+          const previousGame = index > 0 ? games[index - 1] : null;
+          const breakMinutes = minutesBetween(previousGame?.scheduledEndTime, game.scheduledStartTime);
+          return (
+            <div className="grid gap-2" key={game.key}>
+              {breakMinutes > 0 ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+                  Break: {breakMinutes} min
+                </div>
+              ) : null}
+              <article className="panel overflow-hidden">
+                <div className="grid gap-3 border-b border-line bg-slate-50 px-3 py-3 lg:grid-cols-[auto_minmax(0,1fr)_220px] lg:items-center">
+                  <div className="flex items-center gap-2">
+                    <button aria-label="Move game up" className="btn-secondary min-h-8 w-9 px-0" disabled={locked || index === 0} onClick={() => moveGame(index, -1)} type="button">
+                      <ArrowUp className="h-4 w-4" />
+                    </button>
+                    <button aria-label="Move game down" className="btn-secondary min-h-8 w-9 px-0" disabled={locked || index === games.length - 1} onClick={() => moveGame(index, 1)} type="button">
+                      <ArrowDown className="h-4 w-4" />
+                    </button>
+                    <div className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">G{index + 1}</div>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {game.scheduledStartTime && game.scheduledEndTime ? (
+                      <div className="rounded-md border border-line bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                        {formatTime(game.scheduledStartTime)}-{formatTime(game.scheduledEndTime)}
+                      </div>
+                    ) : null}
+                    <div className="truncate text-sm font-semibold text-ink">{teamAName}</div>
+                    <div className="text-xs font-semibold uppercase text-slate-400">vs</div>
+                    <div className="truncate text-sm font-semibold text-ink">{teamBName}</div>
+                  </div>
+                  <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                    Away team
+                    <select className="input min-h-9 px-2 text-sm" disabled={locked} onChange={(event) => updateAwayTeam(game.key, event.target.value)} value={game.awayTeamId ?? ""}>
+                      <option value="">No home/away</option>
+                      <option value={game.teamAId}>{teamAName} away</option>
+                      <option value={game.teamBId}>{teamBName} away</option>
+                    </select>
+                  </label>
+                </div>
+              </article>
+            </div>
+          );
+        })}
+
+        {!games.length ? <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No fixture generated yet.</div> : null}
+      </section>
     </form>
   );
 }
 
-function TeamSelect({ label, name, onChange, optionalLabel, teams, value }: { label: string; name: string; onChange: (value: string) => void; optionalLabel: string; teams: FixtureTeam[]; value: string }) {
+function TeamSelect({ label, onChange, optionalLabel, teams, value }: { label: string; onChange: (value: string) => void; optionalLabel: string; teams: FixtureTeam[]; value: string }) {
   return (
     <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
-      <select className="input min-h-9 w-full px-2 text-sm" name={name} onChange={(event) => onChange(event.target.value)} value={value}>
+      <select className="input min-h-9 w-full px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
         <option value="">{optionalLabel}</option>
         {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
       </select>
@@ -85,13 +230,92 @@ function TeamSelect({ label, name, onChange, optionalLabel, teams, value }: { la
   );
 }
 
-function NumberInput({ label, min, name, onChange, value }: { label: string; min: number; name: string; onChange: (value: number) => void; value: number }) {
+function NumberInput({ label, min, onChange, value }: { label: string; min: number; onChange: (value: number) => void; value: number }) {
   return (
     <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
-      <input className="input min-h-9 w-full px-2 text-sm" min={min} name={name} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
+      <input className="input min-h-9 w-full px-2 text-sm" min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
     </label>
   );
+}
+
+function renumberGames(rows: FixtureGame[]) {
+  return rows.map((game, index) => ({ ...game, matchNumber: index + 1, displayOrder: index + 1 }));
+}
+
+function randomKey(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function generatePairings(teams: FixtureTeam[], repeats: number, avoidFirstTeamId: string) {
+  const basePairs: Array<{ teamAId: string; teamBId: string }> = [];
+  for (let left = 0; left < teams.length; left += 1) {
+    for (let right = left + 1; right < teams.length; right += 1) {
+      basePairs.push({ teamAId: teams[left].id, teamBId: teams[right].id });
+    }
+  }
+
+  if (avoidFirstTeamId) {
+    const preferredIndex = basePairs.findIndex((pair) => pair.teamAId !== avoidFirstTeamId && pair.teamBId !== avoidFirstTeamId);
+    if (preferredIndex > 0) {
+      const [preferred] = basePairs.splice(preferredIndex, 1);
+      basePairs.unshift(preferred);
+    }
+  }
+
+  const pairings: Array<{ teamAId: string; teamBId: string }> = [];
+  for (let repeat = 0; repeat < repeats; repeat += 1) {
+    for (const pair of basePairs) {
+      pairings.push(repeat % 2 === 0 ? pair : { teamAId: pair.teamBId, teamBId: pair.teamAId });
+    }
+  }
+  return pairings;
+}
+
+function applyFixtureTimes(
+  rows: FixtureGame[],
+  options: {
+    breakAfterGames: number;
+    breakLengthMinutes: number;
+    firstSegmentMinutes: number;
+    secondSegmentMinutes: number;
+    sessionStartTime?: string | null;
+  }
+) {
+  const startMinutes = parseTimeToMinutes(options.sessionStartTime);
+  if (startMinutes == null) {
+    return rows.map((row) => ({ ...row, scheduledStartTime: "", scheduledEndTime: "" }));
+  }
+
+  let cursor = startMinutes;
+  return rows.map((row, index) => {
+    if (options.breakAfterGames > 0 && index === options.breakAfterGames) cursor += options.breakLengthMinutes;
+    const duration = options.breakAfterGames > 0 && index >= options.breakAfterGames
+      ? options.secondSegmentMinutes
+      : options.firstSegmentMinutes;
+    const scheduledStartTime = minutesToTime(cursor);
+    cursor += duration;
+    return {
+      ...row,
+      scheduledStartTime,
+      scheduledEndTime: minutesToTime(cursor)
+    };
+  });
+}
+
+function parseTimeToMinutes(value?: string | null) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(value: number) {
+  const minutesInDay = 24 * 60;
+  const normalized = ((value % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function formatTime(value?: string | null) {
@@ -108,4 +332,11 @@ function formatSessionTimeRange(start?: string | null, end?: string | null) {
   if (!end) return `${formatTime(start)} start`;
   if (!start) return `${formatTime(end)} end`;
   return `${formatTime(start)}-${formatTime(end)}`;
+}
+
+function minutesBetween(start?: string | null, end?: string | null) {
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+  if (startMinutes == null || endMinutes == null) return 0;
+  return Math.max(0, endMinutes - startMinutes);
 }

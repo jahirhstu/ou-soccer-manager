@@ -2,7 +2,7 @@
 
 import { Fragment, useActionState, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { GripVertical, Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
 
 export type TeamOption = {
@@ -53,10 +53,6 @@ export function MiniGameScoresForm({
 }) {
   const [state, action, pending] = useActionState(saveAction, null as { success?: boolean; message?: string; error?: string } | null);
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
-  const [newTeamAId, setNewTeamAId] = useState(teams[0]?.id ?? "");
-  const [newTeamBId, setNewTeamBId] = useState(teams[1]?.id ?? "");
-  const [newAwayTeamId, setNewAwayTeamId] = useState("");
-  const [draggedGameKey, setDraggedGameKey] = useState<string | null>(null);
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -90,10 +86,6 @@ export function MiniGameScoresForm({
     if (state?.error) toast.error(state.error);
   }, [state]);
 
-  useEffect(() => {
-    if (newAwayTeamId && newAwayTeamId !== newTeamAId && newAwayTeamId !== newTeamBId) setNewAwayTeamId("");
-  }, [newAwayTeamId, newTeamAId, newTeamBId]);
-
   function updateGame(key: string, patch: Partial<MatchInput>) {
     setGames((current) => current.map((game) => game.key === key ? { ...game, ...patch } : game));
   }
@@ -108,70 +100,18 @@ export function MiniGameScoresForm({
     );
   }
 
-  function addGame() {
-    setGames((current) => {
-      const nextMatchNumber = Math.max(0, ...current.map((game) => Number(game.matchNumber) || 0)) + 1;
-      return [
-        {
-          key: `new-game-${Date.now()}`,
-          matchNumber: nextMatchNumber,
-          teamAId: newTeamAId,
-          teamBId: newTeamBId,
-          awayTeamId: newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : "",
-          resultStatus: "scheduled",
-          goals: []
-        },
-        ...current
-      ];
-    });
-  }
-
-  function reorderGames(targetKey: string) {
-    if (!draggedGameKey || draggedGameKey === targetKey) return;
-    setGames((current) => {
-      const fromIndex = current.findIndex((game) => game.key === draggedGameKey);
-      const toIndex = current.findIndex((game) => game.key === targetKey);
-      if (fromIndex < 0 || toIndex < 0) return current;
-      const next = [...current];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      return renumberGames(next);
-    });
-  }
-
-  function renumberGames(rows: MatchInput[]) {
-    return rows.map((game, index) => ({ ...game, matchNumber: index + 1 }));
-  }
-
   return (
     <form action={action} className="grid gap-4">
       <input name="sessionId" type="hidden" value={sessionId} />
       <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
-      <div className="panel grid gap-3 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
+      <div className="panel grid gap-3 p-3">
         <div>
           <h1 className="page-title">{heading}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {sessionLabel}: select teams, add a game, then record goals, assists, and own goals. Scores are calculated from goal events.
+            {sessionLabel}: record goals, assists, and own goals against the saved fixture. Scores are calculated from goal events.
           </p>
           {readOnly ? <p className="mt-2 text-sm font-medium text-amber-700">{readOnlyReason}</p> : null}
         </div>
-        {!readOnly ? (
-          <div className="grid w-full gap-2 sm:grid-cols-[180px_180px_180px_auto] sm:items-end lg:w-auto">
-            <TeamSelect label="Team A" onChange={setNewTeamAId} teams={teams} value={newTeamAId} />
-            <TeamSelect label="Team B" onChange={setNewTeamBId} teams={teams} value={newTeamBId} />
-            <TeamSelect
-              label="Away team"
-              onChange={setNewAwayTeamId}
-              optional
-              teams={teams.filter((team) => team.id === newTeamAId || team.id === newTeamBId)}
-              value={newAwayTeamId === newTeamAId || newAwayTeamId === newTeamBId ? newAwayTeamId : ""}
-            />
-            <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={!newTeamAId || !newTeamBId || newTeamAId === newTeamBId} onClick={addGame} type="button">
-              <Plus className="h-4 w-4" />
-              Add game
-            </button>
-          </div>
-        ) : null}
       </div>
       <div className="grid gap-3">
         {games.map((game, index) => {
@@ -196,19 +136,10 @@ export function MiniGameScoresForm({
             ) : null}
             <section
               className="panel overflow-hidden"
-              draggable={!readOnly}
               key={game.key}
-              onDragEnd={() => setDraggedGameKey(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDragStart={() => setDraggedGameKey(game.key)}
-              onDrop={(event) => {
-                event.preventDefault();
-                reorderGames(game.key);
-              }}
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-slate-50 px-3 py-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {!readOnly ? <GripVertical className="h-4 w-4 cursor-grab text-slate-400" aria-label="Drag game" /> : null}
                   <div className="grid h-8 w-8 place-items-center rounded-md bg-pitch text-xs font-black text-white">G{game.matchNumber}</div>
                   {game.scheduledStartTime && game.scheduledEndTime ? (
                     <div className="rounded-md border border-line bg-white px-2 py-1 text-xs font-semibold text-slate-600">
@@ -226,12 +157,6 @@ export function MiniGameScoresForm({
                     </div>
                   ) : null}
                 </div>
-                {!readOnly ? (
-                  <button className="btn-secondary min-h-8 px-2 text-xs" onClick={() => setGames((current) => current.filter((item) => item.key !== game.key))} type="button">
-                    <Trash2 className="h-4 w-4" />
-                    Remove
-                  </button>
-                ) : null}
               </div>
 
               <div className="grid gap-2 bg-white p-3">
@@ -305,18 +230,6 @@ export function MiniGameScoresForm({
         </button>
       ) : null}
     </form>
-  );
-}
-
-function TeamSelect({ className = "", compact = false, label, onChange, optional = false, optionalLabel = "No away team", teams, value }: { className?: string; compact?: boolean; label: string; onChange: (value: string) => void; optional?: boolean; optionalLabel?: string; teams: TeamOption[]; value: string }) {
-  return (
-    <label className={`grid min-w-0 gap-1 ${className} ${compact ? "text-xs font-semibold uppercase text-slate-500" : "text-xs font-semibold uppercase text-slate-500"}`}>
-      {label}
-      <select className="input min-h-9 w-full px-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">{optional ? optionalLabel : "Select team"}</option>
-        {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
-      </select>
-    </label>
   );
 }
 

@@ -53,6 +53,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
+  const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
 
   if (!error && !data) notFound();
 
@@ -90,6 +91,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View teams</Link>
+            {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link> : null}
             <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
             <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             <Link className="btn-primary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
