@@ -32,7 +32,8 @@ export default async function LeaderboardsPage() {
   const supabase = await createSupabaseServerClient();
   const { data: matches } = await supabase
     .from("session_matches")
-    .select("team_a_id,team_b_id,away_team_id,team_a_score,team_b_score,team_a:session_teams!session_matches_team_a_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name)),team_b:session_teams!session_matches_team_b_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name))");
+    .select("team_a_id,team_b_id,away_team_id,team_a_score,team_b_score,team_a:session_teams!session_matches_team_a_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name)),team_b:session_teams!session_matches_team_b_id_fkey(name,captain:players!session_teams_captain_player_id_fkey(display_name))")
+    .eq("result_status", "played");
   const matchRows = (matches ?? []) as MatchRow[];
   const teamRows = leaderboardRows(matchRows, "team");
   const captainRows = leaderboardRows(matchRows, "captain");

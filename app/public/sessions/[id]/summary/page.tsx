@@ -38,6 +38,7 @@ type MatchRow = {
   awayTeamId?: string | null;
   scheduledStartTime?: string | null;
   scheduledEndTime?: string | null;
+  resultStatus?: string | null;
   teamAName: string | null;
   teamBName: string | null;
   teamAScore: number | string | null;
@@ -307,6 +308,7 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
   for (const match of matches) {
     const teamA = ensure(match.teamAId, match.teamAName ?? "Team A");
     const teamB = ensure(match.teamBId, match.teamBName ?? "Team B");
+    if (match.resultStatus !== "played") continue;
     applyResult(teamA, numberValue(match.teamAScore), numberValue(match.teamBScore), match.awayTeamId === match.teamAId);
     applyResult(teamB, numberValue(match.teamBScore), numberValue(match.teamAScore), match.awayTeamId === match.teamBId);
   }

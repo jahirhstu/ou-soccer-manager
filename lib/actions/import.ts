@@ -1270,6 +1270,7 @@ async function upsertSessionMatches({
         match_number: match.matchNumber,
         team_a_id: teamAId,
         team_b_id: teamBId,
+        result_status: "played",
         team_a_score: match.teamAScore,
         team_b_score: match.teamBScore,
         created_by: actorId

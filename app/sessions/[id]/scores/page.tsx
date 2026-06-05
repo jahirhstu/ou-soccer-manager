@@ -45,6 +45,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
     awayTeamId: match.away_team_id ?? "",
+    resultStatus: match.result_status === "played" ? "played" : "scheduled",
     scheduledStartTime: match.scheduled_start_time ?? "",
     scheduledEndTime: match.scheduled_end_time ?? "",
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
@@ -65,15 +66,12 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Create at least two teams before entering game scores.</div>
         ) : (
           <MiniGameScoresForm
-            canGenerateFixture={canEdit}
             existingGames={existingGames}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason="Scores are read-only because this session is completed or past its date."
-            sessionEndTime={session?.end_time ?? null}
             sessionId={id}
             sessionLabel={session?.name ?? session?.session_date ?? "Session"}
-            sessionStartTime={session?.start_time ?? null}
             teams={teamOptions}
           />
         )}
