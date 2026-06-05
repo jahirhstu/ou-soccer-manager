@@ -48,7 +48,9 @@ export function SessionFixtureGenerator({
   const [breakLengthMinutes, setBreakLengthMinutes] = useState(10);
   const [firstSegmentMinutes, setFirstSegmentMinutes] = useState(15);
   const [secondSegmentMinutes, setSecondSegmentMinutes] = useState(18);
+  const [transitionMinutes, setTransitionMinutes] = useState(2);
   const teamsById = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams]);
+  const backToBackSummary = useMemo(() => summarizeBackToBack(games, teamsById), [games, teamsById]);
   const locked = readOnly || hasPlayedMatches;
   const payload = renumberGames(games).map((game, index) => ({
     matchNumber: index + 1,
@@ -67,7 +69,7 @@ export function SessionFixtureGenerator({
 
   function generateFixture() {
     if (teams.length < 2 || locked) return;
-    const pairings = generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId);
+    const pairings = optimizePairingOrder(generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId), avoidFirstTeamId);
     const timedGames = applyFixtureTimes(
       pairings.map((pairing, index) => ({
         key: randomKey("fixture-game"),
@@ -81,6 +83,7 @@ export function SessionFixtureGenerator({
         breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
         firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
         secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+        transitionMinutes: Math.max(0, Number(transitionMinutes) || 0),
         sessionStartTime
       }
     );
@@ -105,6 +108,7 @@ export function SessionFixtureGenerator({
       breakLengthMinutes: Math.max(0, Number(breakLengthMinutes) || 0),
       firstSegmentMinutes: Math.max(1, Number(firstSegmentMinutes) || 1),
       secondSegmentMinutes: Math.max(1, Number(secondSegmentMinutes) || 1),
+      transitionMinutes: Math.max(0, Number(transitionMinutes) || 0),
       sessionStartTime
     });
   }
@@ -140,6 +144,7 @@ export function SessionFixtureGenerator({
           <NumberInput label="Repeats" min={1} onChange={setRepeatMatchups} value={repeatMatchups} />
           <NumberInput label="Break after" min={0} onChange={setBreakAfterGames} value={breakAfterGames} />
           <NumberInput label="Break min" min={0} onChange={setBreakLengthMinutes} value={breakLengthMinutes} />
+          <NumberInput label="Transition min" min={0} onChange={setTransitionMinutes} value={transitionMinutes} />
           <NumberInput label="First games min" min={1} onChange={setFirstSegmentMinutes} value={firstSegmentMinutes} />
           <NumberInput label="Later games min" min={1} onChange={setSecondSegmentMinutes} value={secondSegmentMinutes} />
         </div>
@@ -150,6 +155,26 @@ export function SessionFixtureGenerator({
         {teams.length < 2 ? <p className="text-xs font-medium text-amber-700">Create at least two teams before generating fixtures.</p> : null}
         {hasPlayedMatches ? <p className="text-xs font-medium text-amber-700">Fixture cannot be changed after game scores have been saved.</p> : null}
       </section>
+
+      {backToBackSummary.total ? (
+        <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">Back-to-back warning</div>
+          <div className="mt-1">
+            {backToBackSummary.maxTeams.map((team) => `${team.name} (${team.count})`).join(", ")} {backToBackSummary.maxTeams.length === 1 ? "has" : "have"} the most back-to-back games.
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {backToBackSummary.rows.map((row) => (
+              <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold ring-1 ring-amber-200" key={row.teamId}>
+                {row.name}: {row.count}
+              </span>
+            ))}
+          </div>
+        </section>
+      ) : games.length ? (
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-pitch">
+          No back-to-back games in this draft.
+        </section>
+      ) : null}
 
       <section className="grid gap-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -170,6 +195,7 @@ export function SessionFixtureGenerator({
           const teamBName = teamsById.get(game.teamBId) ?? "Team B";
           const previousGame = index > 0 ? games[index - 1] : null;
           const breakMinutes = minutesBetween(previousGame?.scheduledEndTime, game.scheduledStartTime);
+          const repeatedTeams = previousGame ? [game.teamAId, game.teamBId].filter((teamId) => teamId === previousGame.teamAId || teamId === previousGame.teamBId) : [];
           return (
             <div className="grid gap-2" key={game.key}>
               {breakMinutes > 0 ? (
@@ -197,6 +223,11 @@ export function SessionFixtureGenerator({
                     <div className="truncate text-sm font-semibold text-ink">{teamAName}</div>
                     <div className="text-xs font-semibold uppercase text-slate-400">vs</div>
                     <div className="truncate text-sm font-semibold text-ink">{teamBName}</div>
+                    {repeatedTeams.length ? (
+                      <div className="rounded-md bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200">
+                        Back-to-back: {repeatedTeams.map((teamId) => teamsById.get(teamId) ?? "Team").join(", ")}
+                      </div>
+                    ) : null}
                   </div>
                   <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
                     Away team
@@ -272,6 +303,73 @@ function generatePairings(teams: FixtureTeam[], repeats: number, avoidFirstTeamI
   return pairings;
 }
 
+function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string }>, avoidFirstTeamId: string) {
+  const remaining = [...pairings];
+  const ordered: Array<{ teamAId: string; teamBId: string }> = [];
+  const backToBackCounts = new Map<string, number>();
+
+  while (remaining.length) {
+    const previous = ordered[ordered.length - 1];
+    let bestIndex = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      const overlap = previous ? sharedTeamCount(previous, candidate) : 0;
+      const candidateLoad = (backToBackCounts.get(candidate.teamAId) ?? 0) + (backToBackCounts.get(candidate.teamBId) ?? 0);
+      const avoidFirstPenalty = !previous && avoidFirstTeamId && hasTeam(candidate, avoidFirstTeamId) ? 100 : 0;
+      const score = overlap * 1000 + candidateLoad * 10 + avoidFirstPenalty + index;
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    const [next] = remaining.splice(bestIndex, 1);
+    const previous = ordered[ordered.length - 1];
+    if (previous) {
+      for (const teamId of sharedTeamIds(previous, next)) {
+        backToBackCounts.set(teamId, (backToBackCounts.get(teamId) ?? 0) + 1);
+      }
+    }
+    ordered.push(next);
+  }
+
+  return ordered;
+}
+
+function summarizeBackToBack(games: FixtureGame[], teamsById: Map<string, string>) {
+  const counts = new Map<string, number>();
+  for (let index = 1; index < games.length; index += 1) {
+    for (const teamId of sharedTeamIds(games[index - 1], games[index])) {
+      counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
+    }
+  }
+
+  const rows = Array.from(counts.entries())
+    .map(([teamId, count]) => ({ teamId, name: teamsById.get(teamId) ?? "Team", count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  const max = rows[0]?.count ?? 0;
+
+  return {
+    maxTeams: rows.filter((row) => row.count === max),
+    rows,
+    total: rows.reduce((total, row) => total + row.count, 0)
+  };
+}
+
+function hasTeam(pairing: { teamAId: string; teamBId: string }, teamId: string) {
+  return pairing.teamAId === teamId || pairing.teamBId === teamId;
+}
+
+function sharedTeamCount(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }) {
+  return sharedTeamIds(left, right).length;
+}
+
+function sharedTeamIds(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }) {
+  return [right.teamAId, right.teamBId].filter((teamId) => teamId === left.teamAId || teamId === left.teamBId);
+}
+
 function applyFixtureTimes(
   rows: FixtureGame[],
   options: {
@@ -279,6 +377,7 @@ function applyFixtureTimes(
     breakLengthMinutes: number;
     firstSegmentMinutes: number;
     secondSegmentMinutes: number;
+    transitionMinutes: number;
     sessionStartTime?: string | null;
   }
 ) {
@@ -290,6 +389,7 @@ function applyFixtureTimes(
   let cursor = startMinutes;
   return rows.map((row, index) => {
     if (options.breakAfterGames > 0 && index === options.breakAfterGames) cursor += options.breakLengthMinutes;
+    if (index > 0) cursor += options.transitionMinutes;
     const duration = options.breakAfterGames > 0 && index >= options.breakAfterGames
       ? options.secondSegmentMinutes
       : options.firstSegmentMinutes;
