@@ -6,6 +6,13 @@ import { AppShell } from "../(shell)";
 import { money } from "@/lib/utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+type DashboardSummaryRow = {
+  season_id: string;
+  total_paid_amount: number | string | null;
+  estimated_used_amount: number | string | null;
+  owes_money: number | string | null;
+};
+
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
   const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }] = await Promise.all([
@@ -15,10 +22,11 @@ export default async function DashboardPage() {
     supabase.from("payments").select("amount,payment_date,players(display_name)").gt("amount", 0).order("created_at", { ascending: false }).limit(5),
     supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
-    supabase.from("player_season_payment_summary").select("season_id,total_paid_amount,estimated_used_amount,owes_money")
+    supabase.rpc("public_player_report")
   ]);
   const activeSeason = seasons?.[0];
-  const activeSummaries = activeSeason ? (summaries ?? []).filter((row) => row.season_id === activeSeason.id) : summaries ?? [];
+  const summaryRows = (summaries ?? []) as DashboardSummaryRow[];
+  const activeSummaries = activeSeason ? summaryRows.filter((row) => row.season_id === activeSeason.id) : summaryRows;
   const totalCollected = sumMoney(activeSummaries.map((row) => row.total_paid_amount));
   const totalUsed = sumMoney(activeSummaries.map((row) => row.estimated_used_amount));
   const totalOwing = sumMoney(activeSummaries.map((row) => row.owes_money));
