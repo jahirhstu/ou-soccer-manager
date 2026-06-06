@@ -53,6 +53,16 @@ export const paymentSchema = z.object({
   reference_note: z.string().optional().nullable()
 });
 
+export const expenseSchema = z.object({
+  season_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
+  session_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
+  expense_date: z.string().min(8),
+  category: z.enum(["dome_rent", "food", "jersey", "equipment", "other"]),
+  amount: z.coerce.number().positive(),
+  vendor: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
+});
+
 export const attendanceSchema = z.object({
   session_id: z.string().uuid(),
   player_id: z.string().uuid(),

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { attendanceSchema, paymentSchema, playerSchema, seasonSchema, sessionSchema } from "../schemas";
+import { attendanceSchema, expenseSchema, paymentSchema, playerSchema, seasonSchema, sessionSchema } from "../schemas";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { applySessionUsage } from "./session-usage";
@@ -89,6 +89,24 @@ export async function savePayment(formData: FormData) {
   });
   revalidatePath("/payments");
   redirect("/payments");
+}
+
+export async function saveExpense(formData: FormData) {
+  const profile = await requirePermission("manage_finance");
+  const parsed = expenseSchema.parse(formDataToObject(formData));
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.from("club_expenses").insert({ ...parsed, created_by: profile.id }).select("id").single();
+  if (error) throw new Error(error.message);
+  await supabase.from("audit_logs").insert({
+    actor_id: profile.id,
+    action: "expense_created",
+    entity_type: "club_expenses",
+    entity_id: data?.id,
+    new_data: parsed
+  });
+  revalidatePath("/expenses");
+  revalidatePath("/dashboard");
+  redirect("/expenses");
 }
 
 export async function upsertAttendance(formData: FormData) {

@@ -11,6 +11,7 @@ import {
   Gauge,
   MapPinned,
   MessageSquareText,
+  ReceiptText,
   Settings,
   Target,
   Trophy,
@@ -49,6 +50,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/players", label: "Players", subLabel: "Profiles and status", icon: Users, roles: ["admin"] },
       { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"] },
       { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"] },
+      { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"] },
       { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"] },
       { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"] },
       { href: "/settings", label: "Settings", subLabel: "Roles and cleanup", icon: Settings, roles: ["admin"] }

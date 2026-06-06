@@ -29,17 +29,19 @@ export function SeasonSelect({
   seasons,
   name = "season_id",
   defaultValue,
+  required = true,
   allowCreate = false,
   createLabel = "Create from parsed season"
 }: {
   seasons: Season[];
   name?: string;
   defaultValue?: string;
+  required?: boolean;
   allowCreate?: boolean;
   createLabel?: string;
 }) {
   return (
-    <select className="input" defaultValue={defaultValue} name={name} required>
+    <select className="input" defaultValue={defaultValue} name={name} required={required}>
       <option value="">Select season</option>
       {allowCreate ? <option value="__create__">{createLabel}</option> : null}
       {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
