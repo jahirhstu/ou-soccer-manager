@@ -26,6 +26,11 @@ type SessionChargeRow = {
   session_id: string;
   amount: number | string | null;
 };
+type SessionAttendanceRow = {
+  player_id: string;
+  session_id: string;
+  status: string;
+};
 
 export function ImportReviewTable({
   aliases,
@@ -34,6 +39,7 @@ export function ImportReviewTable({
   players,
   playgrounds,
   seasons,
+  sessionAttendance,
   sessionCharges,
   sessions
 }: {
@@ -43,6 +49,7 @@ export function ImportReviewTable({
   players: Player[];
   playgrounds: Playground[];
   seasons: Season[];
+  sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
   sessions: SessionWithPlayground[];
 }) {
@@ -202,6 +209,7 @@ export function ImportReviewTable({
             seasonId={selectedSeasonId === "__create__" ? undefined : selectedSeasonId}
             selectedSeason={selectedSeason}
             selectedSession={selectedSession}
+            sessionAttendance={sessionAttendance}
             sessionCharges={sessionCharges}
           />
           <details className="overflow-hidden rounded border border-amber-200 bg-amber-50" open>
@@ -547,6 +555,7 @@ function ImpactPreview({
   seasonId,
   selectedSeason,
   selectedSession,
+  sessionAttendance,
   sessionCharges
 }: {
   aliasesByName: Map<string, PlayerAlias>;
@@ -558,6 +567,7 @@ function ImpactPreview({
   seasonId?: string;
   selectedSeason?: Season;
   selectedSession?: SessionWithPlayground;
+  sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
 }) {
   const rows = buildImpactRows({
@@ -570,6 +580,7 @@ function ImpactPreview({
     seasonId,
     selectedSeason,
     selectedSession,
+    sessionAttendance,
     sessionCharges
   });
 
@@ -639,6 +650,7 @@ function buildImpactRows({
   seasonId,
   selectedSeason,
   selectedSession,
+  sessionAttendance,
   sessionCharges
 }: {
   aliasesByName: Map<string, PlayerAlias>;
@@ -650,6 +662,7 @@ function buildImpactRows({
   seasonId?: string;
   selectedSeason?: Season;
   selectedSession?: SessionWithPlayground;
+  sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
 }) {
   const sessionPrice = Number(selectedSession?.price_per_session ?? selectedSeason?.price_per_session ?? parsed.session?.pricePerSession ?? 0);
@@ -683,6 +696,7 @@ function buildImpactRows({
         playersByName,
         aliasesByName,
         selectedSession,
+        sessionAttendance,
         sessionCharges,
         sessionPrice
       });
@@ -770,6 +784,7 @@ function estimateSessionCharge({
   players,
   playersByName,
   selectedSession,
+  sessionAttendance,
   sessionCharges,
   sessionPrice
 }: {
@@ -780,6 +795,7 @@ function estimateSessionCharge({
   players: Player[];
   playersByName: Map<string, string>;
   selectedSession?: SessionWithPlayground;
+  sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
   sessionPrice: number;
 }) {
@@ -789,9 +805,11 @@ function estimateSessionCharge({
   const matchedPlayerId = getDefaultMatchedPlayerId(attendance.playerName, players, playersByName, aliasesByName);
   if (matchedPlayerId !== playerId) return 0;
   const existingCharge = sessionCharges.some((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
+  const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
+  const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
   if (billable) return existingCharge ? 0 : sessionPrice;
-  return existingCharge ? -sessionPrice : 0;
+  return existingCharge && existingBillable ? -sessionPrice : 0;
 }
 
 function getImportAttendanceForPlayer(attendanceRows: ParsedWhatsAppImport["attendance"], playerName: string) {
@@ -805,6 +823,10 @@ function attendanceStatusPriority(status: string) {
   if (status === "played") return 2;
   if (status === "confirmed") return 1;
   return 0;
+}
+
+function isBillableAttendanceStatus(status: string | undefined) {
+  return status === "confirmed" || status === "played" || status === "replacement";
 }
 
 function getDefaultMatchedPlayerId(
