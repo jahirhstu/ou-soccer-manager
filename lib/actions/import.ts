@@ -15,11 +15,13 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData) {
     const rawText = String(formData.get("rawText") ?? "");
     const parsed = await whatsappParser.parse(rawText);
     sanitizeParsedNames(parsed);
+    applyDropoutAttendanceOverrides(parsed);
     ensureSentPaymentsAreParsed(parsed);
     ensureMatchTeamsAreParsedTeams(parsed);
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
     sanitizeParsedNames(parsed);
+    applyDropoutAttendanceOverrides(parsed);
     return { parsed };
   } catch (error) {
     return { error: friendlyImportError(error, "parse") };
@@ -37,6 +39,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     });
     const parsed = JSON.parse(String(formData.get("parsedJson")));
     sanitizeParsedNames(parsed);
+    applyDropoutAttendanceOverrides(parsed);
     ensureSentPaymentsAreParsed(parsed);
     const matches = new Map<string, string>();
     const ignoredNames = new Set<string>();
@@ -60,6 +63,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
     sanitizeParsedNames(parsed);
+    applyDropoutAttendanceOverrides(parsed);
 
     const supabase = await createSupabaseServerClient();
     const targetSeasonId = await resolveTargetSeasonId({
@@ -934,6 +938,52 @@ function sanitizeParsedNames(parsed: any) {
     );
 }
 
+function applyDropoutAttendanceOverrides(parsed: any) {
+  const originals = new Set<string>();
+  const replacements = new Set<string>();
+
+  for (const dropout of parsed.dropouts ?? []) {
+    const originalName = cleanImportedPlayerName(dropout.originalPlayerName);
+    const replacementName = dropout.replacementPlayerName ? cleanImportedPlayerName(dropout.replacementPlayerName) : undefined;
+    if (originalName) originals.add(normalizeNameKey(originalName));
+    if (replacementName) replacements.add(normalizeNameKey(replacementName));
+  }
+
+  if (!originals.size && !replacements.size) return;
+
+  const byPlayer = new Map<string, any>();
+  for (const row of parsed.attendance ?? []) {
+    const key = normalizeNameKey(row.playerName);
+    if (!key) continue;
+    byPlayer.set(key, {
+      ...row,
+      status: originals.has(key) ? "dropped" : replacements.has(key) ? "replacement" : row.status,
+      confidence: originals.has(key) || replacements.has(key) ? "high" : row.confidence
+    });
+  }
+
+  for (const dropout of parsed.dropouts ?? []) {
+    const originalName = cleanImportedPlayerName(dropout.originalPlayerName);
+    const replacementName = dropout.replacementPlayerName ? cleanImportedPlayerName(dropout.replacementPlayerName) : undefined;
+    if (originalName) {
+      byPlayer.set(normalizeNameKey(originalName), {
+        playerName: originalName,
+        status: "dropped",
+        confidence: "high"
+      });
+    }
+    if (replacementName) {
+      byPlayer.set(normalizeNameKey(replacementName), {
+        playerName: replacementName,
+        status: "replacement",
+        confidence: "high"
+      });
+    }
+  }
+
+  parsed.attendance = Array.from(byPlayer.values());
+}
+
 function cleanImportedPlayerName(name: string | null | undefined) {
   return normalizePlayerName(
     String(name ?? "")
@@ -958,10 +1008,19 @@ function dedupeByName<T extends Record<string, any>>(rows: T[], key: keyof T) {
 function dedupeAttendanceRows(rows: any[]) {
   const deduped = new Map<string, any>();
   for (const row of rows) {
-    const key = `${normalizeNameKey(row.playerName)}:${row.status}`;
-    if (!deduped.has(key)) deduped.set(key, row);
+    const key = normalizeNameKey(row.playerName);
+    const existing = deduped.get(key);
+    if (!existing || attendanceStatusPriority(row.status) > attendanceStatusPriority(existing.status)) deduped.set(key, row);
   }
   return Array.from(deduped.values());
+}
+
+function attendanceStatusPriority(status: string) {
+  if (status === "dropped" || status === "absent" || status === "waitlisted") return 4;
+  if (status === "replacement") return 3;
+  if (status === "played") return 2;
+  if (status === "confirmed") return 1;
+  return 0;
 }
 
 function ensureSentPaymentsAreParsed(parsed: any) {

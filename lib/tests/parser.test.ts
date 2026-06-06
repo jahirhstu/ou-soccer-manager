@@ -130,6 +130,25 @@ describe("RuleBasedWhatsAppParser", () => {
     ]);
   });
 
+  it("keeps dropped attendance authoritative over earlier confirmed text", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, June 03rd
+      Ayaan Shahreir confirmed
+      9. Ayaan Shahreir - Dropped
+      25. Habib - Replacement of Ayaan Shahreir
+    `);
+
+    expect(result.attendance.filter((row) => row.playerName === "Ayaan Shahreir")).toEqual([
+      expect.objectContaining({ status: "dropped" })
+    ]);
+    expect(result.attendance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Habib", status: "replacement" })
+      ])
+    );
+  });
+
   it("extracts mini-game match scores", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`

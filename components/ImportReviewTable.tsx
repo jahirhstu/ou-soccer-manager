@@ -784,7 +784,7 @@ function estimateSessionCharge({
   sessionPrice: number;
 }) {
   if (!playerId || !selectedSession || !sessionPrice) return 0;
-  const attendance = parsed.attendance.find((row) => normalizeName(row.playerName) === normalizeName(playerName));
+  const attendance = getImportAttendanceForPlayer(parsed.attendance, playerName);
   if (!attendance) return 0;
   const matchedPlayerId = getDefaultMatchedPlayerId(attendance.playerName, players, playersByName, aliasesByName);
   if (matchedPlayerId !== playerId) return 0;
@@ -792,6 +792,19 @@ function estimateSessionCharge({
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
   if (billable) return existingCharge ? 0 : sessionPrice;
   return existingCharge ? -sessionPrice : 0;
+}
+
+function getImportAttendanceForPlayer(attendanceRows: ParsedWhatsAppImport["attendance"], playerName: string) {
+  const rows = attendanceRows.filter((row) => normalizeName(row.playerName) === normalizeName(playerName));
+  return rows.sort((left, right) => attendanceStatusPriority(right.status) - attendanceStatusPriority(left.status))[0];
+}
+
+function attendanceStatusPriority(status: string) {
+  if (status === "dropped" || status === "absent" || status === "waitlisted") return 4;
+  if (status === "replacement") return 3;
+  if (status === "played") return 2;
+  if (status === "confirmed") return 1;
+  return 0;
 }
 
 function getDefaultMatchedPlayerId(

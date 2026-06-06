@@ -427,8 +427,20 @@ function detectMethod(line: string) {
 
 function dedupeAttendance(rows: ParsedWhatsAppImport["attendance"]) {
   const byPlayer = new Map<string, ParsedWhatsAppImport["attendance"][number]>();
-  rows.forEach((row) => byPlayer.set(`${row.playerName}:${row.status}`, row));
+  rows.forEach((row) => {
+    const key = normalizePlayerName(row.playerName);
+    const existing = byPlayer.get(key);
+    if (!existing || attendanceStatusPriority(row.status) > attendanceStatusPriority(existing.status)) byPlayer.set(key, row);
+  });
   return Array.from(byPlayer.values());
+}
+
+function attendanceStatusPriority(status: ParsedWhatsAppImport["attendance"][number]["status"]) {
+  if (status === "dropped" || status === "absent" || status === "waitlisted") return 4;
+  if (status === "replacement") return 3;
+  if (status === "played") return 2;
+  if (status === "confirmed") return 1;
+  return 0;
 }
 
 function dedupeMatches(rows: ParsedWhatsAppImport["matches"]) {
