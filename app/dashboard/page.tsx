@@ -12,7 +12,7 @@ type DashboardSummaryRow = {
   estimated_used_amount: number | string | null;
   owes_money: number | string | null;
 };
-type DashboardPaymentEntryRow = {
+type DashboardPaymentRow = {
   amount: number | string | null;
   season_id: string;
   session_id: string | null;
@@ -24,7 +24,7 @@ type DashboardExpenseRow = {
 
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: paymentEntries }, { data: expenses }] = await Promise.all([
+  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }] = await Promise.all([
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
@@ -32,13 +32,13 @@ export default async function DashboardPage() {
     supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
     supabase.rpc("public_player_report"),
-    supabase.from("ledger_entries").select("season_id,session_id,amount").eq("type", "payment_received").gt("amount", 0),
+    supabase.from("payments").select("season_id,session_id,amount").gt("amount", 0),
     supabase.from("club_expenses").select("season_id,amount")
   ]);
   const activeSeason = seasons?.[0];
   const summaryRows = (summaries ?? []) as DashboardSummaryRow[];
   const activeSummaries = activeSeason ? summaryRows.filter((row) => row.season_id === activeSeason.id) : summaryRows;
-  const paymentRows = (paymentEntries ?? []) as DashboardPaymentEntryRow[];
+  const paymentRows = (financePayments ?? []) as DashboardPaymentRow[];
   const expenseRows = (expenses ?? []) as DashboardExpenseRow[];
   const activePayments = activeSeason ? paymentRows.filter((row) => row.season_id === activeSeason.id) : paymentRows;
   const activeExpenses = activeSeason ? expenseRows.filter((row) => row.season_id === activeSeason.id || row.season_id == null) : expenseRows;
