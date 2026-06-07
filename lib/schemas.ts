@@ -42,6 +42,7 @@ export const playerSchema = z.object({
 
 export const paymentSchema = z.object({
   season_id: z.string().uuid(),
+  session_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   player_id: z.string().uuid(),
   payment_date: z.string().min(8),
   amount: z.coerce.number().positive(),

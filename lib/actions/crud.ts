@@ -73,6 +73,7 @@ export async function savePayment(formData: FormData) {
   if (error) throw new Error(error.message);
   await supabase.from("ledger_entries").insert({
     season_id: parsed.season_id,
+    session_id: parsed.session_id,
     player_id: parsed.player_id,
     type: "payment_received",
     amount: parsed.amount,

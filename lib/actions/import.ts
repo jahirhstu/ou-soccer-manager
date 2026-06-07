@@ -665,6 +665,7 @@ async function importPaymentOnce({
     .from("payments")
     .insert({
       season_id: seasonId,
+      session_id: sessionId,
       player_id: playerId,
       amount,
       sessions_covered: sessionsCovered,
