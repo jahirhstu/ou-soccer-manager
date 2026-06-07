@@ -67,7 +67,7 @@ export function MiniGameScoresForm({
     teamAId: game.teamAId,
     teamBId: game.teamBId,
     awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
-    resultStatus: game.resultStatus,
+    resultStatus: hasScoredGoals(game) ? "played" : game.resultStatus,
     scheduledStartTime: game.scheduledStartTime || undefined,
     scheduledEndTime: game.scheduledEndTime || undefined,
     goals: game.goals
@@ -127,6 +127,8 @@ export function MiniGameScoresForm({
           const awayTeamName = awayTeamId ? teamName(teams, awayTeamId) : "";
           const previousGame = index > 0 ? games[index - 1] : null;
           const breakMinutes = minutesBetween(previousGame?.scheduledEndTime, game.scheduledStartTime);
+          const scoredGoals = hasScoredGoals(game);
+          const isPlayed = scoredGoals || game.resultStatus === "played";
           return (
             <Fragment key={game.key}>
             {breakMinutes > 0 ? (
@@ -157,6 +159,23 @@ export function MiniGameScoresForm({
                     </div>
                   ) : null}
                 </div>
+                <button
+                  aria-checked={isPlayed}
+                  className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition ${
+                    isPlayed
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                      : "border-line bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50"
+                  } disabled:cursor-not-allowed disabled:opacity-75`}
+                  disabled={readOnly || scoredGoals}
+                  onClick={() => updateGame(game.key, { resultStatus: isPlayed ? "scheduled" : "played" })}
+                  role="switch"
+                  type="button"
+                >
+                  <span className={`grid h-5 w-9 items-center rounded-full px-0.5 transition ${isPlayed ? "bg-emerald-600" : "bg-slate-300"}`}>
+                    <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${isPlayed ? "translate-x-4" : "translate-x-0"}`} />
+                  </span>
+                  Played{scoredGoals ? " (auto)" : ""}
+                </button>
               </div>
 
               <div className="grid gap-2 bg-white p-3">
@@ -280,6 +299,10 @@ function calculateGameScore(game: MatchInput, teamByPlayer: Map<string, string>)
     },
     { teamAScore: 0, teamBScore: 0 }
   );
+}
+
+function hasScoredGoals(game: MatchInput) {
+  return game.goals.some((goal) => Boolean(goal.scorerId));
 }
 
 function inferScoringTeamId(goal: GoalInput, game: Pick<MatchInput, "teamAId" | "teamBId">, teamByPlayer: Map<string, string>) {
