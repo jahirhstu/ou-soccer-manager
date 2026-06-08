@@ -67,6 +67,25 @@ export async function middleware(request: NextRequest) {
       }
     }
   );
+
+  let organizationId: string | null = null;
+  if (tenantSlug) {
+    const { data: organization } = await supabase.from("organizations").select("id").eq("slug", tenantSlug).maybeSingle();
+    if (!organization?.id) return NextResponse.rewrite(new URL("/_not-found", request.url), { request: { headers: requestHeaders } });
+    organizationId = organization.id;
+  }
+
+  if (programSlug && organizationId) {
+    const { data: program } = await supabase
+      .from("programs")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("slug", programSlug)
+      .eq("status", "active")
+      .maybeSingle();
+    if (!program?.id) return NextResponse.rewrite(new URL("/_not-found", request.url), { request: { headers: requestHeaders } });
+  }
+
   const { data } = await supabase.auth.getUser();
   const isPublic =
     publicRoutes.includes(pathname) ||
@@ -81,10 +100,7 @@ export async function middleware(request: NextRequest) {
       .from("organization_members")
       .select("role")
       .eq("profile_id", data.user.id);
-    if (tenantSlug) {
-      const { data: organization } = await supabase.from("organizations").select("id").eq("slug", tenantSlug).maybeSingle();
-      if (organization?.id) membershipQuery = membershipQuery.eq("organization_id", organization.id);
-    }
+    if (organizationId) membershipQuery = membershipQuery.eq("organization_id", organizationId);
     const { data: membership } = await membershipQuery.order("created_at").limit(1).maybeSingle();
     const role = profile?.role === "admin" ? "admin" : membership?.role === "owner" ? "admin" : membership?.role ?? profile?.role;
     if (role === "player") {
