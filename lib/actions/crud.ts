@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { attendanceSchema, expenseSchema, paymentSchema, playerSchema, seasonSchema, sessionSchema } from "../schemas";
+import { attendanceSchema, expenseSchema, paymentSchema, playerSchema, programSchema, seasonSchema, sessionSchema } from "../schemas";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { applySessionUsage } from "./session-usage";
@@ -13,11 +13,36 @@ async function requirePermission(permission: Parameters<typeof hasPermission>[1]
   return profile;
 }
 
+export async function saveProgram(formData: FormData) {
+  const profile = await requirePermission("manage_all");
+  if (!profile?.organization_id) throw new Error("No organization found for this account.");
+  const parsed = programSchema.parse(formDataToObject(formData));
+  const supabase = await createSupabaseServerClient();
+  const slug = await uniqueProgramSlug(supabase, profile.organization_id, parsed.name);
+  const { data, error } = await supabase
+    .from("programs")
+    .insert({
+      ...parsed,
+      slug,
+      organization_id: profile.organization_id,
+      created_by: profile.id
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  if (data?.id) {
+    await supabase.rpc("seed_program_modules", { p_program_id: data.id });
+  }
+  revalidatePath("/programs");
+  redirect("/programs");
+}
+
 export async function saveSeason(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = seasonSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("seasons").insert({ ...parsed, created_by: profile.id });
+  const programId = parsed.program_id ?? (await getDefaultProgramId(supabase, profile.organization_id));
+  const { error } = await supabase.from("seasons").insert({ ...parsed, program_id: programId, created_by: profile.id });
   if (error) throw new Error(error.message);
   revalidatePath("/seasons");
   redirect("/seasons");
@@ -27,8 +52,9 @@ export async function saveSession(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = sessionSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
+  const programId = parsed.program_id ?? (await getProgramIdForSeason(supabase, parsed.season_id));
   const playgroundId = parsed.playground_id ?? (parsed.location ? await findOrCreatePlayground(supabase, parsed.location, profile.id) : undefined);
-  const { error } = await supabase.from("sessions").insert({ ...parsed, playground_id: playgroundId, created_by: profile.id });
+  const { error } = await supabase.from("sessions").insert({ ...parsed, program_id: programId, playground_id: playgroundId, created_by: profile.id });
   if (error) throw new Error(error.message);
   revalidatePath("/sessions");
   redirect("/sessions");
@@ -69,9 +95,11 @@ export async function savePayment(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = paymentSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.from("payments").insert({ ...parsed, created_by: profile.id }).select("id").single();
+  const programId = parsed.program_id ?? (await getProgramIdForPayment(supabase, parsed.season_id, parsed.session_id));
+  const { data, error } = await supabase.from("payments").insert({ ...parsed, program_id: programId, created_by: profile.id }).select("id").single();
   if (error) throw new Error(error.message);
   await supabase.from("ledger_entries").insert({
+    program_id: programId,
     season_id: parsed.season_id,
     session_id: parsed.session_id,
     player_id: parsed.player_id,
@@ -96,7 +124,8 @@ export async function saveExpense(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = expenseSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.from("club_expenses").insert({ ...parsed, created_by: profile.id }).select("id").single();
+  const programId = parsed.program_id ?? (await getProgramIdForExpense(supabase, parsed.season_id, parsed.session_id, profile.organization_id));
+  const { data, error } = await supabase.from("club_expenses").insert({ ...parsed, program_id: programId, created_by: profile.id }).select("id").single();
   if (error) throw new Error(error.message);
   await supabase.from("audit_logs").insert({
     actor_id: profile.id,
@@ -114,9 +143,10 @@ export async function upsertAttendance(formData: FormData) {
   const profile = await requirePermission("manage_attendance");
   const parsed = attendanceSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
+  const programId = parsed.program_id ?? (await getProgramIdForSession(supabase, parsed.session_id));
   const { error } = await supabase
     .from("attendance")
-    .upsert({ ...parsed, created_by: profile.id }, { onConflict: "session_id,player_id" });
+    .upsert({ ...parsed, program_id: programId, created_by: profile.id }, { onConflict: "session_id,player_id" });
   if (error) throw new Error(error.message);
   revalidatePath("/attendance");
 }
@@ -182,4 +212,91 @@ async function findOrCreatePlayground(
     .single();
   if (error) throw new Error(error.message);
   return data.id;
+}
+
+async function getProgramIdForSeason(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  seasonId: string
+) {
+  const { data, error } = await supabase.from("seasons").select("program_id").eq("id", seasonId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.program_id ?? undefined;
+}
+
+async function getProgramIdForSession(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  sessionId: string
+) {
+  const { data, error } = await supabase.from("sessions").select("program_id").eq("id", sessionId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.program_id ?? undefined;
+}
+
+async function getProgramIdForPayment(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  seasonId: string,
+  sessionId?: string
+) {
+  if (sessionId) {
+    const sessionProgramId = await getProgramIdForSession(supabase, sessionId);
+    if (sessionProgramId) return sessionProgramId;
+  }
+  return getProgramIdForSeason(supabase, seasonId);
+}
+
+async function getProgramIdForExpense(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  seasonId: string | undefined,
+  sessionId: string | undefined,
+  organizationId?: string | null
+) {
+  if (sessionId) {
+    const sessionProgramId = await getProgramIdForSession(supabase, sessionId);
+    if (sessionProgramId) return sessionProgramId;
+  }
+  if (seasonId) {
+    const seasonProgramId = await getProgramIdForSeason(supabase, seasonId);
+    if (seasonProgramId) return seasonProgramId;
+  }
+  return getDefaultProgramId(supabase, organizationId);
+}
+
+async function getDefaultProgramId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId?: string | null
+) {
+  if (!organizationId) return undefined;
+  const { data, error } = await supabase.rpc("ensure_default_program", { p_organization_id: organizationId });
+  if (error) throw new Error(error.message);
+  return data ?? undefined;
+}
+
+async function uniqueProgramSlug(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId: string,
+  name: string
+) {
+  const base = normalizeSlug(name) || "program";
+  let slug = base;
+  let counter = 2;
+  while (true) {
+    const { data, error } = await supabase
+      .from("programs")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("slug", slug)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return slug;
+    slug = `${base}-${counter}`;
+    counter += 1;
+  }
+}
+
+function normalizeSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }

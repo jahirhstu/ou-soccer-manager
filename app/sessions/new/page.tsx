@@ -1,18 +1,23 @@
-import { PlaygroundSelect, SeasonSelect } from "@/components/FormControls";
+import { PlaygroundSelect, ProgramSelect, SeasonSelect } from "@/components/FormControls";
 import { saveSession } from "@/lib/actions/crud";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 
 export default async function NewSessionPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: seasons }, { data: playgrounds }] = await Promise.all([
-    supabase.from("seasons").select("*").order("name"),
-    supabase.from("playgrounds").select("*").order("name")
+  const currentProgram = await getCurrentProgram();
+  let seasonsQuery = supabase.from("seasons").select("*").order("name");
+  if (currentProgram?.id) seasonsQuery = seasonsQuery.eq("program_id", currentProgram.id);
+  const [{ data: seasons }, { data: playgrounds }, { data: programs }] = await Promise.all([
+    seasonsQuery,
+    supabase.from("playgrounds").select("*").order("name"),
+    supabase.from("programs").select("*").eq("status", "active").order("name")
   ]);
   return (
     <AppShell>
       <form action={saveSession} className="panel grid max-w-xl gap-3 p-5">
         <h1 className="section-title">New session</h1>
+        <ProgramSelect programs={programs ?? []} defaultValue={currentProgram?.id} emptyLabel="Use selected season program" />
         <SeasonSelect seasons={seasons ?? []} />
         <input className="input" name="name" placeholder="Session name" />
         <input className="input" name="session_date" type="date" required />

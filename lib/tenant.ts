@@ -10,6 +10,7 @@ const reservedSegments = new Set([
   "login",
   "payments",
   "players",
+  "programs",
   "public",
   "reports",
   "seasons",
@@ -32,16 +33,30 @@ export function getTenantSlugFromPathname(pathname: string) {
   return normalizeTenantSlug(firstSegment);
 }
 
+export function getProgramSlugFromPathname(pathname: string) {
+  const [, secondSegment] = pathname.split("/").filter(Boolean);
+  return normalizePathSegment(secondSegment);
+}
+
 export function stripTenantFromPathname(pathname: string) {
   const slug = getTenantSlugFromPathname(pathname);
   if (!slug) return pathname;
-  const withoutSlug = pathname.slice(slug.length + 1);
+  const programSlug = getProgramSlugFromPathname(pathname);
+  const prefixLength = programSlug ? slug.length + programSlug.length + 2 : slug.length + 1;
+  const withoutSlug = pathname.slice(prefixLength);
   return withoutSlug || "/";
 }
 
-export function tenantPath(pathname: string, tenantSlug?: string | null) {
+export function tenantPath(pathname: string, tenantSlug?: string | null, programSlug?: string | null) {
   const slug = normalizeTenantSlug(tenantSlug);
   if (!slug || !pathname.startsWith("/")) return pathname;
   if (getTenantSlugFromPathname(pathname)) return pathname;
-  return `/${slug}${pathname}`;
+  const program = normalizePathSegment(programSlug);
+  return program ? `/${slug}/${program}${pathname}` : `/${slug}${pathname}`;
+}
+
+function normalizePathSegment(value: string | null | undefined) {
+  const slug = normalizeTenantSlug(value);
+  if (!slug || reservedSegments.has(slug)) return "";
+  return slug;
 }

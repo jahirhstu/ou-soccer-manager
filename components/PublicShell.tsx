@@ -6,7 +6,7 @@ import { PublicNav } from "@/components/PublicNav";
 import { logoutAction } from "@/lib/actions/auth";
 import { getCurrentProfile } from "@/lib/supabase/server";
 import { tenantPath } from "@/lib/tenant";
-import { getRequestTenantSlug } from "@/lib/tenant-server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import type { UserRole } from "@/lib/types";
 
 export async function PublicShell({
@@ -20,9 +20,10 @@ export async function PublicShell({
 }) {
   const profile = await getCurrentProfile();
   const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const isLoggedIn = profile?.role === "admin" || profile?.role === "captain" || profile?.role === "player";
   const useAppNav = profile?.role === "admin" || profile?.role === "captain";
-  const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug);
+  const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug, programSlug);
   const menuLabel = useAppNav ? "Menu" : "Public menu";
 
   return (
@@ -44,7 +45,7 @@ export async function PublicShell({
               </button>
             </form>
           ) : (
-            <Link className="btn-primary min-h-9 px-3 text-xs sm:text-sm" href={tenantPath("/login", tenantSlug)}>
+            <Link className="btn-primary min-h-9 px-3 text-xs sm:text-sm" href={tenantPath("/login", tenantSlug, programSlug)}>
               Login
             </Link>
           )}
@@ -60,7 +61,7 @@ export async function PublicShell({
             <span className="text-xs font-medium text-slate-500 group-open:hidden">Open</span>
             <span className="hidden text-xs font-medium text-slate-500 group-open:inline">Close</span>
           </summary>
-          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} /> : <PublicNav tenantSlug={tenantSlug} />}
+          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} />}
         </details>
         <aside className="panel hidden p-2 md:sticky md:top-20 md:block md:self-start">
           {!useAppNav ? (
@@ -69,7 +70,7 @@ export async function PublicShell({
               Report Gallery
             </div>
           ) : null}
-          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} /> : <PublicNav tenantSlug={tenantSlug} />}
+          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} />}
         </aside>
         <main className="min-w-0">{children}</main>
       </div>

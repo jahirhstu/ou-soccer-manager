@@ -3,7 +3,7 @@ import { upsertAttendance } from "@/lib/actions/crud";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { compareText } from "@/lib/sorting";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 import { AppShell } from "../(shell)";
 
 type SortKey = "recent" | "date" | "player" | "status";
@@ -15,16 +15,23 @@ export default async function AttendancePage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
+  const program = await getCurrentProgram();
+  let sessionsQuery = supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false });
+  let attendanceQuery = supabase.from("attendance").select("*,players(display_name),sessions(session_date)").order("created_at", { ascending: false }).limit(100);
+  if (program?.id) {
+    sessionsQuery = sessionsQuery.eq("program_id", program.id);
+    attendanceQuery = attendanceQuery.eq("program_id", program.id);
+  }
   const [{ data: players }, { data: sessions }, { data: attendance }] = await Promise.all([
     supabase.from("players").select("*").order("display_name"),
-    supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }),
-    supabase.from("attendance").select("*,players(display_name),sessions(session_date)").order("created_at", { ascending: false }).limit(100)
+    sessionsQuery,
+    attendanceQuery
   ]);
   const rows = sortRows(attendance ?? [], sortKey(filters.sort));
   return (
     <AppShell>
       <div className="grid gap-5">
-        <h1 className="page-title">Attendance</h1>
+        <h1 className="page-title">{program?.name ? `${program.name} attendance` : "Attendance"}</h1>
         <form action={upsertAttendance} className="panel grid gap-3 p-4 md:grid-cols-[1fr_1fr_180px_auto]">
           <SessionSelect sessions={sessions ?? []} />
           <PlayerSelect players={players ?? []} />

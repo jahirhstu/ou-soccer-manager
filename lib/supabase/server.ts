@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "./env";
-import { getRequestTenantSlug } from "../tenant-server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "../tenant-server";
 
 type CookieToSet = {
   name: string;
@@ -130,4 +130,20 @@ function attachOrganization(profile: any, member: any) {
     organization_name: organization?.name ?? null,
     organization_slug: organization?.slug ?? null
   };
+}
+
+export async function getCurrentProgram(): Promise<any> {
+  const programSlug = await getRequestProgramSlug();
+  if (!programSlug) return null;
+  const profile = await getCurrentProfile();
+  if (!profile?.organization_id) return null;
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("programs")
+    .select("*")
+    .eq("organization_id", profile.organization_id)
+    .eq("slug", programSlug)
+    .maybeSingle();
+  if (error) return { programError: error.message };
+  return data;
 }

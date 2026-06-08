@@ -6,7 +6,7 @@ import { DataTable } from "@/components/DataTable";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
 
 type ExpenseRow = {
   id: string;
@@ -15,11 +15,12 @@ type ExpenseRow = {
   amount: number | string | null;
   vendor: string | null;
   notes: string | null;
+  programs?: { name?: string | null } | null;
   seasons?: { name?: string | null } | null;
   sessions?: { session_date?: string | null; name?: string | null } | null;
 };
 
-type SortKey = "date_desc" | "date_asc" | "category" | "season" | "session" | "amount" | "vendor";
+type SortKey = "date_desc" | "date_asc" | "category" | "program" | "season" | "session" | "amount" | "vendor";
 
 export default async function ExpensesPage({
   searchParams
@@ -30,10 +31,13 @@ export default async function ExpensesPage({
   const profile = await getCurrentProfile();
   if (!hasPermission(profile?.role, "manage_finance")) redirect("/public/report");
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
+  const program = await getCurrentProgram();
+  let query = supabase
     .from("club_expenses")
-    .select("*,seasons(name),sessions(session_date,name)")
+    .select("*,programs(name),seasons(name),sessions(session_date,name)")
     .order("expense_date", { ascending: false });
+  if (program?.id) query = query.eq("program_id", program.id);
+  const { data } = await query;
   const rows = sortRows((data ?? []) as ExpenseRow[], sortKey(filters.sort));
   const totalExpenses = rows.reduce((total, row) => total + Number(row.amount ?? 0), 0);
 
@@ -41,7 +45,7 @@ export default async function ExpensesPage({
     <AppShell>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="page-title">Expenses</h1>
+          <h1 className="page-title">{program?.name ? `${program.name} expenses` : "Expenses"}</h1>
           <p className="text-sm text-slate-500">Admin-only club spending for field rent, food, jerseys, and equipment.</p>
         </div>
         <Link className="btn-primary" href="/expenses/new"><Plus className="h-4 w-4" /> Record expense</Link>
@@ -54,6 +58,7 @@ export default async function ExpensesPage({
       <DataTable rows={rows} columns={[
         { header: "Date", cell: (row) => row.expense_date },
         { header: "Category", cell: (row) => expenseCategoryLabel(row.category) },
+        { header: "Program", cell: (row) => row.programs?.name ?? "-" },
         { header: "Amount", cell: (row) => money(Number(row.amount ?? 0)) },
         { header: "Vendor", cell: (row) => row.vendor ?? "-" },
         { header: "Season", cell: (row) => row.seasons?.name ?? "-" },
@@ -90,7 +95,7 @@ function sessionLabel(row: ExpenseRow) {
 }
 
 function sortKey(value: string | undefined): SortKey {
-  if (value === "date_asc" || value === "category" || value === "season" || value === "session" || value === "amount" || value === "vendor") return value;
+  if (value === "date_asc" || value === "category" || value === "program" || value === "season" || value === "session" || value === "amount" || value === "vendor") return value;
   return "date_desc";
 }
 
@@ -98,6 +103,7 @@ function sortRows(rows: ExpenseRow[], key: SortKey) {
   return [...rows].sort((left, right) => {
     if (key === "date_asc") return compareText(left.expense_date, right.expense_date) || compareText(left.vendor, right.vendor);
     if (key === "category") return compareText(left.category, right.category) || compareText(right.expense_date, left.expense_date);
+    if (key === "program") return compareText(left.programs?.name, right.programs?.name) || compareText(right.expense_date, left.expense_date);
     if (key === "season") return compareText(left.seasons?.name, right.seasons?.name) || compareText(right.expense_date, left.expense_date);
     if (key === "session") return compareText(sessionLabel(left), sessionLabel(right)) || compareText(right.expense_date, left.expense_date);
     if (key === "amount") return compareNumberDesc(left.amount, right.amount) || compareText(right.expense_date, left.expense_date);

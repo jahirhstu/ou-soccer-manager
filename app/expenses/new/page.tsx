@@ -1,23 +1,35 @@
 import { redirect } from "next/navigation";
-import { DateInput, MoneyInput, SeasonSelect, SessionSelect } from "@/components/FormControls";
+import { DateInput, MoneyInput, ProgramSelect, SeasonSelect, SessionSelect } from "@/components/FormControls";
 import { saveExpense } from "@/lib/actions/crud";
 import { hasPermission } from "@/lib/permissions";
-import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 
 export default async function NewExpensePage() {
   const profile = await getCurrentProfile();
   if (!hasPermission(profile?.role, "manage_finance")) redirect("/public/report");
   const supabase = await createSupabaseServerClient();
-  const [{ data: seasons }, { data: sessions }] = await Promise.all([
-    supabase.from("seasons").select("*").order("name"),
-    supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false })
+  const currentProgram = await getCurrentProgram();
+  let seasonsQuery = supabase.from("seasons").select("*").order("name");
+  let sessionsQuery = supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false });
+  if (currentProgram?.id) {
+    seasonsQuery = seasonsQuery.eq("program_id", currentProgram.id);
+    sessionsQuery = sessionsQuery.eq("program_id", currentProgram.id);
+  }
+  const [{ data: seasons }, { data: sessions }, { data: programs }] = await Promise.all([
+    seasonsQuery,
+    sessionsQuery,
+    supabase.from("programs").select("*").eq("status", "active").order("name")
   ]);
 
   return (
     <AppShell>
       <form action={saveExpense} className="panel grid max-w-xl gap-3 p-5">
         <h1 className="section-title">Record expense</h1>
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Program
+          <ProgramSelect programs={programs ?? []} defaultValue={currentProgram?.id} emptyLabel="Use selected season/session program" />
+        </label>
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Season
           <SeasonSelect seasons={seasons ?? []} required={false} />

@@ -1,5 +1,5 @@
 import { Calendar, DollarSign } from "lucide-react";
-import type { Player, Playground, Season, Session } from "@/lib/types";
+import type { Player, Playground, Program, Season, Session } from "@/lib/types";
 
 export function MoneyInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -45,6 +45,27 @@ export function SeasonSelect({
       <option value="">Select season</option>
       {allowCreate ? <option value="__create__">{createLabel}</option> : null}
       {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+    </select>
+  );
+}
+
+export function ProgramSelect({
+  programs,
+  name = "program_id",
+  defaultValue,
+  required = false,
+  emptyLabel = "Select program"
+}: {
+  programs: Program[];
+  name?: string;
+  defaultValue?: string;
+  required?: boolean;
+  emptyLabel?: string;
+}) {
+  return (
+    <select className="input" defaultValue={defaultValue} name={name} required={required}>
+      <option value="">{emptyLabel}</option>
+      {programs.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
     </select>
   );
 }

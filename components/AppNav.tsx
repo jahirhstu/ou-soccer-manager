@@ -9,6 +9,7 @@ import {
   ClipboardList,
   CreditCard,
   Gauge,
+  Layers3,
   MapPinned,
   MessageSquareText,
   ReceiptText,
@@ -37,6 +38,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
     label: "Club",
     items: [
       { href: "/dashboard", label: "Dashboard", subLabel: "Club overview", icon: Gauge, roles: ["admin"] },
+      { href: "/programs", label: "Programs", subLabel: "Sports and events", icon: Layers3, roles: ["admin"] },
       { href: "/sessions", label: "Sessions", subLabel: "Games and attendance", icon: CalendarDays, roles: ["admin", "captain"] },
       { href: "/leagues", label: "Leagues", subLabel: "Teams and fixtures", icon: Trophy, roles: ["admin", "captain"] },
       { href: "/attendance", label: "Attendance", subLabel: "Player check-ins", icon: ClipboardCheck, roles: ["admin", "captain"] },
@@ -69,7 +71,17 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
   }
 ];
 
-export function AppNav({ role, tenantSlug, variant = "app" }: { role?: UserRole; tenantSlug?: string | null; variant?: NavVariant }) {
+export function AppNav({
+  role,
+  tenantSlug,
+  programSlug,
+  variant = "app"
+}: {
+  role?: UserRole;
+  tenantSlug?: string | null;
+  programSlug?: string | null;
+  variant?: NavVariant;
+}) {
   const pathname = usePathname();
   const internalPathname = stripTenantFromPathname(pathname);
   const sections = navSections
@@ -95,7 +107,7 @@ export function AppNav({ role, tenantSlug, variant = "app" }: { role?: UserRole;
                   "grid min-h-12 grid-cols-[20px_1fr] items-center gap-x-3 rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-pitch",
                   active && "bg-emerald-50 font-semibold text-pitch ring-1 ring-emerald-100"
                 )}
-                href={tenantPath(href, tenantSlug)}
+                href={tenantPath(href, tenantSlug, programSlug)}
                 key={href}
               >
                 <Icon className="h-4 w-4" />

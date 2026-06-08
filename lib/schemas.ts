@@ -5,7 +5,16 @@ const optionalNumber = z.preprocess(
   z.coerce.number().nonnegative().optional()
 );
 
+export const programSchema = z.object({
+  name: z.string().min(2),
+  category: z.enum(["sport", "event", "social", "generic"]).default("sport"),
+  activity_type: z.string().min(2),
+  status: z.enum(["active", "archived"]).default("active"),
+  notes: z.string().optional().nullable()
+});
+
 export const seasonSchema = z.object({
+  program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   name: z.string().min(2),
   start_date: z.string().optional().nullable(),
   end_date: z.string().optional().nullable(),
@@ -20,6 +29,7 @@ export const seasonSchema = z.object({
 
 export const sessionSchema = z.object({
   season_id: z.string().uuid(),
+  program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   playground_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   name: z.string().optional().nullable(),
   session_date: z.string().min(8),
@@ -41,6 +51,7 @@ export const playerSchema = z.object({
 });
 
 export const paymentSchema = z.object({
+  program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   season_id: z.string().uuid(),
   session_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   player_id: z.string().uuid(),
@@ -55,6 +66,7 @@ export const paymentSchema = z.object({
 });
 
 export const expenseSchema = z.object({
+  program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   season_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   session_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   expense_date: z.string().min(8),
@@ -66,6 +78,7 @@ export const expenseSchema = z.object({
 
 export const attendanceSchema = z.object({
   session_id: z.string().uuid(),
+  program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   player_id: z.string().uuid(),
   status: z.enum(["confirmed", "played", "absent", "dropped", "replacement", "waitlisted"]),
   notes: z.string().optional().nullable()

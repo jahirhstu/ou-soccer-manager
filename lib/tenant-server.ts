@@ -9,3 +9,8 @@ export async function getRequestTenantSlug() {
   const cookieStore = await cookies();
   return normalizeTenantSlug(cookieStore.get("active_organization_slug")?.value);
 }
+
+export async function getRequestProgramSlug() {
+  const requestHeaders = await headers();
+  return normalizeTenantSlug(requestHeaders.get("x-program-slug"));
+}

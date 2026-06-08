@@ -1,19 +1,28 @@
-import { PlayerSelect, SeasonSelect, SessionSelect } from "@/components/FormControls";
+import { PlayerSelect, ProgramSelect, SeasonSelect, SessionSelect } from "@/components/FormControls";
 import { savePayment } from "@/lib/actions/crud";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 
 export default async function NewPaymentPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: seasons }, { data: players }, { data: sessions }] = await Promise.all([
-    supabase.from("seasons").select("*").order("name"),
+  const currentProgram = await getCurrentProgram();
+  let seasonsQuery = supabase.from("seasons").select("*").order("name");
+  let sessionsQuery = supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false });
+  if (currentProgram?.id) {
+    seasonsQuery = seasonsQuery.eq("program_id", currentProgram.id);
+    sessionsQuery = sessionsQuery.eq("program_id", currentProgram.id);
+  }
+  const [{ data: seasons }, { data: players }, { data: sessions }, { data: programs }] = await Promise.all([
+    seasonsQuery,
     supabase.from("players").select("*").order("display_name"),
-    supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false })
+    sessionsQuery,
+    supabase.from("programs").select("*").eq("status", "active").order("name")
   ]);
   return (
     <AppShell>
       <form action={savePayment} className="panel grid max-w-xl gap-3 p-5">
         <h1 className="section-title">Record payment</h1>
+        <ProgramSelect programs={programs ?? []} defaultValue={currentProgram?.id} emptyLabel="Use selected season/session program" />
         <SeasonSelect seasons={seasons ?? []} />
         <SessionSelect sessions={sessions ?? []} required={false} />
         <PlayerSelect players={players ?? []} />

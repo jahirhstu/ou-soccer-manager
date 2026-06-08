@@ -5,9 +5,9 @@ import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { compareNumberAsc, compareText } from "@/lib/sorting";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 
-type SortKey = "created" | "name" | "status" | "start" | "planned" | "price";
+type SortKey = "created" | "name" | "program" | "status" | "start" | "planned" | "price";
 
 export default async function SeasonsPage({
   searchParams
@@ -16,13 +16,17 @@ export default async function SeasonsPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.from("seasons").select("*").order("created_at", { ascending: false });
+  const program = await getCurrentProgram();
+  let query = supabase.from("seasons").select("*,programs(name)").order("created_at", { ascending: false });
+  if (program?.id) query = query.eq("program_id", program.id);
+  const { data } = await query;
   const rows = sortRows(data ?? [], sortKey(filters.sort));
   return (
     <AppShell>
-      <Header title="Seasons" href="/seasons/new" label="New season" />
+      <Header title={program?.name ? `${program.name} seasons` : "Seasons"} href="/seasons/new" label="New season" />
       <DataTable rows={rows} columns={[
         { header: "Name", cell: (row) => <Link className="font-medium text-pitch" href={`/seasons/${row.id}`}>{row.name}</Link> },
+        { header: "Program", cell: (row: any) => row.programs?.name ?? "-" },
         { header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
         { header: "Dates", cell: (row) => `${row.start_date ?? "-"} to ${row.end_date ?? "-"}` },
         { header: "Planned", cell: (row) => row.total_planned_sessions ?? "-" },
@@ -33,13 +37,14 @@ export default async function SeasonsPage({
 }
 
 function sortKey(value: string | undefined): SortKey {
-  if (value === "name" || value === "status" || value === "start" || value === "planned" || value === "price") return value;
+  if (value === "name" || value === "program" || value === "status" || value === "start" || value === "planned" || value === "price") return value;
   return "created";
 }
 
 function sortRows(rows: any[], key: SortKey) {
   return [...rows].sort((left, right) => {
     if (key === "name") return compareText(left.name, right.name);
+    if (key === "program") return compareText(left.programs?.name, right.programs?.name) || compareText(left.name, right.name);
     if (key === "status") return compareText(left.status, right.status) || compareText(left.name, right.name);
     if (key === "start") return compareText(left.start_date, right.start_date) || compareText(left.name, right.name);
     if (key === "planned") return compareNumberAsc(left.total_planned_sessions, right.total_planned_sessions) || compareText(left.name, right.name);

@@ -1,4 +1,5 @@
 export type UserRole = "admin" | "captain" | "player";
+export type ProgramCategory = "sport" | "event" | "social" | "generic";
 export type SeasonStatus = "draft" | "active" | "archived";
 export type SessionStatus = "scheduled" | "completed" | "cancelled";
 export type AttendanceStatus = "confirmed" | "played" | "absent" | "dropped" | "replacement" | "waitlisted";
@@ -39,6 +40,18 @@ export type Player = {
   notes: string | null;
 };
 
+export type Program = {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  category: ProgramCategory;
+  activity_type: string;
+  status: "active" | "archived";
+  labels: Record<string, string>;
+  notes: string | null;
+};
+
 export type PlayerAlias = {
   id: string;
   player_id: string;
@@ -56,6 +69,7 @@ export type Playground = {
 
 export type Season = {
   id: string;
+  program_id?: string | null;
   name: string;
   start_date: string | null;
   end_date: string | null;
@@ -67,6 +81,7 @@ export type Season = {
 
 export type Session = {
   id: string;
+  program_id?: string | null;
   season_id: string;
   playground_id: string | null;
   name: string | null;

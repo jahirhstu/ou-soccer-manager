@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
-import { getTenantSlugFromPathname, normalizeTenantSlug, stripTenantFromPathname, tenantPath } from "./lib/tenant";
+import { getProgramSlugFromPathname, getTenantSlugFromPathname, normalizeTenantSlug, stripTenantFromPathname, tenantPath } from "./lib/tenant";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public"];
@@ -29,10 +29,12 @@ type CookieToSet = {
 
 export async function middleware(request: NextRequest) {
   const tenantSlug = getTenantSlugFromPathname(request.nextUrl.pathname);
+  const programSlug = tenantSlug ? getProgramSlugFromPathname(request.nextUrl.pathname) : "";
   const pathname = tenantSlug ? stripTenantFromPathname(request.nextUrl.pathname) : request.nextUrl.pathname;
   const cookieTenantSlug = normalizeTenantSlug(request.cookies.get("active_organization_slug")?.value);
   const requestHeaders = new Headers(request.headers);
   if (tenantSlug) requestHeaders.set("x-tenant-slug", tenantSlug);
+  if (programSlug) requestHeaders.set("x-program-slug", programSlug);
 
   if (!tenantSlug && cookieTenantSlug && pathname !== "/setup") {
     const redirectUrl = request.nextUrl.clone();
@@ -41,15 +43,15 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!hasSupabaseEnv()) {
-    if (pathname === "/setup") return createTenantResponse(request, pathname, tenantSlug, requestHeaders);
-    return NextResponse.redirect(new URL(tenantPath("/setup", tenantSlug), request.url));
+    if (pathname === "/setup") return createTenantResponse(request, pathname, tenantSlug, programSlug, requestHeaders);
+    return NextResponse.redirect(new URL(tenantPath("/setup", tenantSlug, programSlug), request.url));
   }
 
   if (tenantSlug && pathname === "/") {
-    return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
+    return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug, programSlug), request.url));
   }
 
-  let response = createTenantResponse(request, pathname, tenantSlug, requestHeaders);
+  let response = createTenantResponse(request, pathname, tenantSlug, programSlug, requestHeaders);
   const { url, publishableKey } = getSupabaseEnv();
   const supabase = createServerClient(
     url,
@@ -59,7 +61,7 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = createTenantResponse(request, pathname, tenantSlug, requestHeaders);
+          response = createTenantResponse(request, pathname, tenantSlug, programSlug, requestHeaders);
           cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
         }
       }
@@ -70,40 +72,44 @@ export async function middleware(request: NextRequest) {
     publicRoutes.includes(pathname) ||
     publicRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (!data.user && !isPublic) {
-    return NextResponse.redirect(new URL(tenantPath("/login", tenantSlug), request.url));
+    return NextResponse.redirect(new URL(tenantPath("/login", tenantSlug, programSlug), request.url));
   }
-  if (data.user && pathname === "/") return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
+  if (data.user && pathname === "/") return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug, programSlug), request.url));
   if (data.user && !isPublic) {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
     let membershipQuery = supabase
       .from("organization_members")
-      .select(tenantSlug ? "role,organizations!inner(slug)" : "role")
+      .select("role")
       .eq("profile_id", data.user.id);
-    if (tenantSlug) membershipQuery = membershipQuery.eq("organizations.slug", tenantSlug);
+    if (tenantSlug) {
+      const { data: organization } = await supabase.from("organizations").select("id").eq("slug", tenantSlug).maybeSingle();
+      if (organization?.id) membershipQuery = membershipQuery.eq("organization_id", organization.id);
+    }
     const { data: membership } = await membershipQuery.order("created_at").limit(1).maybeSingle();
     const role = profile?.role === "admin" ? "admin" : membership?.role === "owner" ? "admin" : membership?.role ?? profile?.role;
     if (role === "player") {
-      if (isPlayerAllowedRoute(pathname)) return withTenantCookie(response, tenantSlug);
-      return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
+      if (isPlayerAllowedRoute(pathname)) return withTenantCookie(response, tenantSlug, programSlug);
+      return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug, programSlug), request.url));
     }
     if (role === "captain") {
-      if (pathname === "/dashboard") return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug), request.url));
+      if (pathname === "/dashboard") return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug, programSlug), request.url));
       const isCaptainRoute = isCaptainAllowedRoute(pathname);
-      if (!isCaptainRoute) return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug), request.url));
+      if (!isCaptainRoute) return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug, programSlug), request.url));
     }
   }
-  return withTenantCookie(response, tenantSlug);
+  return withTenantCookie(response, tenantSlug, programSlug);
 }
 
-function createTenantResponse(request: NextRequest, pathname: string, tenantSlug: string, headers: Headers) {
+function createTenantResponse(request: NextRequest, pathname: string, tenantSlug: string, programSlug: string, headers: Headers) {
   if (!tenantSlug) return NextResponse.next({ request: { headers } });
   const url = request.nextUrl.clone();
   url.pathname = pathname;
-  return withTenantCookie(NextResponse.rewrite(url, { request: { headers } }), tenantSlug);
+  return withTenantCookie(NextResponse.rewrite(url, { request: { headers } }), tenantSlug, programSlug);
 }
 
-function withTenantCookie(response: NextResponse, tenantSlug: string) {
+function withTenantCookie(response: NextResponse, tenantSlug: string, programSlug = "") {
   if (tenantSlug) response.cookies.set("active_organization_slug", tenantSlug, { path: "/", sameSite: "lax" });
+  if (programSlug) response.cookies.set("active_program_slug", programSlug, { path: "/", sameSite: "lax" });
   return response;
 }
 

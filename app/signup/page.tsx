@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { signupAction } from "@/lib/actions/auth";
 import { tenantPath } from "@/lib/tenant";
-import { getRequestTenantSlug } from "@/lib/tenant-server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 export default async function SignupPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
 
   return (
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <form action={signupAction} className="panel grid w-full max-w-sm gap-4 p-6">
         <input name="tenant_slug" type="hidden" value={tenantSlug} />
+        <input name="program_slug" type="hidden" value={programSlug} />
         <div>
           <div className="mb-4 grid h-12 w-12 place-items-center rounded-md bg-pitch text-sm font-black text-white shadow-soft">OU</div>
           <h1 className="text-2xl font-semibold tracking-tight">Sign up</h1>
@@ -35,7 +37,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
         </label>
         <input className="input" name="password" placeholder="Password" type="password" required />
         <button className="btn-primary justify-center">Sign up</button>
-        <Link className="text-sm font-semibold text-pitch hover:text-ink" href={tenantPath("/login", tenantSlug)}>Log in instead</Link>
+        <Link className="text-sm font-semibold text-pitch hover:text-ink" href={tenantPath("/login", tenantSlug, programSlug)}>Log in instead</Link>
       </form>
     </main>
   );
