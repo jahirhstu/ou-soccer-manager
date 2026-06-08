@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { loginAction } from "@/lib/actions/auth";
+import { tenantPath } from "@/lib/tenant";
+import { getRequestTenantSlug } from "@/lib/tenant-server";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
+  const tenantSlug = await getRequestTenantSlug();
 
   return (
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <form action={loginAction} className="panel grid w-full max-w-sm gap-4 p-6">
+        <input name="tenant_slug" type="hidden" value={tenantSlug} />
         <div>
           <div className="mb-4 grid h-12 w-12 place-items-center rounded-md bg-pitch text-sm font-black text-white shadow-soft">OU</div>
           <h1 className="text-2xl font-semibold tracking-tight">Log in</h1>
@@ -30,7 +34,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </label>
         <input className="input" name="password" placeholder="Password" type="password" required />
         <button className="btn-primary justify-center">Log in</button>
-        <Link className="text-sm font-semibold text-pitch hover:text-ink" href="/signup">Create an account</Link>
+        <Link className="text-sm font-semibold text-pitch hover:text-ink" href={tenantPath("/signup", tenantSlug)}>Create an account</Link>
       </form>
     </main>
   );

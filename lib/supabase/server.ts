@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "./env";
+import { getRequestTenantSlug } from "../tenant-server";
 
 type CookieToSet = {
   name: string;
@@ -35,12 +36,13 @@ export async function createSupabaseServerClient() {
 
 export async function getCurrentProfile(): Promise<any> {
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError) return { authError: authError.message };
   if (!auth.user) return null;
   const { data, error } = await supabase.from("profiles").select("*").eq("id", auth.user.id).maybeSingle();
   if (error) return { authUserEmail: auth.user.email, profileError: error.message };
-  if (data) return withCurrentOrganization(supabase, data);
+  if (data) return withCurrentOrganization(supabase, data, tenantSlug);
 
   const displayName =
     typeof auth.user.user_metadata?.display_name === "string"
@@ -70,20 +72,33 @@ export async function getCurrentProfile(): Promise<any> {
     p_role: "player"
   });
 
-  return withCurrentOrganization(supabase, created);
+  return withCurrentOrganization(supabase, created, tenantSlug);
 }
 
 async function withCurrentOrganization(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  profile: any
+  profile: any,
+  tenantSlug: string
 ) {
-  const { data: member } = await supabase
+  let memberQuery = supabase
     .from("organization_members")
-    .select("organization_id,role,player_id,organizations(name,slug)")
-    .eq("profile_id", profile.id)
-    .order("created_at")
-    .limit(1)
-    .maybeSingle();
+    .select(tenantSlug ? "organization_id,role,player_id,organizations!inner(name,slug)" : "organization_id,role,player_id,organizations(name,slug)")
+    .eq("profile_id", profile.id);
+
+  if (tenantSlug) memberQuery = memberQuery.eq("organizations.slug", tenantSlug);
+
+  let { data: member } = await memberQuery.order("created_at").limit(1).maybeSingle();
+
+  if (!member && tenantSlug) {
+    const { data: fallbackMember } = await supabase
+      .from("organization_members")
+      .select("organization_id,role,player_id,organizations(name,slug)")
+      .eq("profile_id", profile.id)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    member = fallbackMember;
+  }
 
   if (!member) {
     await supabase.rpc("ensure_default_membership", {

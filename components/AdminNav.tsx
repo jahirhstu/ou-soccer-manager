@@ -3,6 +3,6 @@
 import type { UserRole } from "@/lib/types";
 import { AppNav } from "./AppNav";
 
-export function AdminNav({ role }: { role?: UserRole }) {
-  return <AppNav role={role} />;
+export function AdminNav({ role, tenantSlug }: { role?: UserRole; tenantSlug?: string | null }) {
+  return <AppNav role={role} tenantSlug={tenantSlug} />;
 }

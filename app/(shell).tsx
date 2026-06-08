@@ -7,11 +7,14 @@ import {
 import { AdminNav } from "@/components/AdminNav";
 import { logoutAction } from "@/lib/actions/auth";
 import { getCurrentProfile } from "@/lib/supabase/server";
+import { tenantPath } from "@/lib/tenant";
+import { getRequestTenantSlug } from "@/lib/tenant-server";
 import type { UserRole } from "@/lib/types";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
-  const homeHref = roleHomeHref(profile?.role);
+  const tenantSlug = await getRequestTenantSlug();
+  const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug);
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
@@ -41,11 +44,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-xs font-medium text-slate-500 group-open:inline">Close</span>
           </summary>
           <nav className="grid gap-1 border-t border-line p-2">
-            <AdminNav role={profile?.role} />
+            <AdminNav role={profile?.role} tenantSlug={tenantSlug} />
           </nav>
         </details>
         <aside className="panel hidden gap-1 p-2 md:sticky md:top-20 md:grid md:self-start">
-          <AdminNav role={profile?.role} />
+          <AdminNav role={profile?.role} tenantSlug={tenantSlug} />
         </aside>
         <main className="min-w-0">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">

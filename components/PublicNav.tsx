@@ -2,6 +2,6 @@
 
 import { AppNav } from "./AppNav";
 
-export function PublicNav() {
-  return <AppNav role="player" variant="public" />;
+export function PublicNav({ tenantSlug }: { tenantSlug?: string | null }) {
+  return <AppNav role="player" tenantSlug={tenantSlug} variant="public" />;
 }

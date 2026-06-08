@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
+import { getTenantSlugFromPathname, normalizeTenantSlug, stripTenantFromPathname, tenantPath } from "./lib/tenant";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public"];
@@ -27,12 +28,28 @@ type CookieToSet = {
 };
 
 export async function middleware(request: NextRequest) {
-  if (!hasSupabaseEnv()) {
-    if (request.nextUrl.pathname === "/setup") return NextResponse.next();
-    return NextResponse.redirect(new URL("/setup", request.url));
+  const tenantSlug = getTenantSlugFromPathname(request.nextUrl.pathname);
+  const pathname = tenantSlug ? stripTenantFromPathname(request.nextUrl.pathname) : request.nextUrl.pathname;
+  const cookieTenantSlug = normalizeTenantSlug(request.cookies.get("active_organization_slug")?.value);
+  const requestHeaders = new Headers(request.headers);
+  if (tenantSlug) requestHeaders.set("x-tenant-slug", tenantSlug);
+
+  if (!tenantSlug && cookieTenantSlug && pathname !== "/setup") {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = tenantPath(pathname === "/" ? "/public/report" : pathname, cookieTenantSlug);
+    return NextResponse.redirect(redirectUrl);
   }
 
-  let response = NextResponse.next({ request });
+  if (!hasSupabaseEnv()) {
+    if (pathname === "/setup") return createTenantResponse(request, pathname, tenantSlug, requestHeaders);
+    return NextResponse.redirect(new URL(tenantPath("/setup", tenantSlug), request.url));
+  }
+
+  if (tenantSlug && pathname === "/") {
+    return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
+  }
+
+  let response = createTenantResponse(request, pathname, tenantSlug, requestHeaders);
   const { url, publishableKey } = getSupabaseEnv();
   const supabase = createServerClient(
     url,
@@ -42,7 +59,7 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = createTenantResponse(request, pathname, tenantSlug, requestHeaders);
           cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
         }
       }
@@ -50,32 +67,43 @@ export async function middleware(request: NextRequest) {
   );
   const { data } = await supabase.auth.getUser();
   const isPublic =
-    publicRoutes.includes(request.nextUrl.pathname) ||
-    publicRoutePrefixes.some((prefix) => request.nextUrl.pathname === prefix || request.nextUrl.pathname.startsWith(`${prefix}/`));
+    publicRoutes.includes(pathname) ||
+    publicRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (!data.user && !isPublic) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return NextResponse.redirect(new URL(tenantPath("/login", tenantSlug), request.url));
   }
-  if (data.user && request.nextUrl.pathname === "/") return NextResponse.redirect(new URL("/public/report", request.url));
+  if (data.user && pathname === "/") return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
   if (data.user && !isPublic) {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
-    const { data: membership } = await supabase
+    let membershipQuery = supabase
       .from("organization_members")
-      .select("role")
-      .eq("profile_id", data.user.id)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
+      .select(tenantSlug ? "role,organizations!inner(slug)" : "role")
+      .eq("profile_id", data.user.id);
+    if (tenantSlug) membershipQuery = membershipQuery.eq("organizations.slug", tenantSlug);
+    const { data: membership } = await membershipQuery.order("created_at").limit(1).maybeSingle();
     const role = profile?.role === "admin" ? "admin" : membership?.role === "owner" ? "admin" : membership?.role ?? profile?.role;
     if (role === "player") {
-      if (isPlayerAllowedRoute(request.nextUrl.pathname)) return response;
-      return NextResponse.redirect(new URL("/public/report", request.url));
+      if (isPlayerAllowedRoute(pathname)) return withTenantCookie(response, tenantSlug);
+      return NextResponse.redirect(new URL(tenantPath("/public/report", tenantSlug), request.url));
     }
     if (role === "captain") {
-      if (request.nextUrl.pathname === "/dashboard") return NextResponse.redirect(new URL("/sessions", request.url));
-      const isCaptainRoute = isCaptainAllowedRoute(request.nextUrl.pathname);
-      if (!isCaptainRoute) return NextResponse.redirect(new URL("/sessions", request.url));
+      if (pathname === "/dashboard") return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug), request.url));
+      const isCaptainRoute = isCaptainAllowedRoute(pathname);
+      if (!isCaptainRoute) return NextResponse.redirect(new URL(tenantPath("/sessions", tenantSlug), request.url));
     }
   }
+  return withTenantCookie(response, tenantSlug);
+}
+
+function createTenantResponse(request: NextRequest, pathname: string, tenantSlug: string, headers: Headers) {
+  if (!tenantSlug) return NextResponse.next({ request: { headers } });
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  return withTenantCookie(NextResponse.rewrite(url, { request: { headers } }), tenantSlug);
+}
+
+function withTenantCookie(response: NextResponse, tenantSlug: string) {
+  if (tenantSlug) response.cookies.set("active_organization_slug", tenantSlug, { path: "/", sameSite: "lax" });
   return response;
 }
 

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "@/lib/types";
+import { stripTenantFromPathname, tenantPath } from "@/lib/tenant";
 import { cn } from "@/lib/utils";
 
 type NavVariant = "app" | "public";
@@ -68,8 +69,9 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
   }
 ];
 
-export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: NavVariant }) {
+export function AppNav({ role, tenantSlug, variant = "app" }: { role?: UserRole; tenantSlug?: string | null; variant?: NavVariant }) {
   const pathname = usePathname();
+  const internalPathname = stripTenantFromPathname(pathname);
   const sections = navSections
     .map((section) => ({
       ...section,
@@ -85,7 +87,7 @@ export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: N
             <div className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase text-slate-400 first:pt-1">{section.label}</div>
           ) : null}
           {section.items.map(({ href, icon: Icon, label, subLabel }) => {
-            const active = isActive(pathname, href);
+            const active = isActive(internalPathname, href);
             return (
               <Link
                 aria-current={active ? "page" : undefined}
@@ -93,7 +95,7 @@ export function AppNav({ role, variant = "app" }: { role?: UserRole; variant?: N
                   "grid min-h-12 grid-cols-[20px_1fr] items-center gap-x-3 rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-pitch",
                   active && "bg-emerald-50 font-semibold text-pitch ring-1 ring-emerald-100"
                 )}
-                href={href}
+                href={tenantPath(href, tenantSlug)}
                 key={href}
               >
                 <Icon className="h-4 w-4" />
