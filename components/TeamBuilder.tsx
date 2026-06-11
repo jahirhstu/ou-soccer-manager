@@ -148,6 +148,7 @@ export function TeamBuilder({
     () => buildBalancedDraftRounds(pickOrderTeams, totalDraftRounds),
     [pickOrderTeams, totalDraftRounds]
   );
+  const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
   const activeTurn = draftMode === "balanced" ? getDraftTurn(balancedRounds, pickCursor) : null;
   const nextTurn = draftMode === "balanced" ? getDraftTurn(balancedRounds, pickCursor + 1) : null;
   const canUseRoulette = canEdit && !(draftMode === "balanced" && pickCursor > 0);
@@ -607,7 +608,7 @@ export function TeamBuilder({
           </div>
           <RouletteWheel canEdit={canUseRoulette} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} rotation={rouletteRotation} segmentTeams={teams} />
           <div className="grid gap-3">
-            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} nextTurn={nextTurn} pickCursor={pickCursor} playersById={playersById} totalPicks={players.length} />
+            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} nextTurn={nextTurn} pickCursor={pickCursor} playersById={playersById} positionCounts={scheduledPickCounts} teams={pickOrderTeams} totalPicks={players.length} />
             <PickOrderList activeTeamKey={activeTurn?.team.key} playersById={playersById} teams={pickOrderTeams} />
           </div>
         </div>
@@ -880,6 +881,8 @@ function TurnPanel({
   nextTurn,
   pickCursor,
   playersById,
+  positionCounts,
+  teams,
   totalPicks
 }: {
   activeTurn: DraftTurn | null;
@@ -887,6 +890,8 @@ function TurnPanel({
   nextTurn: DraftTurn | null;
   pickCursor: number;
   playersById: Map<string, TeamBuilderPlayer>;
+  positionCounts: Map<string, number[]>;
+  teams: DraftTeam[];
   totalPicks: number;
 }) {
   if (draftMode === "lottery") {
@@ -918,6 +923,13 @@ function TurnPanel({
         {activeTurn ? `Round ${activeTurn.roundNumber}, pick ${activeTurn.pickNumber}` : `${Math.min(pickCursor, totalPicks)} of ${totalPicks} picks tracked`}
         {nextTurn ? ` · Next: ${nextName}` : ""}
       </p>
+      <div className="mt-2 grid gap-1">
+        {teams.map((team) => (
+          <p className="truncate text-[11px] font-semibold text-emerald-950" key={team.key}>
+            {turnDisplayName(team, playersById)}: {positionCountLabel(positionCounts.get(team.key) ?? [])}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }
@@ -942,10 +954,7 @@ function BalancedDraftBoard({
   const activeRoundIndex = Math.min(Math.floor(activePickIndex / teamsPerRound), Math.max(rounds.length - 1, 0));
   const [mobileRoundIndex, setMobileRoundIndex] = useState(activeRoundIndex);
   const mobileRound = rounds[mobileRoundIndex] ?? [];
-  const activeTurn = getDraftTurn(rounds, activePickIndex);
-  const nextTurn = getDraftTurn(rounds, activePickIndex + 1);
-  const currentName = activeTurn ? turnDisplayName(activeTurn.team, playersById) : "Done";
-  const nextName = nextTurn ? turnDisplayName(nextTurn.team, playersById) : "Done";
+  const completedCounts = useMemo(() => completedPickPositionCounts(rounds, activePickIndex), [activePickIndex, rounds]);
 
   useEffect(() => {
     setMobileRoundIndex(activeRoundIndex);
@@ -972,7 +981,6 @@ function BalancedDraftBoard({
             <span className="min-w-0 flex-1 truncate text-center normal-case">
               <span className="font-bold uppercase">Round {mobileRoundIndex + 1}</span>
               {mobileRoundIndex === activeRoundIndex ? <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">Active</span> : null}
-              <span className="ml-1 text-[11px] font-semibold text-emerald-900">Now: {currentName} · Next: {nextName}</span>
             </span>
             <button
               aria-label="Next round"
@@ -991,14 +999,14 @@ function BalancedDraftBoard({
               return (
                 <span
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-950 ring-1 ring-emerald-100",
-                    status === "done" && "bg-slate-100 text-slate-500 line-through ring-slate-200",
+                    "inline-flex min-w-20 flex-1 items-center justify-center gap-1.5 rounded-md bg-white px-2 py-1 text-center text-xs font-semibold text-emerald-950 ring-1 ring-emerald-100",
+                    status === "done" && "bg-slate-100 text-slate-500 ring-slate-200",
                     status === "now" && "bg-emerald-900 text-white ring-emerald-900"
                   )}
                   key={`${team.key}-${pickIndex}`}
                 >
-                  <span className={cn("grid h-5 w-5 place-items-center rounded-full text-[10px] font-black", orderNumberClass(pickIndex))}>{pickIndex + 1}</span>
-                  {turnDisplayName(team, playersById)}
+                  <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-black", orderNumberClass(pickIndex))}>{completedPositionCount(completedCounts, team.key, pickIndex)}x</span>
+                  <span className={cn("min-w-0 truncate", status === "done" && "line-through")}>{turnDisplayName(team, playersById)}</span>
                   {status === "done" ? <span className="text-[10px] font-black no-underline">Done</span> : null}
                   {status === "now" ? <span className="text-[10px] font-black">Now</span> : null}
                 </span>
@@ -1033,8 +1041,8 @@ function BalancedDraftBoard({
                     )}
                     key={`${team.key}-${pickIndex}`}
                   >
-                    <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-black", orderNumberClass(pickIndex))}>{pickIndex + 1}</span>
-                    <span className={cn("min-w-0 flex-1 truncate", status === "done" && "line-through")}>{turnDisplayName(team, playersById)}</span>
+                    <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-black", orderNumberClass(pickIndex))}>{completedPositionCount(completedCounts, team.key, pickIndex)}x</span>
+                    <span className={cn("min-w-0 flex-1 truncate text-center", status === "done" && "line-through")}>{turnDisplayName(team, playersById)}</span>
                     {status === "done" ? <span className="text-[10px] font-black uppercase">Done</span> : null}
                     {status === "now" ? <span className="text-[10px] font-black uppercase">Now</span> : null}
                   </div>
@@ -1277,6 +1285,49 @@ function draftPickStatus(pickIndex: number, activePickIndex: number) {
   if (pickIndex < activePickIndex) return "done";
   if (pickIndex === activePickIndex) return "now";
   return "upcoming";
+}
+
+function pickPositionCounts(rounds: DraftTeam[][]) {
+  const counts = new Map<string, number[]>();
+  rounds.forEach((round) => {
+    round.forEach((team, position) => {
+      const teamCounts = counts.get(team.key) ?? Array.from({ length: round.length }, () => 0);
+      teamCounts[position] = (teamCounts[position] ?? 0) + 1;
+      counts.set(team.key, teamCounts);
+    });
+  });
+  return counts;
+}
+
+function completedPickPositionCounts(rounds: DraftTeam[][], activePickIndex: number) {
+  const counts = new Map<string, number[]>();
+  let absolutePickIndex = 0;
+  rounds.forEach((round) => {
+    round.forEach((team, position) => {
+      if (absolutePickIndex < activePickIndex) {
+        const teamCounts = counts.get(team.key) ?? Array.from({ length: round.length }, () => 0);
+        teamCounts[position] = (teamCounts[position] ?? 0) + 1;
+        counts.set(team.key, teamCounts);
+      }
+      absolutePickIndex += 1;
+    });
+  });
+  return counts;
+}
+
+function completedPositionCount(counts: Map<string, number[]>, teamKey: string, position: number) {
+  return counts.get(teamKey)?.[position] ?? 0;
+}
+
+function positionCountLabel(counts: number[]) {
+  return counts.map((count, index) => `${ordinal(index + 1)} x${count}`).join(" · ");
+}
+
+function ordinal(value: number) {
+  if (value === 1) return "1st";
+  if (value === 2) return "2nd";
+  if (value === 3) return "3rd";
+  return `${value}th`;
 }
 
 function buildBalancedDraftRounds(teams: DraftTeam[], roundCount: number): DraftTeam[][] {
