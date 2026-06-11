@@ -1170,7 +1170,7 @@ function draftPickStatus(pickIndex: number, activePickIndex: number) {
   return "upcoming";
 }
 
-function buildBalancedDraftRounds(teams: DraftTeam[], roundCount: number) {
+function buildBalancedDraftRounds(teams: DraftTeam[], roundCount: number): DraftTeam[][] {
   if (!teams.length) return [];
   if (teams.length === 3) {
     const patterns = [
@@ -1194,7 +1194,7 @@ function buildBalancedDraftRounds(teams: DraftTeam[], roundCount: number) {
     let best = permutations[0];
     let bestScore = Number.POSITIVE_INFINITY;
     for (const candidate of permutations) {
-      const score = candidate.reduce((total, team, position) => {
+      const score = candidate.reduce((total: number, team: DraftTeam, position: number) => {
         const counts = positionCounts.get(team.key) ?? [];
         const nextCount = (counts[position] ?? 0) + 1;
         return total + nextCount * nextCount + (rounds.at(-1)?.[position]?.key === team.key ? 2 : 0);
@@ -1214,7 +1214,7 @@ function buildBalancedDraftRounds(teams: DraftTeam[], roundCount: number) {
   return rounds;
 }
 
-function permuteTeams(teams: DraftTeam[]) {
+function permuteTeams(teams: DraftTeam[]): DraftTeam[][] {
   if (teams.length <= 1) return [teams];
   return teams.flatMap((team, index) => {
     const rest = [...teams.slice(0, index), ...teams.slice(index + 1)];
