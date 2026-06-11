@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, KeyboardEvent } from "react";
+import type { DragEvent, KeyboardEvent, PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronLeft, ChevronRight, Crown, ListOrdered, RadioTower, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
@@ -70,6 +70,12 @@ type PresenceCounts = {
   viewers: number;
 };
 
+type PointerDragState = DragSource & {
+  isDragging: boolean;
+  startX: number;
+  startY: number;
+};
+
 export function TeamBuilder({
   canEdit,
   data,
@@ -82,8 +88,10 @@ export function TeamBuilder({
   const router = useRouter();
   const lastDragBroadcastAt = useRef(0);
   const lastLocalSaveAt = useRef(0);
+  const pointerDragRef = useRef<PointerDragState | null>(null);
   const pressHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressNextClickRef = useRef(false);
   const tossTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveChannelRef = useRef<any>(null);
   const liveClientId = useRef(`team-builder-${Math.random().toString(36).slice(2)}`);
@@ -258,6 +266,12 @@ export function TeamBuilder({
     setArmedPlayerId(null);
   }
 
+  function clearPointerDragState() {
+    pointerDragRef.current = null;
+    clearPressState();
+    setDraggingPlayerId(null);
+  }
+
   function setTeamCount(count: number) {
     setTossOrderKeys(null);
     setTeams((current) => {
@@ -408,6 +422,7 @@ export function TeamBuilder({
     clearPressState();
     setDraggingPlayerId(source.playerId);
     event.dataTransfer.setData("application/json", JSON.stringify(source));
+    event.dataTransfer.setData("text/plain", source.playerId);
     event.dataTransfer.effectAllowed = "move";
     const player = playersById.get(source.playerId);
     const action = createLiveAction("drag", `Picking ${player?.name ?? "player"}...`, {
@@ -416,6 +431,17 @@ export function TeamBuilder({
       ...dragPosition(event)
     });
     setLatestAction(action);
+    broadcastLive({ action });
+  }
+
+  function broadcastPointerDrag(source: DragSource, event: PointerEvent, kind: "drag" | "drag_move") {
+    const player = playersById.get(source.playerId);
+    const action = createLiveAction(kind, kind === "drag" ? `Picking ${player?.name ?? "player"}...` : "", {
+      playerId: source.playerId,
+      teamKey: source.teamKey,
+      ...pointerPosition(event)
+    });
+    if (kind === "drag") setLatestAction(action);
     broadcastLive({ action });
   }
 
@@ -446,17 +472,77 @@ export function TeamBuilder({
   function onDrop(event: DragEvent, targetTeamKey: string | "pool") {
     event.preventDefault();
     const raw = event.dataTransfer.getData("application/json");
-    if (!raw) return;
-    const source = JSON.parse(raw) as DragSource;
+    const source = raw ? JSON.parse(raw) as DragSource : { playerId: event.dataTransfer.getData("text/plain"), from: "pool" as const };
+    if (!source.playerId) return;
     movePlayer(source.playerId, targetTeamKey);
   }
 
-  function onPlayerPointerDown(playerId: string) {
+  function onPlayerPointerDown(event: PointerEvent, source: DragSource) {
     if (!canEdit) return;
+    if (event.pointerType !== "mouse") {
+      pointerDragRef.current = {
+        ...source,
+        isDragging: false,
+        startX: event.clientX,
+        startY: event.clientY
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    }
     if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
     pressHoldTimerRef.current = setTimeout(() => {
-      setArmedPlayerId(playerId);
+      setArmedPlayerId(source.playerId);
     }, 180);
+  }
+
+  function onPlayerPointerMove(event: PointerEvent) {
+    const source = pointerDragRef.current;
+    if (!source) return;
+    const distance = Math.hypot(event.clientX - source.startX, event.clientY - source.startY);
+    if (!source.isDragging && distance < 8 && armedPlayerId !== source.playerId) return;
+    event.preventDefault();
+    if (!source.isDragging) {
+      pointerDragRef.current = { ...source, isDragging: true };
+      setDraggingPlayerId(source.playerId);
+      clearPressState();
+      broadcastPointerDrag(source, event, "drag");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastDragBroadcastAt.current < 90) return;
+    lastDragBroadcastAt.current = now;
+    broadcastPointerDrag(source, event, "drag_move");
+  }
+
+  function onPlayerPointerUp(event: PointerEvent) {
+    const source = pointerDragRef.current;
+    if (!source) {
+      clearPressState();
+      return;
+    }
+    if (source.isDragging) {
+      event.preventDefault();
+      suppressNextClickRef.current = true;
+      const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+      const teamDrop = target?.closest<HTMLElement>("[data-team-drop-key]");
+      const poolDrop = target?.closest<HTMLElement>("[data-pool-drop]");
+      if (teamDrop?.dataset.teamDropKey) {
+        movePlayer(source.playerId, teamDrop.dataset.teamDropKey);
+      } else if (poolDrop) {
+        movePlayer(source.playerId, "pool");
+      }
+      window.setTimeout(() => {
+        suppressNextClickRef.current = false;
+      }, 0);
+    }
+    clearPointerDragState();
+  }
+
+  function selectPoolPlayer(playerId: string) {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    setSelectedPlayerId((current) => current === playerId ? null : playerId);
   }
 
   return (
@@ -532,6 +618,7 @@ export function TeamBuilder({
 
       <section
         className="rounded-lg border border-dashed border-emerald-300 bg-white p-2 shadow-sm sm:p-4"
+        data-pool-drop="true"
         onDragOver={(event) => canEdit && event.preventDefault()}
         onDrop={(event) => canEdit && onDrop(event, "pool")}
       >
@@ -568,14 +655,14 @@ export function TeamBuilder({
                 draggable={canEdit}
                 dragging={draggingPlayerId === player.id}
                 highlighted={latestAction?.playerId === player.id}
-                onClick={canEdit ? () => setSelectedPlayerId((current) => current === player.id ? null : player.id) : undefined}
+                onClick={canEdit ? () => selectPoolPlayer(player.id) : undefined}
                 onDrag={(event) => onDrag(event, player.id)}
                 onDragEnd={() => onDragEnd(player.id)}
                 onDragStart={(event) => onDragStart(event, { playerId: player.id, from: "pool" })}
-                onPointerCancel={clearPressState}
-                onPointerDown={() => onPlayerPointerDown(player.id)}
-                onPointerLeave={clearPressState}
-                onPointerUp={clearPressState}
+                onPointerCancel={clearPointerDragState}
+                onPointerDown={(event) => onPlayerPointerDown(event, { playerId: player.id, from: "pool" })}
+                onPointerMove={onPlayerPointerMove}
+                onPointerUp={onPlayerPointerUp}
                 player={player}
                 previewed={remoteDragPreview?.playerId === player.id}
                 selected={selectedPlayerId === player.id}
@@ -597,6 +684,7 @@ export function TeamBuilder({
                 "grid gap-2 overflow-hidden rounded-lg border bg-white shadow-sm sm:gap-3",
                 isDropReady ? "border-emerald-300 ring-2 ring-emerald-100" : latestAction?.teamKey === team.key ? "border-amber-300 ring-2 ring-amber-100" : isFull ? "border-emerald-200" : "border-line"
               )}
+              data-team-drop-key={team.key}
               key={team.key}
               onDragOver={(event) => canEdit && !isFull && event.preventDefault()}
               onDrop={(event) => canEdit && !isFull && onDrop(event, team.key)}
@@ -665,10 +753,10 @@ export function TeamBuilder({
                         onDrag={(event) => onDrag(event, player.id, team.key)}
                         onDragEnd={() => onDragEnd(player.id)}
                         onDragStart={(event) => onDragStart(event, { playerId: player.id, from: "team", teamKey: team.key })}
-                        onPointerCancel={clearPressState}
-                        onPointerDown={() => onPlayerPointerDown(player.id)}
-                        onPointerLeave={clearPressState}
-                        onPointerUp={clearPressState}
+                        onPointerCancel={clearPointerDragState}
+                        onPointerDown={(event) => onPlayerPointerDown(event, { playerId: player.id, from: "team", teamKey: team.key })}
+                        onPointerMove={onPlayerPointerMove}
+                        onPointerUp={onPlayerPointerUp}
                         player={player}
                         previewed={remoteDragPreview?.playerId === player.id}
                       />
@@ -979,6 +1067,7 @@ function PlayerChip({
   onPointerCancel,
   onPointerDown,
   onPointerLeave,
+  onPointerMove,
   onPointerUp,
   player,
   previewed = false,
@@ -993,9 +1082,10 @@ function PlayerChip({
   onDragEnd?: () => void;
   onDragStart?: (event: DragEvent) => void;
   onPointerCancel?: () => void;
-  onPointerDown?: () => void;
+  onPointerDown?: (event: PointerEvent) => void;
   onPointerLeave?: () => void;
-  onPointerUp?: () => void;
+  onPointerMove?: (event: PointerEvent) => void;
+  onPointerUp?: (event: PointerEvent) => void;
   player: TeamBuilderPlayer;
   previewed?: boolean;
   selected?: boolean;
@@ -1019,6 +1109,7 @@ function PlayerChip({
       onPointerCancel={onPointerCancel}
       onPointerDown={onPointerDown}
       onPointerLeave={onPointerLeave}
+      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -1065,6 +1156,15 @@ function createLiveAction(
 }
 
 function dragPosition(event: DragEvent) {
+  const width = Math.max(window.innerWidth, 1);
+  const height = Math.max(window.innerHeight, 1);
+  return {
+    xPct: clamp((event.clientX / width) * 100, 4, 96),
+    yPct: clamp((event.clientY / height) * 100, 4, 96)
+  };
+}
+
+function pointerPosition(event: PointerEvent) {
   const width = Math.max(window.innerWidth, 1);
   const height = Math.max(window.innerHeight, 1);
   return {
