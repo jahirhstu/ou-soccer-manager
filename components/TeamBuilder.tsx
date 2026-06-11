@@ -111,6 +111,7 @@ export function TeamBuilder({
   const [latestAction, setLatestAction] = useState<LiveAction | null>(null);
   const [armedPlayerId, setArmedPlayerId] = useState<string | null>(null);
   const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
+  const [localDragPreview, setLocalDragPreview] = useState<LiveAction | null>(null);
   const [remoteDragPreview, setRemoteDragPreview] = useState<LiveAction | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [presenceCounts, setPresenceCounts] = useState<PresenceCounts>({ editors: 0, total: 1, viewers: canEdit ? 0 : 1 });
@@ -270,6 +271,7 @@ export function TeamBuilder({
     pointerDragRef.current = null;
     clearPressState();
     setDraggingPlayerId(null);
+    setLocalDragPreview(null);
   }
 
   function setTeamCount(count: number) {
@@ -334,6 +336,7 @@ export function TeamBuilder({
         });
         setPickCursor(nextPickCursor);
         setDraggingPlayerId(null);
+        setLocalDragPreview(null);
         setRemoteDragPreview(null);
         if (selectedPlayerId === playerId) setSelectedPlayerId(null);
         notifyLiveAction(action);
@@ -357,6 +360,7 @@ export function TeamBuilder({
       });
       setPickCursor(nextPickCursor);
       setDraggingPlayerId(null);
+      setLocalDragPreview(null);
       setRemoteDragPreview(null);
       if (selectedPlayerId === playerId) setSelectedPlayerId(null);
       notifyLiveAction(action);
@@ -441,6 +445,7 @@ export function TeamBuilder({
       teamKey: source.teamKey,
       ...pointerPosition(event)
     });
+    setLocalDragPreview(action);
     if (kind === "drag") setLatestAction(action);
     broadcastLive({ action });
   }
@@ -614,6 +619,10 @@ export function TeamBuilder({
 
       {remoteDragPreview?.playerId ? (
         <FloatingDragPreview action={remoteDragPreview} playersById={playersById} />
+      ) : null}
+
+      {localDragPreview?.playerId ? (
+        <FloatingDragPreview action={localDragPreview} playersById={playersById} />
       ) : null}
 
       <section
