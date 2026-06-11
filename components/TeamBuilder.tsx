@@ -91,7 +91,6 @@ export function TeamBuilder({
   const pointerDragRef = useRef<PointerDragState | null>(null);
   const pressHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suppressNextClickRef = useRef(false);
   const tossTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveChannelRef = useRef<any>(null);
   const liveClientId = useRef(`team-builder-${Math.random().toString(36).slice(2)}`);
@@ -113,7 +112,6 @@ export function TeamBuilder({
   const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
   const [localDragPreview, setLocalDragPreview] = useState<LiveAction | null>(null);
   const [remoteDragPreview, setRemoteDragPreview] = useState<LiveAction | null>(null);
-  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [presenceCounts, setPresenceCounts] = useState<PresenceCounts>({ editors: 0, total: 1, viewers: canEdit ? 0 : 1 });
   const [state, action, pending] = useActionState(saveSessionTeamBuilder, null as { success?: boolean; message?: string; error?: string } | null);
   const notifyLiveAction = useCallback((liveAction: LiveAction) => {
@@ -133,7 +131,6 @@ export function TeamBuilder({
   }, []);
   const assignedIds = useMemo(() => new Set(teams.flatMap((team) => team.playerIds)), [teams]);
   const poolPlayers = players.filter((player) => !assignedIds.has(player.id));
-  const selectedPlayer = selectedPlayerId ? playersById.get(selectedPlayerId) : undefined;
   const savePayload = teams.map((team) => ({
     id: isUuid(team.key) ? team.key : undefined,
     name: team.name,
@@ -251,10 +248,6 @@ export function TeamBuilder({
   }, [existingTeams, savedPlayersPerTeam, serverTeamSignature]);
 
   useEffect(() => {
-    if (selectedPlayerId && assignedIds.has(selectedPlayerId)) setSelectedPlayerId(null);
-  }, [assignedIds, selectedPlayerId]);
-
-  useEffect(() => {
     return () => {
       if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
       if (remoteDragTimerRef.current) clearTimeout(remoteDragTimerRef.current);
@@ -339,7 +332,6 @@ export function TeamBuilder({
         setDraggingPlayerId(null);
         setLocalDragPreview(null);
         setRemoteDragPreview(null);
-        if (selectedPlayerId === playerId) setSelectedPlayerId(null);
         notifyLiveAction(action);
         broadcastLive({ teams: removed, pickCursor: nextPickCursor, action });
         return removed;
@@ -363,7 +355,6 @@ export function TeamBuilder({
       setDraggingPlayerId(null);
       setLocalDragPreview(null);
       setRemoteDragPreview(null);
-      if (selectedPlayerId === playerId) setSelectedPlayerId(null);
       notifyLiveAction(action);
       broadcastLive({ teams: nextTeams, pickCursor: nextPickCursor, action });
       return nextTeams;
@@ -527,7 +518,6 @@ export function TeamBuilder({
     }
     if (source.isDragging) {
       event.preventDefault();
-      suppressNextClickRef.current = true;
       const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
       const teamDrop = target?.closest<HTMLElement>("[data-team-drop-key]");
       const poolDrop = target?.closest<HTMLElement>("[data-pool-drop]");
@@ -536,19 +526,8 @@ export function TeamBuilder({
       } else if (poolDrop) {
         movePlayer(source.playerId, "pool");
       }
-      window.setTimeout(() => {
-        suppressNextClickRef.current = false;
-      }, 0);
     }
     clearPointerDragState();
-  }
-
-  function selectPoolPlayer(playerId: string) {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
-      return;
-    }
-    setSelectedPlayerId((current) => current === playerId ? null : playerId);
   }
 
   return (
@@ -646,37 +625,22 @@ export function TeamBuilder({
             <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
               View only
             </span>
-          ) : selectedPlayer ? (
-            <button
-              className="btn-secondary min-h-8 px-3 text-xs"
-              onClick={() => setSelectedPlayerId(null)}
-              type="button"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              {selectedPlayer.name}
-            </button>
           ) : null}
         </div>
         <div className="flex min-h-12 flex-wrap gap-1.5 rounded-md bg-slate-50 p-2 sm:min-h-16 sm:gap-2 sm:p-3">
           {poolPlayers.map((player) => (
             <div className="inline-flex flex-wrap items-center gap-1.5" key={player.id}>
-              <PlayerChip
-                armed={armedPlayerId === player.id}
-                draggable={canEdit}
-                dragging={draggingPlayerId === player.id}
-                highlighted={latestAction?.playerId === player.id}
-                onClick={canEdit ? () => selectPoolPlayer(player.id) : undefined}
-                onDrag={(event) => onDrag(event, player.id)}
-                onDragEnd={() => onDragEnd(player.id)}
-                onDragStart={(event) => onDragStart(event, { playerId: player.id, from: "pool" })}
-                onPointerCancel={clearPointerDragState}
-                onPointerDown={(event) => onPlayerPointerDown(event, { playerId: player.id, from: "pool" })}
-                onPointerMove={onPlayerPointerMove}
-                onPointerUp={onPlayerPointerUp}
-                player={player}
-                previewed={remoteDragPreview?.playerId === player.id}
-                selected={selectedPlayerId === player.id}
-              />
+              {canEdit ? (
+                <PoolPlayerSelect
+                  highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
+                  onAssign={(teamKey) => movePlayer(player.id, teamKey)}
+                  player={player}
+                  teams={teams}
+                  playersPerTeam={playersPerTeam}
+                />
+              ) : (
+                <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
+              )}
             </div>
           ))}
           {!poolPlayers.length ? <p className="text-sm text-slate-500">No players in the draft pool.</p> : null}
@@ -687,7 +651,7 @@ export function TeamBuilder({
         {teams.map((team, index) => {
           const isFull = team.playerIds.length >= playersPerTeam;
           const captain = team.captainPlayerId ? playersById.get(team.captainPlayerId) : undefined;
-          const isDropReady = canEdit && Boolean(draggingPlayerId || selectedPlayer) && !isFull;
+          const isDropReady = canEdit && Boolean(draggingPlayerId) && !isFull;
           return (
             <article
               className={cn(
@@ -737,28 +701,18 @@ export function TeamBuilder({
                     })}
                   </select>
                 </label>
-                {canEdit && selectedPlayer ? (
-                  <button
-                    className="btn-primary min-h-8 px-2 text-xs sm:min-h-9"
-                    disabled={isFull}
-                    onClick={() => movePlayer(selectedPlayer.id, team.key)}
-                    type="button"
-                  >
-                    <UserPlus className="h-3.5 w-3.5" />
-                    Pick here
-                  </button>
-                ) : null}
               </div>
               <div className="grid min-h-28 content-start gap-1.5 px-2 pb-2 sm:min-h-44 sm:gap-2 sm:px-4 sm:pb-4">
                 {team.playerIds.map((playerId) => {
                   const player = playersById.get(playerId);
                   if (!player) return null;
                   return (
-                    <div className="grid gap-1" key={player.id}>
+                    <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-line bg-white p-1.5 shadow-sm" key={player.id}>
                       <PlayerChip
                         armed={armedPlayerId === player.id}
                         draggable={canEdit}
                         dragging={draggingPlayerId === player.id}
+                        grow
                         highlighted={latestAction?.playerId === player.id}
                         onDrag={(event) => onDrag(event, player.id, team.key)}
                         onDragEnd={() => onDragEnd(player.id)}
@@ -771,9 +725,14 @@ export function TeamBuilder({
                         previewed={remoteDragPreview?.playerId === player.id}
                       />
                       {canEdit ? (
-                        <button className="btn-secondary min-h-7 px-2 text-[11px]" onClick={() => movePlayer(player.id, "pool")} type="button">
+                        <button
+                          aria-label={`Return ${player.name} to draft pool`}
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-line bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-pitch"
+                          onClick={() => movePlayer(player.id, "pool")}
+                          title="Return to draft pool"
+                          type="button"
+                        >
                           <Undo2 className="h-3.5 w-3.5" />
-                          Draft pool
                         </button>
                       ) : null}
                     </div>
@@ -1077,6 +1036,7 @@ function PlayerChip({
   draggable = false,
   dragging = false,
   highlighted = false,
+  grow = false,
   onClick,
   onDrag,
   onDragEnd,
@@ -1093,6 +1053,7 @@ function PlayerChip({
   armed?: boolean;
   draggable?: boolean;
   dragging?: boolean;
+  grow?: boolean;
   highlighted?: boolean;
   onClick?: () => void;
   onDrag?: (event: DragEvent) => void;
@@ -1110,7 +1071,8 @@ function PlayerChip({
   return (
     <span
       className={cn(
-        "inline-flex min-h-8 select-none items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm transition duration-150 hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:px-3 sm:py-1.5 sm:text-sm",
+        "inline-flex min-h-8 min-w-0 select-none items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm transition duration-150 hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:px-3 sm:py-1.5 sm:text-sm",
+        grow && "flex-1",
         draggable && "cursor-grab active:cursor-grabbing",
         armed && "scale-105 border-pitch bg-emerald-50 text-emerald-950 shadow-md ring-2 ring-emerald-100",
         dragging && "scale-110 border-pitch bg-pitch text-white opacity-80 shadow-lg ring-4 ring-emerald-100",
@@ -1131,8 +1093,43 @@ function PlayerChip({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
     >
-      {player.name}
+      <span className="truncate">{player.name}</span>
     </span>
+  );
+}
+
+function PoolPlayerSelect({
+  highlighted,
+  onAssign,
+  player,
+  playersPerTeam,
+  teams
+}: {
+  highlighted?: boolean;
+  onAssign: (teamKey: string) => void;
+  player: TeamBuilderPlayer;
+  playersPerTeam: number;
+  teams: DraftTeam[];
+}) {
+  return (
+    <select
+      className={cn(
+        "min-h-8 max-w-40 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition hover:border-emerald-200 hover:bg-emerald-50 focus:border-pitch focus:ring-2 focus:ring-emerald-100 sm:min-h-9 sm:max-w-52 sm:px-3 sm:py-1.5 sm:text-sm",
+        highlighted && "border-amber-300 bg-amber-50 text-amber-950 ring-2 ring-amber-100"
+      )}
+      onChange={(event) => {
+        if (event.target.value) onAssign(event.target.value);
+        event.target.value = "";
+      }}
+      value=""
+    >
+      <option value="">{player.name}</option>
+      {teams.map((team) => (
+        <option disabled={team.playerIds.length >= playersPerTeam} key={team.key} value={team.key}>
+          {team.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
