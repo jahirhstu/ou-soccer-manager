@@ -118,11 +118,8 @@ export function TeamBuilder({
       }, 2500);
       return;
     }
-    if (liveAction.kind !== "drag" && liveAction.kind !== "drag_move") {
-      if (liveAction.playerId) {
-        setRemoteDragPreview((current) => current?.playerId === liveAction.playerId ? null : current);
-      }
-      return;
+    if (liveAction.playerId) {
+      setRemoteDragPreview((current) => current?.playerId === liveAction.playerId ? null : current);
     }
   }, []);
   const assignedIds = useMemo(() => new Set(teams.flatMap((team) => team.playerIds)), [teams]);
