@@ -133,10 +133,6 @@ export function SessionFixtureGenerator({
             <h1 className="page-title">Generate fixture</h1>
             <p className="mt-1 text-sm text-slate-500">{sessionLabel}: generate, order, and save the session fixture.</p>
           </div>
-          <button className="btn-secondary min-h-9 px-3 text-xs sm:text-sm" disabled={locked || teams.length < 2} onClick={generateFixture} type="button">
-            <Wand2 className="h-4 w-4" />
-            {games.length ? "Regenerate draft" : "Generate draft"}
-          </button>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -154,6 +150,13 @@ export function SessionFixtureGenerator({
         </p>
         {teams.length < 2 ? <p className="text-xs font-medium text-amber-700">Create at least two teams before generating fixtures.</p> : null}
         {hasPlayedMatches ? <p className="text-xs font-medium text-amber-700">Fixture cannot be changed after game scores have been saved.</p> : null}
+
+        <div className="flex justify-end pt-1">
+          <button className="btn-secondary min-h-10 w-full justify-center px-4 text-sm sm:w-fit" disabled={locked || teams.length < 2} onClick={generateFixture} type="button">
+            <Wand2 className="h-4 w-4" />
+            {games.length ? "Regenerate fixture" : "Generate fixture"}
+          </button>
+        </div>
       </section>
 
       {backToBackSummary.total ? (
