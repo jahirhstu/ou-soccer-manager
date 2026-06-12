@@ -166,17 +166,18 @@ export function TeamBuilder({
   const totalCapacity = teams.length * playersPerTeam;
   const pickOrderTeams = useMemo(() => orderedTeamsForToss(teams, tossOrderKeys), [teams, tossOrderKeys]);
   const balancedDraftStarted = draftMode === "balanced" && Boolean(tossOrderKeys?.length);
+  const effectivePickCursor = draftMode === "balanced" && !balancedDraftStarted ? 0 : pickCursor;
   const remainingDraftPicks = teams.reduce((total, team) => total + Math.max(playersPerTeam - team.playerIds.length, 0), 0);
-  const trackedDraftPicks = draftMode === "balanced" ? pickCursor + remainingDraftPicks : players.length;
+  const trackedDraftPicks = draftMode === "balanced" ? effectivePickCursor + remainingDraftPicks : players.length;
   const totalDraftRounds = Math.max(Math.ceil(trackedDraftPicks / Math.max(teams.length, 1)), 1);
   const balancedRounds = useMemo(
     () => buildBalancedDraftRounds(pickOrderTeams, totalDraftRounds),
     [pickOrderTeams, totalDraftRounds]
   );
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
-  const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, pickCursor) : null;
-  const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, pickCursor + 1) : null;
-  const canUseRoulette = canEdit && !(draftMode === "balanced" && pickCursor > 0);
+  const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
+  const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
+  const canUseRoulette = canEdit && !(draftMode === "balanced" && balancedDraftStarted && effectivePickCursor > 0);
 
   useEffect(() => {
     if (state?.success) {
@@ -424,10 +425,11 @@ export function TeamBuilder({
       const sourceTeam = current.find((team) => team.playerIds.includes(playerId));
       const source = sourceTeam ? "team" : "pool";
       const removed = current.map((team) => ({ ...team, playerIds: team.playerIds.filter((id) => id !== playerId) }));
+      const basePickCursor = draftMode === "balanced" && !balancedDraftStarted ? 0 : pickCursor;
       if (targetTeamKey === "pool") {
         const isCaptainReturn = sourceTeam?.captainPlayerId === playerId;
         const shouldRewindPick = sourceTeam && (draftMode !== "balanced" || (balancedDraftStarted && !isCaptainReturn));
-        const nextPickCursor = shouldRewindPick ? Math.max(0, pickCursor - 1) : pickCursor;
+        const nextPickCursor = shouldRewindPick ? Math.max(0, basePickCursor - 1) : basePickCursor;
         const action = createLiveAction("pool", `${player?.name ?? "Player"} moved to Draft pool${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
           playerId,
           teamKey: sourceTeam?.key
@@ -450,7 +452,7 @@ export function TeamBuilder({
       });
       if (!didAssign) return current;
       const isDraftPick = source === "pool" && (draftMode !== "balanced" || balancedDraftStarted);
-      const nextPickCursor = isDraftPick ? pickCursor + 1 : pickCursor;
+      const nextPickCursor = isDraftPick ? basePickCursor + 1 : basePickCursor;
       const action = createLiveAction(isDraftPick ? "pick" : "move", `${targetTeam?.name ?? "Team"} ${isDraftPick ? "picked" : "received"} ${player?.name ?? "player"}${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
         playerId,
         teamKey: targetTeamKey
@@ -691,14 +693,14 @@ export function TeamBuilder({
           </div>
           <RouletteWheel canEdit={canUseRoulette} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} rotation={rouletteRotation} segmentTeams={teams} />
           <div className="grid gap-3">
-            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} draftStarted={balancedDraftStarted} nextTurn={nextTurn} pickCursor={pickCursor} playersById={playersById} positionCounts={scheduledPickCounts} teams={pickOrderTeams} totalPicks={trackedDraftPicks} />
+            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} draftStarted={balancedDraftStarted} nextTurn={nextTurn} pickCursor={effectivePickCursor} playersById={playersById} positionCounts={scheduledPickCounts} teams={pickOrderTeams} totalPicks={trackedDraftPicks} />
             <PickOrderList activeTeamKey={activeTurn?.team.key} playersById={playersById} teams={pickOrderTeams} />
           </div>
         </div>
       </section>
 
       {draftMode === "balanced" ? (
-        <BalancedDraftBoard activePickIndex={pickCursor} draftStarted={balancedDraftStarted} playersById={playersById} rounds={balancedRounds} />
+        <BalancedDraftBoard activePickIndex={effectivePickCursor} draftStarted={balancedDraftStarted} playersById={playersById} rounds={balancedRounds} />
       ) : null}
 
       {remoteDragPreview?.playerId ? (
