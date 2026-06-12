@@ -4,7 +4,7 @@ import { useActionState, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { DragEvent, KeyboardEvent, PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronLeft, ChevronRight, Crown, ListOrdered, RadioTower, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crown, ListOrdered, RadioTower, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
 import { autosaveSessionTeamBuilderDraft, saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -658,16 +658,16 @@ export function TeamBuilder({
                 </button>
               ))}
             </div>
-            <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
+            <label className="grid min-w-0 gap-1 rounded-md border border-line bg-white p-1.5 text-[11px] font-semibold uppercase text-slate-500 sm:gap-1.5 sm:p-2 sm:text-xs">
               Teams
-              <select className="input min-h-9" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
+              <select className="h-8 w-full rounded border border-line bg-slate-50 px-2 text-xs font-semibold text-ink outline-none focus:border-pitch focus:ring-2 focus:ring-emerald-100 sm:h-9 sm:text-sm" disabled={!canEdit} onChange={(event) => setTeamCount(Number(event.target.value))} value={teams.length}>
                 {[2, 3, 4].map((count) => <option key={count} value={count}>{count} teams</option>)}
               </select>
             </label>
-            <label className="grid gap-1 text-xs font-medium text-slate-700 sm:gap-1.5 sm:text-sm">
-              Players per team
+            <label className="grid min-w-0 gap-1 rounded-md border border-line bg-white p-1.5 text-[11px] font-semibold uppercase text-slate-500 sm:gap-1.5 sm:p-2 sm:text-xs">
+              Players/team
               <input
-                className="input min-h-9"
+                className="h-8 w-full rounded border border-line bg-slate-50 px-2 text-center text-xs font-semibold text-ink outline-none focus:border-pitch focus:ring-2 focus:ring-emerald-100 sm:h-9 sm:text-sm"
                 disabled={!canEdit}
                 min="1"
                 onChange={(event) => {
@@ -1039,6 +1039,7 @@ function BalancedDraftBoard({
   const teamsPerRound = Math.max(rounds[0]?.length ?? 1, 1);
   const activeRoundIndex = Math.min(Math.floor(activePickIndex / teamsPerRound), Math.max(rounds.length - 1, 0));
   const [mobileRoundIndex, setMobileRoundIndex] = useState(activeRoundIndex);
+  const [mobileExpanded, setMobileExpanded] = useState(false);
   const mobileRound = rounds[mobileRoundIndex] ?? [];
   const completedCounts = useMemo(() => completedPickPositionCounts(rounds, activePickIndex), [activePickIndex, rounds]);
 
@@ -1048,9 +1049,19 @@ function BalancedDraftBoard({
 
   return (
     <section className="panel p-3 sm:p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <ListOrdered className="h-4 w-4 text-pitch" />
-        <h2 className="section-title">Balanced rotating draft order</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <ListOrdered className="h-4 w-4 shrink-0 text-pitch" />
+          <h2 className="section-title truncate">Balanced rotating draft order</h2>
+        </div>
+        <button
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-semibold text-slate-700 shadow-sm sm:hidden"
+          onClick={() => setMobileExpanded((current) => !current)}
+          type="button"
+        >
+          {mobileExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {mobileExpanded ? "Hide" : "Order"}
+        </button>
       </div>
       <div className="grid gap-2 sm:hidden">
         <div className={cn("rounded-md border p-2", draftStarted && mobileRoundIndex === activeRoundIndex ? "border-emerald-200 bg-emerald-50" : "border-line bg-slate-50")}>
@@ -1078,7 +1089,7 @@ function BalancedDraftBoard({
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className={cn("flex flex-wrap gap-1.5", !mobileExpanded && "max-h-8 overflow-hidden")}>
             {mobileRound.map((team, pickIndex) => {
               const absolutePickIndex = mobileRoundIndex * teamsPerRound + pickIndex;
               const status = draftStarted ? draftPickStatus(absolutePickIndex, activePickIndex) : "pending";
