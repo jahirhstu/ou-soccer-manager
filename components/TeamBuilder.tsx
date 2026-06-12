@@ -165,14 +165,17 @@ export function TeamBuilder({
   const overfilledTeam = teams.find((team) => team.playerIds.length > playersPerTeam);
   const totalCapacity = teams.length * playersPerTeam;
   const pickOrderTeams = useMemo(() => orderedTeamsForToss(teams, tossOrderKeys), [teams, tossOrderKeys]);
-  const totalDraftRounds = Math.max(playersPerTeam, Math.ceil(players.length / Math.max(teams.length, 1)), 1);
+  const balancedDraftStarted = draftMode === "balanced" && Boolean(tossOrderKeys?.length);
+  const remainingDraftPicks = teams.reduce((total, team) => total + Math.max(playersPerTeam - team.playerIds.length, 0), 0);
+  const trackedDraftPicks = draftMode === "balanced" ? pickCursor + remainingDraftPicks : players.length;
+  const totalDraftRounds = Math.max(Math.ceil(trackedDraftPicks / Math.max(teams.length, 1)), 1);
   const balancedRounds = useMemo(
     () => buildBalancedDraftRounds(pickOrderTeams, totalDraftRounds),
     [pickOrderTeams, totalDraftRounds]
   );
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
-  const activeTurn = draftMode === "balanced" ? getDraftTurn(balancedRounds, pickCursor) : null;
-  const nextTurn = draftMode === "balanced" ? getDraftTurn(balancedRounds, pickCursor + 1) : null;
+  const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, pickCursor) : null;
+  const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, pickCursor + 1) : null;
   const canUseRoulette = canEdit && !(draftMode === "balanced" && pickCursor > 0);
 
   useEffect(() => {
@@ -422,7 +425,9 @@ export function TeamBuilder({
       const source = sourceTeam ? "team" : "pool";
       const removed = current.map((team) => ({ ...team, playerIds: team.playerIds.filter((id) => id !== playerId) }));
       if (targetTeamKey === "pool") {
-        const nextPickCursor = sourceTeam ? Math.max(0, pickCursor - 1) : pickCursor;
+        const isCaptainReturn = sourceTeam?.captainPlayerId === playerId;
+        const shouldRewindPick = sourceTeam && (draftMode !== "balanced" || (balancedDraftStarted && !isCaptainReturn));
+        const nextPickCursor = shouldRewindPick ? Math.max(0, pickCursor - 1) : pickCursor;
         const action = createLiveAction("pool", `${player?.name ?? "Player"} moved to Draft pool${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
           playerId,
           teamKey: sourceTeam?.key
@@ -444,7 +449,7 @@ export function TeamBuilder({
         return { ...team, playerIds: [...team.playerIds, playerId] };
       });
       if (!didAssign) return current;
-      const isDraftPick = source === "pool";
+      const isDraftPick = source === "pool" && (draftMode !== "balanced" || balancedDraftStarted);
       const nextPickCursor = isDraftPick ? pickCursor + 1 : pickCursor;
       const action = createLiveAction(isDraftPick ? "pick" : "move", `${targetTeam?.name ?? "Team"} ${isDraftPick ? "picked" : "received"} ${player?.name ?? "player"}${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
         playerId,
@@ -686,14 +691,14 @@ export function TeamBuilder({
           </div>
           <RouletteWheel canEdit={canUseRoulette} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} rotation={rouletteRotation} segmentTeams={teams} />
           <div className="grid gap-3">
-            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} nextTurn={nextTurn} pickCursor={pickCursor} playersById={playersById} positionCounts={scheduledPickCounts} teams={pickOrderTeams} totalPicks={players.length} />
+            <TurnPanel activeTurn={activeTurn} draftMode={draftMode} draftStarted={balancedDraftStarted} nextTurn={nextTurn} pickCursor={pickCursor} playersById={playersById} positionCounts={scheduledPickCounts} teams={pickOrderTeams} totalPicks={trackedDraftPicks} />
             <PickOrderList activeTeamKey={activeTurn?.team.key} playersById={playersById} teams={pickOrderTeams} />
           </div>
         </div>
       </section>
 
       {draftMode === "balanced" ? (
-        <BalancedDraftBoard activePickIndex={pickCursor} playersById={playersById} rounds={balancedRounds} />
+        <BalancedDraftBoard activePickIndex={pickCursor} draftStarted={balancedDraftStarted} playersById={playersById} rounds={balancedRounds} />
       ) : null}
 
       {remoteDragPreview?.playerId ? (
@@ -731,11 +736,14 @@ export function TeamBuilder({
             <div className="inline-flex flex-wrap items-center gap-1.5" key={player.id}>
               {canEdit ? (
                 <PoolPlayerSelect
+                  activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
                   highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
                   onAssign={(teamKey) => movePlayer(player.id, teamKey)}
                   player={player}
-                  teams={teams}
+                  playersById={playersById}
+                  teams={draftMode === "balanced" ? pickOrderTeams : teams}
                   playersPerTeam={playersPerTeam}
+                  restrictToActiveTurn={draftMode === "balanced" && balancedDraftStarted}
                 />
               ) : (
                 <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
@@ -937,6 +945,7 @@ function PickOrderList({ activeTeamKey, playersById, teams }: { activeTeamKey?: 
 function TurnPanel({
   activeTurn,
   draftMode,
+  draftStarted,
   nextTurn,
   pickCursor,
   playersById,
@@ -946,6 +955,7 @@ function TurnPanel({
 }: {
   activeTurn: DraftTurn | null;
   draftMode: DraftMode;
+  draftStarted: boolean;
   nextTurn: DraftTurn | null;
   pickCursor: number;
   playersById: Map<string, TeamBuilderPlayer>;
@@ -962,6 +972,19 @@ function TurnPanel({
         </div>
         <p className="mt-2 text-sm font-semibold text-ink">Lottery mode</p>
         <p className="mt-1 text-xs text-slate-500">Spin any time to refresh the pick order.</p>
+      </div>
+    );
+  }
+
+  if (!draftStarted) {
+    return (
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase text-amber-800">
+          <RadioTower className="h-4 w-4" />
+          Suggested turn
+        </div>
+        <p className="mt-2 text-base font-semibold text-ink">Set captains, then run roulette</p>
+        <p className="mt-1 text-xs text-amber-900">Captain setup will not count as draft turns.</p>
       </div>
     );
   }
@@ -1002,10 +1025,12 @@ type DraftTurn = {
 
 function BalancedDraftBoard({
   activePickIndex,
+  draftStarted,
   playersById,
   rounds
 }: {
   activePickIndex: number;
+  draftStarted: boolean;
   playersById: Map<string, TeamBuilderPlayer>;
   rounds: DraftTeam[][];
 }) {
@@ -1026,7 +1051,7 @@ function BalancedDraftBoard({
         <h2 className="section-title">Balanced rotating draft order</h2>
       </div>
       <div className="grid gap-2 sm:hidden">
-        <div className={cn("rounded-md border p-2", mobileRoundIndex === activeRoundIndex ? "border-emerald-200 bg-emerald-50" : "border-line bg-slate-50")}>
+        <div className={cn("rounded-md border p-2", draftStarted && mobileRoundIndex === activeRoundIndex ? "border-emerald-200 bg-emerald-50" : "border-line bg-slate-50")}>
           <div className="mb-2 flex items-center justify-between gap-2 text-xs font-semibold uppercase text-emerald-800">
             <button
               aria-label="Previous round"
@@ -1039,7 +1064,7 @@ function BalancedDraftBoard({
             </button>
             <span className="min-w-0 flex-1 truncate text-center normal-case">
               <span className="font-bold uppercase">Round {mobileRoundIndex + 1}</span>
-              {mobileRoundIndex === activeRoundIndex ? <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">Active</span> : null}
+              {draftStarted && mobileRoundIndex === activeRoundIndex ? <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">Active</span> : null}
             </span>
             <button
               aria-label="Next round"
@@ -1054,7 +1079,7 @@ function BalancedDraftBoard({
           <div className="flex flex-wrap gap-1.5">
             {mobileRound.map((team, pickIndex) => {
               const absolutePickIndex = mobileRoundIndex * teamsPerRound + pickIndex;
-              const status = draftPickStatus(absolutePickIndex, activePickIndex);
+              const status = draftStarted ? draftPickStatus(absolutePickIndex, activePickIndex) : "pending";
               return (
                 <span
                   className={cn(
@@ -1079,18 +1104,18 @@ function BalancedDraftBoard({
           <div
             className={cn(
               "rounded-md border bg-slate-50 p-2",
-              roundIndex === activeRoundIndex ? "border-emerald-200 bg-emerald-50 ring-1 ring-emerald-100" : "border-line"
+              draftStarted && roundIndex === activeRoundIndex ? "border-emerald-200 bg-emerald-50 ring-1 ring-emerald-100" : "border-line"
             )}
             key={`${roundIndex}-${round.map((team) => team.key).join("-")}`}
           >
             <div className="mb-2 flex items-center justify-between gap-2 text-xs font-semibold uppercase text-slate-500">
               <span>Round {roundIndex + 1}</span>
-              {roundIndex === activeRoundIndex ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">Active</span> : null}
+              {draftStarted && roundIndex === activeRoundIndex ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-800">Active</span> : null}
             </div>
             <div className="grid gap-1.5">
               {round.map((team, pickIndex) => {
                 const absolutePickIndex = roundIndex * Math.max(round.length, 1) + pickIndex;
-                const status = draftPickStatus(absolutePickIndex, activePickIndex);
+                const status = draftStarted ? draftPickStatus(absolutePickIndex, activePickIndex) : "pending";
                 return (
                   <div
                     className={cn(
@@ -1199,16 +1224,22 @@ function PlayerChip({
 }
 
 function PoolPlayerSelect({
+  activeTeamKey,
   highlighted,
   onAssign,
   player,
+  playersById,
   playersPerTeam,
+  restrictToActiveTurn = false,
   teams
 }: {
+  activeTeamKey?: string;
   highlighted?: boolean;
   onAssign: (teamKey: string) => void;
   player: TeamBuilderPlayer;
+  playersById: Map<string, TeamBuilderPlayer>;
   playersPerTeam: number;
+  restrictToActiveTurn?: boolean;
   teams: DraftTeam[];
 }) {
   return (
@@ -1224,11 +1255,16 @@ function PoolPlayerSelect({
       value=""
     >
       <option value="">{player.name}</option>
-      {teams.map((team) => (
-        <option disabled={team.playerIds.length >= playersPerTeam} key={team.key} value={team.key}>
-          {team.name}
-        </option>
-      ))}
+      {teams.map((team) => {
+        const isCurrentTurn = !restrictToActiveTurn || team.key === activeTeamKey;
+        const isFull = team.playerIds.length >= playersPerTeam;
+        const label = teamOptionLabel(team, playersById);
+        return (
+          <option disabled={!isCurrentTurn || isFull} key={team.key} value={team.key}>
+            {label}{restrictToActiveTurn ? isCurrentTurn ? " (current turn)" : " (waiting)" : ""}{isFull ? " - full" : ""}
+          </option>
+        );
+      })}
     </select>
   );
 }
@@ -1316,6 +1352,11 @@ function clamp(value: number, min: number, max: number) {
 
 function turnDisplayName(team: DraftTeam, playersById: Map<string, TeamBuilderPlayer>) {
   return team.captainPlayerId ? playersById.get(team.captainPlayerId)?.name ?? team.name : team.name;
+}
+
+function teamOptionLabel(team: DraftTeam, playersById: Map<string, TeamBuilderPlayer>) {
+  const captainName = team.captainPlayerId ? playersById.get(team.captainPlayerId)?.name : null;
+  return captainName && captainName !== team.name ? `${captainName} - ${team.name}` : captainName ?? team.name;
 }
 
 function activateChipFromKeyboard(event: KeyboardEvent, onClick: () => void) {
