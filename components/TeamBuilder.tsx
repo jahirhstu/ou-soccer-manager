@@ -5,7 +5,7 @@ import type { DragEvent, KeyboardEvent, PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronLeft, ChevronRight, Crown, ListOrdered, RadioTower, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
-import { saveSessionTeamBuilder } from "@/lib/actions/team-builder";
+import { autosaveSessionTeamBuilderDraft, saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,23 @@ export type TeamBuilderData = {
   } | null;
   players: TeamBuilderPlayer[];
   teams: TeamBuilderTeam[];
+  draft?: {
+    teams?: DraftSnapshotTeam[];
+    playersPerTeam?: number | null;
+    draftMode?: "lottery" | "balanced" | null;
+    pickCursor?: number | null;
+    tossOrderKeys?: string[] | null;
+    rouletteRotation?: number | null;
+    updatedAt?: string | null;
+  } | null;
+};
+
+type DraftSnapshotTeam = {
+  id?: string;
+  key?: string;
+  name?: string;
+  captainPlayerId?: string | null;
+  playerIds?: string[];
 };
 
 type DraftTeam = {
@@ -70,6 +87,8 @@ type PresenceCounts = {
   viewers: number;
 };
 
+type DraftSaveStatus = "idle" | "saving" | "saved" | "error";
+
 type PointerDragState = DragSource & {
   isDragging: boolean;
   startX: number;
@@ -88,6 +107,8 @@ export function TeamBuilder({
   const router = useRouter();
   const lastDragBroadcastAt = useRef(0);
   const lastLocalSaveAt = useRef(0);
+  const draftAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDraftSignatureRef = useRef("");
   const pointerDragRef = useRef<PointerDragState | null>(null);
   const pressHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,21 +118,24 @@ export function TeamBuilder({
   const applyingRemoteUpdate = useRef(false);
   const players = data.players ?? [];
   const existingTeams = data.teams ?? [];
+  const existingDraft = data.draft ?? null;
   const savedPlayersPerTeam = Number(data.settings?.playersPerTeam ?? 0);
-  const serverTeamSignature = useMemo(() => JSON.stringify(existingTeams), [existingTeams]);
+  const serverTeamSignature = useMemo(() => JSON.stringify({ draft: existingDraft, teams: existingTeams }), [existingDraft, existingTeams]);
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
-  const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, savedPlayersPerTeam || 8));
-  const [teams, setTeams] = useState<DraftTeam[]>(() => initialTeams(existingTeams, 2));
-  const [draftMode, setDraftMode] = useState<DraftMode>("lottery");
-  const [pickCursor, setPickCursor] = useState(0);
+  const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8));
+  const [teams, setTeams] = useState<DraftTeam[]>(() => initialDraftTeams(existingDraft?.teams, existingTeams, 2));
+  const [draftMode, setDraftMode] = useState<DraftMode>(() => existingDraft?.draftMode === "balanced" ? "balanced" : "lottery");
+  const [pickCursor, setPickCursor] = useState(() => Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0));
   const [isTossing, setIsTossing] = useState(false);
-  const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(null);
-  const [rouletteRotation, setRouletteRotation] = useState(0);
+  const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(() => Array.isArray(existingDraft?.tossOrderKeys) ? existingDraft.tossOrderKeys : null);
+  const [rouletteRotation, setRouletteRotation] = useState(() => Number(existingDraft?.rouletteRotation ?? 0) || 0);
   const [latestAction, setLatestAction] = useState<LiveAction | null>(null);
   const [armedPlayerId, setArmedPlayerId] = useState<string | null>(null);
   const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
   const [localDragPreview, setLocalDragPreview] = useState<LiveAction | null>(null);
   const [remoteDragPreview, setRemoteDragPreview] = useState<LiveAction | null>(null);
+  const [draftSaveStatus, setDraftSaveStatus] = useState<DraftSaveStatus>(existingDraft?.updatedAt ? "saved" : "idle");
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | null>(existingDraft?.updatedAt ?? null);
   const [presenceCounts, setPresenceCounts] = useState<PresenceCounts>({ editors: 0, total: 1, viewers: canEdit ? 0 : 1 });
   const [state, action, pending] = useActionState(saveSessionTeamBuilder, null as { success?: boolean; message?: string; error?: string } | null);
   const notifyLiveAction = useCallback((liveAction: LiveAction) => {
@@ -133,6 +157,7 @@ export function TeamBuilder({
   const poolPlayers = players.filter((player) => !assignedIds.has(player.id));
   const savePayload = teams.map((team) => ({
     id: isUuid(team.key) ? team.key : undefined,
+    key: team.key,
     name: team.name,
     captainPlayerId: team.captainPlayerId || null,
     playerIds: team.playerIds
@@ -153,10 +178,52 @@ export function TeamBuilder({
   useEffect(() => {
     if (state?.success) {
       lastLocalSaveAt.current = Date.now();
+      if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current);
+      draftAutosaveTimerRef.current = null;
+      setDraftSaveStatus("idle");
+      setDraftUpdatedAt(null);
       toast.success(state.message ?? "Teams saved successfully.");
     }
     if (state?.error) toast.error(state.error);
   }, [state]);
+
+  function scheduleDraftAutosave(snapshot: Partial<{
+    teams: DraftTeam[];
+    playersPerTeam: number;
+    draftMode: DraftMode;
+    pickCursor: number;
+    tossOrderKeys: string[] | null;
+    rouletteRotation: number;
+  }>) {
+    if (!canEdit || applyingRemoteUpdate.current) return;
+    const nextSnapshot = {
+      draftMode: snapshot.draftMode ?? draftMode,
+      pickCursor: Math.max(0, Number(snapshot.pickCursor ?? pickCursor) || 0),
+      playersPerTeam: Math.max(1, Number(snapshot.playersPerTeam ?? playersPerTeam) || 8),
+      rouletteRotation: Number(snapshot.rouletteRotation ?? rouletteRotation) || 0,
+      teams: serializeDraftTeams(snapshot.teams ?? teams),
+      tossOrderKeys: Array.isArray(snapshot.tossOrderKeys) ? snapshot.tossOrderKeys : snapshot.tossOrderKeys === null ? null : tossOrderKeys
+    };
+    const signature = JSON.stringify(nextSnapshot);
+    if (signature === lastDraftSignatureRef.current) return;
+    lastDraftSignatureRef.current = signature;
+    setDraftSaveStatus("saving");
+    if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current);
+    draftAutosaveTimerRef.current = setTimeout(() => {
+      void autosaveSessionTeamBuilderDraft({
+        sessionId,
+        ...nextSnapshot
+      }).then((result) => {
+        if (result?.success) {
+          setDraftSaveStatus("saved");
+          setDraftUpdatedAt(result.updatedAt ?? new Date().toISOString());
+          return;
+        }
+        setDraftSaveStatus("error");
+        if (result?.error) toast.error(result.error);
+      });
+    }, 650);
+  }
 
   function broadcastLive(snapshot: Partial<{
     teams: DraftTeam[];
@@ -168,7 +235,18 @@ export function TeamBuilder({
     rouletteRotation: number;
     action: LiveAction | null;
   }>) {
-    if (!canEdit || applyingRemoteUpdate.current || !liveChannelRef.current) return;
+    if (!canEdit || applyingRemoteUpdate.current) return;
+    if (
+      "teams" in snapshot ||
+      "playersPerTeam" in snapshot ||
+      "draftMode" in snapshot ||
+      "pickCursor" in snapshot ||
+      "tossOrderKeys" in snapshot ||
+      "rouletteRotation" in snapshot
+    ) {
+      scheduleDraftAutosave(snapshot);
+    }
+    if (!liveChannelRef.current) return;
     void liveChannelRef.current.send({
       type: "broadcast",
       event: "team_builder_state",
@@ -243,12 +321,33 @@ export function TeamBuilder({
   }, [canEdit, notifyLiveAction, router, sessionId]);
 
   useEffect(() => {
-    setTeams((current) => initialTeams(existingTeams, current.length || 2));
-    setPlayersPerTeam((current) => Math.max(1, savedPlayersPerTeam || current || 8));
-  }, [existingTeams, savedPlayersPerTeam, serverTeamSignature]);
+    const nextTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2);
+    const nextPlayersPerTeam = Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8);
+    const nextDraftMode = existingDraft?.draftMode === "balanced" ? "balanced" : "lottery";
+    const nextPickCursor = Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0);
+    const nextTossOrderKeys = Array.isArray(existingDraft?.tossOrderKeys) ? existingDraft.tossOrderKeys : null;
+    const nextRouletteRotation = Number(existingDraft?.rouletteRotation ?? 0) || 0;
+    setTeams(nextTeams);
+    setPlayersPerTeam(nextPlayersPerTeam);
+    setDraftMode(nextDraftMode);
+    setPickCursor(nextPickCursor);
+    setTossOrderKeys(nextTossOrderKeys);
+    setRouletteRotation(nextRouletteRotation);
+    setDraftUpdatedAt(existingDraft?.updatedAt ?? null);
+    setDraftSaveStatus(existingDraft?.updatedAt ? "saved" : "idle");
+    lastDraftSignatureRef.current = JSON.stringify({
+      draftMode: nextDraftMode,
+      pickCursor: nextPickCursor,
+      playersPerTeam: nextPlayersPerTeam,
+      rouletteRotation: nextRouletteRotation,
+      teams: serializeDraftTeams(nextTeams),
+      tossOrderKeys: nextTossOrderKeys
+    });
+  }, [existingDraft, existingTeams, savedPlayersPerTeam, serverTeamSignature]);
 
   useEffect(() => {
     return () => {
+      if (draftAutosaveTimerRef.current) clearTimeout(draftAutosaveTimerRef.current);
       if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
       if (remoteDragTimerRef.current) clearTimeout(remoteDragTimerRef.current);
       if (tossTimerRef.current) clearInterval(tossTimerRef.current);
@@ -762,6 +861,7 @@ export function TeamBuilder({
             {pending ? "Saving..." : "Save teams"}
           </button>
           {overfilledTeam ? <p className="text-sm text-rose-700">{overfilledTeam.name} has too many players.</p> : null}
+          <DraftAutosaveStatus status={draftSaveStatus} updatedAt={draftUpdatedAt} />
         </form>
       ) : null}
     </div>
@@ -1133,6 +1233,29 @@ function PoolPlayerSelect({
   );
 }
 
+function DraftAutosaveStatus({ status, updatedAt }: { status: DraftSaveStatus; updatedAt: string | null }) {
+  if (status === "idle" && !updatedAt) return null;
+  const label = status === "saving"
+    ? "Autosaving draft..."
+    : status === "error"
+      ? "Draft autosave failed"
+      : updatedAt
+        ? "Draft autosaved"
+        : "Draft ready";
+  return (
+    <span
+      className={cn(
+        "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-semibold",
+        status === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+      )}
+      title={updatedAt ? `Last autosaved ${new Date(updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : undefined}
+    >
+      {status === "saving" ? <RadioTower className="h-3.5 w-3.5 animate-pulse" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+      {label}
+    </span>
+  );
+}
+
 function FloatingDragPreview({
   action,
   playersById
@@ -1235,6 +1358,29 @@ function initialTeams(existingTeams: TeamBuilderTeam[], fallbackCount: number) {
     name: `Team ${index + 1}`,
     captainPlayerId: "",
     playerIds: []
+  }));
+}
+
+function initialDraftTeams(draftTeams: DraftSnapshotTeam[] | undefined, existingTeams: TeamBuilderTeam[], fallbackCount: number) {
+  if (Array.isArray(draftTeams) && draftTeams.length) {
+    return draftTeams.map((team, index) => ({
+      key: team.id ?? team.key ?? `team-${index + 1}`,
+      name: team.name?.trim() || `Team ${index + 1}`,
+      captainPlayerId: team.captainPlayerId ?? "",
+      playerIds: Array.isArray(team.playerIds) ? team.playerIds.filter(Boolean) : []
+    }));
+  }
+
+  return initialTeams(existingTeams, fallbackCount);
+}
+
+function serializeDraftTeams(teams: DraftTeam[]) {
+  return teams.map((team) => ({
+    id: isUuid(team.key) ? team.key : undefined,
+    key: team.key,
+    name: team.name,
+    captainPlayerId: team.captainPlayerId || null,
+    playerIds: team.playerIds
   }));
 }
 
