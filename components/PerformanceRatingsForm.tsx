@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { Search, Save, X } from "lucide-react";
+import { toast } from "sonner";
 import { savePlayerPerformanceRatings } from "@/lib/actions/performance";
 
 export type PerformancePlayerRow = {
@@ -26,6 +27,7 @@ export function PerformanceRatingsForm({
   programId: string;
 }) {
   const [query, setQuery] = useState("");
+  const [state, action, pending] = useActionState(savePlayerPerformanceRatings, null as { success?: boolean; message?: string; error?: string } | null);
   const [ratings, setRatings] = useState<Record<string, RatingState>>(() => {
     return Object.fromEntries(
       players.map((player) => [
@@ -59,8 +61,13 @@ export function PerformanceRatingsForm({
     }));
   }
 
+  useEffect(() => {
+    if (state?.success) toast.success(state.message ?? "Player ratings saved.");
+    if (state?.error) toast.error(state.error);
+  }, [state]);
+
   return (
-    <form action={savePlayerPerformanceRatings} className="grid gap-4">
+    <form action={action} className="grid gap-4">
       <input name="program_id" type="hidden" value={programId} />
 
       <div className="panel grid gap-3 p-4 sm:grid-cols-[1fr_auto]">
@@ -122,9 +129,9 @@ export function PerformanceRatingsForm({
         <div className="panel border-dashed p-10 text-center text-sm text-slate-500">No players match this filter.</div>
       ) : null}
 
-      <button className="btn-primary w-fit">
+      <button className="btn-primary w-fit" disabled={pending}>
         <Save className="h-4 w-4" />
-        Save ratings
+        {pending ? "Saving..." : "Save ratings"}
       </button>
     </form>
   );

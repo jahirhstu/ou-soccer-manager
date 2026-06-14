@@ -1283,7 +1283,7 @@ function PoolPlayerSelect({
       </button>
       {open ? (
         <div className="absolute left-0 top-full z-30 mt-1 grid min-w-72 overflow-hidden rounded-md border border-line bg-white text-xs font-semibold text-slate-700 shadow-lg">
-          <div className="flex items-center justify-between gap-3 border-b border-line bg-slate-50 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2 border-b border-line bg-slate-50 px-3 py-2">
             <span className="truncate">{player.name}</span>
             <SkillBadges player={player} />
           </div>
