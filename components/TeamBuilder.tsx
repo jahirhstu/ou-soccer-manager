@@ -13,6 +13,9 @@ export type TeamBuilderPlayer = {
   id: string;
   name: string;
   status?: string | null;
+  attackingSkillPercent?: number | null;
+  defendingSkillPercent?: number | null;
+  goalkeepingSkillPercent?: number | null;
 };
 
 export type TeamBuilderTeam = {
@@ -1209,7 +1212,7 @@ function PlayerChip({
   return (
     <span
       className={cn(
-        "inline-flex min-h-8 min-w-0 select-none items-center gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm transition duration-150 hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:px-3 sm:py-1.5 sm:text-sm",
+        "inline-flex min-h-8 min-w-0 select-none flex-wrap items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm transition duration-150 hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm",
         grow && "flex-1",
         draggable && "cursor-grab active:cursor-grabbing",
         armed && "scale-105 border-pitch bg-emerald-50 text-emerald-950 shadow-md ring-2 ring-emerald-100",
@@ -1232,6 +1235,7 @@ function PlayerChip({
       tabIndex={onClick ? 0 : undefined}
     >
       <span className="truncate">{player.name}</span>
+      <SkillBadges player={player} />
     </span>
   );
 }
@@ -1255,31 +1259,88 @@ function PoolPlayerSelect({
   restrictToActiveTurn?: boolean;
   teams: DraftTeam[];
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <select
-      className={cn(
-        "min-h-8 max-w-40 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition hover:border-emerald-200 hover:bg-emerald-50 focus:border-pitch focus:ring-2 focus:ring-emerald-100 sm:min-h-9 sm:max-w-52 sm:px-3 sm:py-1.5 sm:text-sm",
-        highlighted && "border-amber-300 bg-amber-50 text-amber-950 ring-2 ring-amber-100"
-      )}
-      onChange={(event) => {
-        if (event.target.value) onAssign(event.target.value);
-        event.target.value = "";
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
-      value=""
     >
-      <option value="">{player.name}</option>
-      {teams.map((team) => {
-        const isCurrentTurn = !restrictToActiveTurn || team.key === activeTeamKey;
-        const isFull = team.playerIds.length >= playersPerTeam;
-        const label = teamOptionLabel(team, playersById);
-        return (
-          <option disabled={!isCurrentTurn || isFull} key={team.key} value={team.key}>
-            {label}{restrictToActiveTurn ? isCurrentTurn ? " (current turn)" : " (waiting)" : ""}{isFull ? " - full" : ""}
-          </option>
-        );
-      })}
-    </select>
+      <button
+        className={cn(
+          "inline-flex min-h-8 max-w-72 items-center justify-between gap-2 rounded-md border border-line bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm outline-none transition hover:border-emerald-200 hover:bg-emerald-50 focus:border-pitch focus:ring-2 focus:ring-emerald-100 sm:min-h-9 sm:px-3 sm:py-1.5 sm:text-sm",
+          highlighted && "border-amber-300 bg-amber-50 text-amber-950 ring-2 ring-amber-100"
+        )}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <span className="truncate">{player.name}</span>
+          <SkillBadges player={player} />
+        </span>
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-30 mt-1 grid min-w-72 overflow-hidden rounded-md border border-line bg-white text-xs font-semibold text-slate-700 shadow-lg">
+          <div className="flex items-center justify-between gap-3 border-b border-line bg-slate-50 px-3 py-2">
+            <span className="truncate">{player.name}</span>
+            <SkillBadges player={player} />
+          </div>
+          <div className="grid max-h-64 overflow-auto p-1">
+            {teams.map((team) => {
+              const isCurrentTurn = !restrictToActiveTurn || team.key === activeTeamKey;
+              const isFull = team.playerIds.length >= playersPerTeam;
+              const disabled = !isCurrentTurn || isFull;
+              const label = teamOptionLabel(team, playersById);
+              return (
+                <button
+                  className={cn(
+                    "rounded px-3 py-2 text-left transition",
+                    disabled ? "cursor-not-allowed text-slate-400" : "hover:bg-emerald-50 hover:text-pitch"
+                  )}
+                  disabled={disabled}
+                  key={team.key}
+                  onClick={() => {
+                    onAssign(team.key);
+                    setOpen(false);
+                  }}
+                  type="button"
+                >
+                  {label}{restrictToActiveTurn ? isCurrentTurn ? " (current turn)" : " (waiting)" : ""}{isFull ? " - full" : ""}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
+}
+
+function SkillBadges({ player }: { player: TeamBuilderPlayer }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <SkillBadge label="ATK" value={player.attackingSkillPercent} />
+      <SkillBadge label="DEF" value={player.defendingSkillPercent} />
+      <SkillBadge label="GK" value={player.goalkeepingSkillPercent} />
+    </span>
+  );
+}
+
+function SkillBadge({ label, value }: { label: string; value?: number | null }) {
+  return (
+    <span className="inline-flex min-w-10 items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-bold leading-none text-slate-600">
+      {label} <span className={cn("ml-0.5", skillValueClass(value))}>{typeof value === "number" ? value : "-"}</span>
+    </span>
+  );
+}
+
+function skillValueClass(value?: number | null) {
+  if (typeof value !== "number") return "text-slate-500";
+  if (value > 80) return "text-orange-600";
+  if (value >= 50) return "text-emerald-700";
+  return "text-amber-600";
 }
 
 function DraftAutosaveStatus({ status, updatedAt }: { status: DraftSaveStatus; updatedAt: string | null }) {
@@ -1297,7 +1358,7 @@ function DraftAutosaveStatus({ status, updatedAt }: { status: DraftSaveStatus; u
         "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-semibold",
         status === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
       )}
-      title={updatedAt ? `Last autosaved ${new Date(updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : undefined}
+      title={updatedAt ? `Last autosaved ${new Date(updatedAt).toISOString()}` : undefined}
     >
       {status === "saving" ? <RadioTower className="h-3.5 w-3.5 animate-pulse" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
       {label}

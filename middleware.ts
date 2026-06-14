@@ -6,7 +6,7 @@ import { getProgramSlugFromPathname, getTenantSlugFromPathname, normalizeTenantS
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public"];
-const captainAllowedPaths = ["/sessions", "/leagues", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
+const captainAllowedPaths = ["/sessions", "/performance", "/leagues", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
 
 function isCaptainAllowedRoute(pathname: string) {
   if (pathname === "/sessions") return true;

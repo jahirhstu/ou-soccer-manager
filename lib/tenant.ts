@@ -9,6 +9,7 @@ const reservedSegments = new Set([
   "leagues",
   "login",
   "payments",
+  "performance",
   "players",
   "programs",
   "public",
