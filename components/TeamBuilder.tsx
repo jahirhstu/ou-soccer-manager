@@ -1320,18 +1320,20 @@ function PoolPlayerSelect({
 
 function SkillBadges({ player }: { player: TeamBuilderPlayer }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1">
-      <SkillBadge label="ATK" value={player.attackingSkillPercent} />
-      <SkillBadge label="DEF" value={player.defendingSkillPercent} />
-      <SkillBadge label="GK" value={player.goalkeepingSkillPercent} />
+    <span className="inline-flex shrink-0 items-center rounded bg-slate-50 px-1 py-0.5 text-[10px] font-black leading-none">
+      <SkillToken label="A" value={player.attackingSkillPercent} />
+      <span className="px-0.5 text-slate-300">|</span>
+      <SkillToken label="D" value={player.defendingSkillPercent} />
+      <span className="px-0.5 text-slate-300">|</span>
+      <SkillToken label="G" value={player.goalkeepingSkillPercent} />
     </span>
   );
 }
 
-function SkillBadge({ label, value }: { label: string; value?: number | null }) {
+function SkillToken({ label, value }: { label: string; value?: number | null }) {
   return (
-    <span className="inline-flex min-w-10 items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-bold leading-none text-slate-600">
-      {label} <span className={cn("ml-0.5", skillValueClass(value))}>{typeof value === "number" ? value : "-"}</span>
+    <span className={cn("min-w-5 text-center", skillValueClass(value))}>
+      {label}{typeof value === "number" ? value : "-"}
     </span>
   );
 }
