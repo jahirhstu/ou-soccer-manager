@@ -1432,7 +1432,7 @@ function turnDisplayName(team: DraftTeam, playersById: Map<string, TeamBuilderPl
 
 function teamOptionLabel(team: DraftTeam, playersById: Map<string, TeamBuilderPlayer>) {
   const captainName = team.captainPlayerId ? playersById.get(team.captainPlayerId)?.name : null;
-  return captainName && captainName !== team.name ? `${captainName} - ${team.name}` : captainName ?? team.name;
+  return captainName && captainName !== team.name ? `${team.name} - ${captainName}` : captainName ?? team.name;
 }
 
 function activateChipFromKeyboard(event: KeyboardEvent, onClick: () => void) {
