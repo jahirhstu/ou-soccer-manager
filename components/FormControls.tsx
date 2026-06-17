@@ -31,7 +31,8 @@ export function SeasonSelect({
   defaultValue,
   required = true,
   allowCreate = false,
-  createLabel = "Create from parsed season"
+  createLabel = "Create from parsed season",
+  emptyLabel = "Select season"
 }: {
   seasons: Season[];
   name?: string;
@@ -39,10 +40,11 @@ export function SeasonSelect({
   required?: boolean;
   allowCreate?: boolean;
   createLabel?: string;
+  emptyLabel?: string;
 }) {
   return (
     <select className="input" defaultValue={defaultValue} name={name} required={required}>
-      <option value="">Select season</option>
+      <option value="">{emptyLabel}</option>
       {allowCreate ? <option value="__create__">{createLabel}</option> : null}
       {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
     </select>
@@ -119,7 +121,8 @@ export function SessionSelect({
   defaultValue,
   required = true,
   allowCreate = false,
-  createLabel = "Create from parsed session"
+  createLabel = "Create from parsed session",
+  emptyLabel = "Select session"
 }: {
   sessions: Session[];
   name?: string;
@@ -127,10 +130,11 @@ export function SessionSelect({
   required?: boolean;
   allowCreate?: boolean;
   createLabel?: string;
+  emptyLabel?: string;
 }) {
   return (
     <select className="input" defaultValue={defaultValue} name={name} required={required}>
-      <option value="">Select session</option>
+      <option value="">{emptyLabel}</option>
       {allowCreate ? <option value="__create__">{createLabel}</option> : null}
       {sessions.map((session: any) => <option key={session.id} value={session.id}>{session.session_date} {session.name ? `- ${session.name}` : ""} {session.playgrounds?.name ?? session.location ? `- ${session.playgrounds?.name ?? session.location}` : ""}</option>)}
     </select>

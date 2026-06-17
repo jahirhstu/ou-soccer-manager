@@ -1,5 +1,5 @@
 import { BarChart3 } from "lucide-react";
-import { ProgramSelect } from "@/components/FormControls";
+import { ProgramSelect, SeasonSelect, SessionSelect } from "@/components/FormControls";
 import { PerformanceRatingsForm, type PerformancePlayerRow } from "@/components/PerformanceRatingsForm";
 import { hasPermission } from "@/lib/permissions";
 import { compareText } from "@/lib/sorting";
@@ -17,7 +17,7 @@ type PerformanceRatingRow = {
 export default async function PerformancePage({
   searchParams
 }: {
-  searchParams: Promise<{ program?: string }>;
+  searchParams: Promise<{ program?: string; season?: string; session?: string }>;
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -29,15 +29,38 @@ export default async function PerformancePage({
   ]);
   const selectedProgramId = currentProgram?.id ?? filters.program ?? programs?.[0]?.id ?? "";
   const selectedProgram = programs?.find((program) => program.id === selectedProgramId) ?? currentProgram;
-  const { data: ratings } = selectedProgramId
-    ? await supabase
-      .from("player_performance_ratings")
-      .select("player_id,attacking_skill_percent,defending_skill_percent,goalkeeping_skill_percent,notes")
-      .eq("program_id", selectedProgramId)
-    : { data: [] };
+  const selectedSeasonId = filters.season ?? "";
+  const selectedSessionId = filters.session ?? "";
+  let seasonsQuery = supabase.from("seasons").select("*").order("name");
+  let sessionsQuery = supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false });
+  if (selectedProgramId) {
+    seasonsQuery = seasonsQuery.eq("program_id", selectedProgramId);
+    sessionsQuery = sessionsQuery.eq("program_id", selectedProgramId);
+  }
+  if (selectedSeasonId) sessionsQuery = sessionsQuery.eq("season_id", selectedSeasonId);
+
+  const [{ data: seasons }, { data: sessions }, { data: ratings }, { data: filteredAttendance }] = await Promise.all([
+    selectedProgramId ? seasonsQuery : Promise.resolve({ data: [] }),
+    selectedProgramId ? sessionsQuery : Promise.resolve({ data: [] }),
+    selectedProgramId
+      ? supabase
+        .from("player_performance_ratings")
+        .select("player_id,attacking_skill_percent,defending_skill_percent,goalkeeping_skill_percent,notes")
+        .eq("program_id", selectedProgramId)
+      : Promise.resolve({ data: [] }),
+    selectedSessionId
+      ? supabase.from("attendance").select("player_id").eq("program_id", selectedProgramId).eq("session_id", selectedSessionId)
+      : selectedSeasonId
+        ? supabase.from("attendance").select("player_id,sessions!inner(season_id)").eq("program_id", selectedProgramId).eq("sessions.season_id", selectedSeasonId)
+        : Promise.resolve({ data: null })
+  ]);
+  const filteredPlayerIds = selectedSeasonId || selectedSessionId
+    ? new Set((filteredAttendance ?? []).map((row) => row.player_id))
+    : null;
   const ratingsByPlayer = new Map((ratings ?? []).map((rating: PerformanceRatingRow) => [rating.player_id, rating]));
   const canEdit = hasPermission(profile?.role, "manage_attendance");
   const rows: PerformancePlayerRow[] = [...(players ?? [])]
+    .filter((player) => !filteredPlayerIds || filteredPlayerIds.has(player.id))
     .sort((left, right) => compareText(left.display_name, right.display_name))
     .map((player) => {
       const rating = ratingsByPlayer.get(player.id);
@@ -68,9 +91,15 @@ export default async function PerformancePage({
           </span>
         </div>
 
-        {!currentProgram?.id && programs?.length ? (
-          <form className="panel grid gap-3 p-4 sm:grid-cols-[1fr_auto]">
-            <ProgramSelect defaultValue={selectedProgramId} emptyLabel="Choose program" name="program" programs={programs} required />
+        {programs?.length ? (
+          <form className="panel grid gap-3 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+            {!currentProgram?.id ? (
+              <ProgramSelect defaultValue={selectedProgramId} emptyLabel="Choose program" name="program" programs={programs} required />
+            ) : (
+              <input name="program" type="hidden" value={selectedProgramId} />
+            )}
+            <SeasonSelect defaultValue={selectedSeasonId} emptyLabel="All seasons" name="season" required={false} seasons={seasons ?? []} />
+            <SessionSelect defaultValue={selectedSessionId} emptyLabel="All sessions" name="session" required={false} sessions={sessions ?? []} />
             <button className="btn-secondary justify-center">View</button>
           </form>
         ) : null}
