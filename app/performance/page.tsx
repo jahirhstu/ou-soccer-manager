@@ -49,9 +49,13 @@ export default async function PerformancePage({
         .eq("program_id", selectedProgramId)
       : Promise.resolve({ data: [] }),
     selectedSessionId
-      ? supabase.from("attendance").select("player_id").eq("program_id", selectedProgramId).eq("session_id", selectedSessionId)
+      ? supabase.from("attendance").select("player_id").eq("session_id", selectedSessionId)
       : selectedSeasonId
-        ? supabase.from("attendance").select("player_id,sessions!inner(season_id)").eq("program_id", selectedProgramId).eq("sessions.season_id", selectedSeasonId)
+        ? supabase
+          .from("attendance")
+          .select("player_id,sessions!inner(program_id,season_id)")
+          .eq("sessions.program_id", selectedProgramId)
+          .eq("sessions.season_id", selectedSeasonId)
         : Promise.resolve({ data: null })
   ]);
   const filteredPlayerIds = selectedSeasonId || selectedSessionId
