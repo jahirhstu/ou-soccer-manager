@@ -183,6 +183,14 @@ export function TeamBuilder({
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
   const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
   const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
+  const hasAllCaptainsSelected = teams.length > 0 && teams.every((team) => Boolean(team.captainPlayerId));
+  const hasCaptainPick = teams.some((team) => team.playerIds.some((playerId) => playerId !== team.captainPlayerId));
+  const [teamBuildingStarted, setTeamBuildingStarted] = useState(() => {
+    const initialTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2, players);
+    return initialTeams.length > 0 &&
+      initialTeams.every((team) => Boolean(team.captainPlayerId)) &&
+      initialTeams.some((team) => team.playerIds.some((playerId) => playerId !== team.captainPlayerId));
+  });
   const canUseRoulette = canEdit && !(draftMode === "balanced" && balancedDraftStarted && effectivePickCursor > 0);
 
   useEffect(() => {
@@ -364,6 +372,10 @@ export function TeamBuilder({
     };
   }, []);
 
+  useEffect(() => {
+    if (hasAllCaptainsSelected && hasCaptainPick) setTeamBuildingStarted(true);
+  }, [hasAllCaptainsSelected, hasCaptainPick]);
+
   function clearPressState() {
     if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
     pressHoldTimerRef.current = null;
@@ -475,6 +487,7 @@ export function TeamBuilder({
 
   function changeDraftMode(nextMode: DraftMode) {
     if (nextMode === draftMode) return;
+    if (teamBuildingStarted) return;
     setDraftMode(nextMode);
     const action = createLiveAction("mode", `Draft mode switched to ${nextMode === "balanced" ? "Balanced rotating order" : "Lottery"}.`);
     notifyLiveAction(action);
@@ -652,11 +665,13 @@ export function TeamBuilder({
                 <button
                   className={cn(
                     "inline-flex min-h-9 items-center justify-center gap-2 rounded px-2 text-xs font-semibold transition sm:text-sm",
-                    draftMode === mode ? "bg-white text-pitch shadow-sm ring-1 ring-line" : "text-slate-600 hover:text-ink"
+                    draftMode === mode ? "bg-white text-pitch shadow-sm ring-1 ring-line" : "text-slate-600 hover:text-ink",
+                    teamBuildingStarted && "cursor-not-allowed opacity-60 hover:text-slate-600"
                   )}
-                  disabled={!canEdit}
+                  disabled={!canEdit || teamBuildingStarted}
                   key={mode}
                   onClick={() => changeDraftMode(mode)}
+                  title={teamBuildingStarted ? "Draft mode is locked after team building starts." : undefined}
                   type="button"
                 >
                   {mode === "lottery" ? <Shuffle className="h-4 w-4" /> : <ListOrdered className="h-4 w-4" />}
