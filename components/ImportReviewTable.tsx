@@ -828,8 +828,10 @@ function estimateSessionCharge({
   const existingCharge = sessionCharges.some((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
   const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
   const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
+  const existingNonBillable = Boolean(existingAttendance?.status && !existingBillable);
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
   if (billable) return existingCharge || existingBillable ? 0 : sessionPrice;
+  if (existingNonBillable) return 0;
   return existingCharge || existingBillable ? -sessionPrice : 0;
 }
 
