@@ -98,6 +98,9 @@ type PointerDragState = DragSource & {
   startY: number;
 };
 
+const EMPTY_PLAYERS: TeamBuilderPlayer[] = [];
+const EMPTY_TEAMS: TeamBuilderTeam[] = [];
+
 export function TeamBuilder({
   canEdit,
   data,
@@ -119,14 +122,14 @@ export function TeamBuilder({
   const liveChannelRef = useRef<any>(null);
   const liveClientId = useRef(`team-builder-${Math.random().toString(36).slice(2)}`);
   const applyingRemoteUpdate = useRef(false);
-  const players = data.players ?? [];
-  const existingTeams = data.teams ?? [];
+  const players = data.players ?? EMPTY_PLAYERS;
+  const existingTeams = data.teams ?? EMPTY_TEAMS;
   const existingDraft = data.draft ?? null;
   const savedPlayersPerTeam = Number(data.settings?.playersPerTeam ?? 0);
   const serverTeamSignature = useMemo(() => JSON.stringify({ draft: existingDraft, teams: existingTeams }), [existingDraft, existingTeams]);
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8));
-  const [teams, setTeams] = useState<DraftTeam[]>(() => initialDraftTeams(existingDraft?.teams, existingTeams, 2));
+  const [teams, setTeams] = useState<DraftTeam[]>(() => initialDraftTeams(existingDraft?.teams, existingTeams, 2, players));
   const [draftMode, setDraftMode] = useState<DraftMode>(() => existingDraft?.draftMode === "balanced" ? "balanced" : "lottery");
   const [pickCursor, setPickCursor] = useState(() => Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0));
   const [isTossing, setIsTossing] = useState(false);
@@ -328,7 +331,7 @@ export function TeamBuilder({
   }, [canEdit, notifyLiveAction, router, sessionId]);
 
   useEffect(() => {
-    const nextTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2);
+    const nextTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2, players);
     const nextPlayersPerTeam = Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8);
     const nextDraftMode = existingDraft?.draftMode === "balanced" ? "balanced" : "lottery";
     const nextPickCursor = Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0);
@@ -350,7 +353,7 @@ export function TeamBuilder({
       teams: serializeDraftTeams(nextTeams),
       tossOrderKeys: nextTossOrderKeys
     });
-  }, [existingDraft, existingTeams, savedPlayersPerTeam, serverTeamSignature]);
+  }, [existingDraft, existingTeams, players, savedPlayersPerTeam, serverTeamSignature]);
 
   useEffect(() => {
     return () => {
@@ -1460,14 +1463,18 @@ function PresenceMetric({ counts }: { counts: PresenceCounts }) {
   );
 }
 
-function initialTeams(existingTeams: TeamBuilderTeam[], fallbackCount: number) {
+function initialTeams(existingTeams: TeamBuilderTeam[], fallbackCount: number, availablePlayers: TeamBuilderPlayer[]) {
+  const availablePlayerIds = new Set(availablePlayers.map((player) => player.id));
   if (existingTeams.length) {
-    return existingTeams.map((team, index) => ({
-      key: team.id ?? `existing-team-${index}`,
-      name: team.name,
-      captainPlayerId: team.captainPlayerId ?? "",
-      playerIds: team.players.map((player) => player.id)
-    }));
+    return existingTeams.map((team, index) => {
+      const playerIds = availableTeamPlayerIds(team.players.map((player) => player.id), availablePlayerIds);
+      return {
+        key: team.id ?? `existing-team-${index}`,
+        name: team.name,
+        captainPlayerId: team.captainPlayerId && playerIds.includes(team.captainPlayerId) ? team.captainPlayerId : "",
+        playerIds
+      };
+    });
   }
 
   return Array.from({ length: fallbackCount }, (_, index) => ({
@@ -1478,17 +1485,21 @@ function initialTeams(existingTeams: TeamBuilderTeam[], fallbackCount: number) {
   }));
 }
 
-function initialDraftTeams(draftTeams: DraftSnapshotTeam[] | undefined, existingTeams: TeamBuilderTeam[], fallbackCount: number) {
+function initialDraftTeams(draftTeams: DraftSnapshotTeam[] | undefined, existingTeams: TeamBuilderTeam[], fallbackCount: number, availablePlayers: TeamBuilderPlayer[]) {
+  const availablePlayerIds = new Set(availablePlayers.map((player) => player.id));
   if (Array.isArray(draftTeams) && draftTeams.length) {
-    return draftTeams.map((team, index) => ({
-      key: team.id ?? team.key ?? `team-${index + 1}`,
-      name: team.name?.trim() || `Team ${index + 1}`,
-      captainPlayerId: team.captainPlayerId ?? "",
-      playerIds: Array.isArray(team.playerIds) ? team.playerIds.filter(Boolean) : []
-    }));
+    return draftTeams.map((team, index) => {
+      const playerIds = availableTeamPlayerIds(team.playerIds, availablePlayerIds);
+      return {
+        key: team.id ?? team.key ?? `team-${index + 1}`,
+        name: team.name?.trim() || `Team ${index + 1}`,
+        captainPlayerId: team.captainPlayerId && playerIds.includes(team.captainPlayerId) ? team.captainPlayerId : "",
+        playerIds
+      };
+    });
   }
 
-  return initialTeams(existingTeams, fallbackCount);
+  return initialTeams(existingTeams, fallbackCount, availablePlayers);
 }
 
 function serializeDraftTeams(teams: DraftTeam[]) {
@@ -1499,6 +1510,15 @@ function serializeDraftTeams(teams: DraftTeam[]) {
     captainPlayerId: team.captainPlayerId || null,
     playerIds: team.playerIds
   }));
+}
+
+function availableTeamPlayerIds(playerIds: string[] | undefined, availablePlayerIds: Set<string>) {
+  const seen = new Set<string>();
+  return (playerIds ?? []).filter((playerId) => {
+    if (!playerId || !availablePlayerIds.has(playerId) || seen.has(playerId)) return false;
+    seen.add(playerId);
+    return true;
+  });
 }
 
 function orderedTeamsForToss(teams: DraftTeam[], tossOrderKeys: string[] | null) {
