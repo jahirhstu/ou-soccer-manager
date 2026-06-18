@@ -58,6 +58,7 @@ export function ImportReviewTable({
     confirmWhatsAppImport,
     null as { success?: boolean; message?: string; error?: string } | null
   );
+  const [rawText, setRawText] = useState("");
   const parsed = state?.parsed;
   const playersByName = new Map(players.map((player) => [normalizeName(player.display_name), player.id]));
   const playersById = new Map(players.map((player) => [player.id, player]));
@@ -103,6 +104,15 @@ export function ImportReviewTable({
   const selectedPlayground = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
 
   useEffect(() => {
+    if (parsed) {
+      toast.success(`Message parsed successfully via ${parserMethodLabel(parsed)}.`);
+    }
+    if (state?.error) {
+      toast.error(state.error);
+    }
+  }, [parsed, state?.error]);
+
+  useEffect(() => {
     if (confirmState?.success) {
       toast.success(confirmState.message ?? "Import confirmed successfully.");
     }
@@ -119,7 +129,14 @@ export function ImportReviewTable({
   return (
     <div className="grid gap-5">
       <form action={action} className="grid gap-3">
-        <textarea className="input min-h-56 p-3 leading-6" name="rawText" placeholder="Paste WhatsApp chat text here" required />
+        <textarea
+          className="input min-h-56 p-3 leading-6"
+          name="rawText"
+          onChange={(event) => setRawText(event.target.value)}
+          placeholder="Paste WhatsApp chat text here"
+          required
+          value={rawText}
+        />
         <button className="btn-secondary w-fit" disabled={pending}>
           {pending ? "Parsing..." : "Parse draft"}
         </button>
@@ -521,6 +538,10 @@ function dateInSeason(date: string, season: Season) {
   if (season.start_date && date < season.start_date) return false;
   if (season.end_date && date > season.end_date) return false;
   return true;
+}
+
+function parserMethodLabel(parsed: ParsedWhatsAppImport) {
+  return parsed.parser?.engine === "llm" ? "LLM" : "Rule based";
 }
 
 function ParserSummary({ parsed }: { parsed: ParsedWhatsAppImport }) {

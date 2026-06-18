@@ -1,15 +1,8 @@
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
-import { updateOrganizationUser } from "@/lib/actions/admin";
+import { UserUpdateForm } from "@/components/UserUpdateForm";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
-
-const roleOptions = [
-  { value: "owner", label: "Owner" },
-  { value: "admin", label: "Admin" },
-  { value: "captain", label: "Captain" },
-  { value: "player", label: "Player" }
-];
 
 export default async function UsersPage() {
   const supabase = await createSupabaseServerClient();
@@ -59,17 +52,7 @@ export default async function UsersPage() {
           {
             header: "Role",
             cell: (row) => (
-              <form action={updateOrganizationUser} className="grid gap-2">
-                <input name="member_id" type="hidden" value={row.id} />
-                <select className="input min-h-9 px-2 text-sm" defaultValue={row.role} name="role">
-                  {roleOptions.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
-                </select>
-                <select className="input min-h-9 px-2 text-sm" defaultValue={row.player_id ?? ""} name="player_id">
-                  <option value="">No player mapping</option>
-                  {(players ?? []).map((player) => <option key={player.id} value={player.id}>{player.display_name}</option>)}
-                </select>
-                <button className="btn-secondary min-h-9 w-fit px-3 text-xs">Update</button>
-              </form>
+              <UserUpdateForm memberId={row.id} playerId={row.player_id} players={players ?? []} role={row.role} />
             )
           }
         ]} />
