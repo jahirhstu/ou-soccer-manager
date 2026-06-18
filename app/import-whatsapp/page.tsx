@@ -24,7 +24,7 @@ export default async function ImportWhatsAppPage() {
     supabase.rpc("public_player_report"),
     supabase.from("ledger_entries").select("player_id,season_id,session_id,type,amount,sessions_count"),
     supabase.from("attendance").select("player_id,session_id,status"),
-    supabase.from("session_player_charges").select("player_id,session_id,amount")
+    supabase.from("session_player_charges").select("player_id,session_id,amount,original_amount,waiver_amount")
   ]);
   return (
     <AppShell>

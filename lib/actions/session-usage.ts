@@ -62,6 +62,8 @@ export async function applySessionUsage({
         player_id: row.player_id,
         session_id: sessionId,
         amount: effectivePrice,
+        original_amount: effectivePrice,
+        waiver_amount: 0,
         sessions_count: 1,
         source,
         created_by: actorId

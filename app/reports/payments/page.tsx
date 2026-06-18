@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import { Download } from "lucide-react";
 
-type SortKey = "player" | "season" | "status" | "paid" | "played" | "remaining" | "credit" | "owes";
+type SortKey = "player" | "season" | "status" | "paid" | "played" | "remaining" | "used" | "waived" | "credit" | "owes";
 
 export default async function PaymentReportPage({
   searchParams
@@ -29,7 +29,7 @@ export default async function PaymentReportPage({
     return true;
   }), sortKey(filters.sort));
   const csv = [
-    "Player,Season,Amount paid,Paid sessions,Played sessions,Remaining sessions,Used,Credit,Refund due,Owes",
+    "Player,Season,Amount paid,Paid sessions,Played sessions,Remaining sessions,Used,Waived,Credit,Refund due,Owes",
     ...filteredRows.map((row) =>
       [
         row.player_name,
@@ -39,6 +39,7 @@ export default async function PaymentReportPage({
         row.total_played_sessions,
         row.remaining_sessions,
         row.estimated_used_amount,
+        row.waived_amount,
         row.credit_amount,
         row.refund_due_amount,
         row.owes_money
@@ -87,6 +88,7 @@ export default async function PaymentReportPage({
         { header: "Played sessions", cell: (row) => row.total_played_sessions ?? 0 },
         { header: "Remaining sessions", cell: (row) => row.remaining_sessions ?? 0 },
         { header: "Used", cell: (row) => money(row.estimated_used_amount) },
+        { header: "Waived", cell: (row) => money(row.waived_amount) },
         { header: "Credit", cell: (row) => <MoneyPill amount={row.credit_amount} tone={Number(row.credit_amount ?? 0) > 0 ? "credit" : "neutral"} /> },
         { header: "Refund due", cell: (row) => money(row.refund_due_amount) },
         { header: "Owes", cell: (row) => <MoneyPill amount={row.owes_money} tone={Number(row.owes_money ?? 0) > 0 ? "owes" : "neutral"} /> }
@@ -110,7 +112,7 @@ function paymentStatusLabel(status: string) {
 }
 
 function sortKey(value: string | undefined): SortKey {
-  if (value === "season" || value === "status" || value === "paid" || value === "played" || value === "remaining" || value === "credit" || value === "owes") return value;
+  if (value === "season" || value === "status" || value === "paid" || value === "played" || value === "remaining" || value === "used" || value === "waived" || value === "credit" || value === "owes") return value;
   return "player";
 }
 
@@ -121,6 +123,8 @@ function sortRows(rows: any[], key: SortKey) {
     if (key === "paid") return compareNumberDesc(left.total_paid_amount, right.total_paid_amount) || compareText(left.player_name, right.player_name);
     if (key === "played") return compareNumberDesc(left.total_played_sessions, right.total_played_sessions) || compareText(left.player_name, right.player_name);
     if (key === "remaining") return compareNumberDesc(left.remaining_sessions, right.remaining_sessions) || compareText(left.player_name, right.player_name);
+    if (key === "used") return compareNumberDesc(left.estimated_used_amount, right.estimated_used_amount) || compareText(left.player_name, right.player_name);
+    if (key === "waived") return compareNumberDesc(left.waived_amount, right.waived_amount) || compareText(left.player_name, right.player_name);
     if (key === "credit") return compareNumberDesc(left.credit_amount, right.credit_amount) || compareText(left.player_name, right.player_name);
     if (key === "owes") return compareNumberDesc(left.owes_money, right.owes_money) || compareText(left.player_name, right.player_name);
     return compareText(left.player_name, right.player_name) || compareText(left.season_name, right.season_name);

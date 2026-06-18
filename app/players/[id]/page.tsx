@@ -9,9 +9,15 @@ import { Pencil } from "lucide-react";
 export default async function PlayerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-  const [{ data: player }, { data: payments }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }] = await Promise.all([
+  const [{ data: player }, { data: payments }, { data: waivers }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }] = await Promise.all([
     supabase.from("players").select("*").eq("id", id).single(),
     supabase.from("payments").select("*,seasons(name)").eq("player_id", id).gt("amount", 0).order("payment_date", { ascending: false }),
+    supabase
+      .from("session_player_charges")
+      .select("*,seasons(name),sessions(session_date,name)")
+      .eq("player_id", id)
+      .gt("waiver_amount", 0)
+      .order("waived_at", { ascending: false }),
     supabase.from("attendance").select("*,sessions(session_date)").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("ledger_entries").select("*").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id).eq("goal_type", "goal"),
@@ -42,16 +48,20 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
             { header: "Paid sessions", cell: (row) => row.total_paid_sessions ?? 0 },
             { header: "Played", cell: (row) => row.total_played_sessions ?? 0 },
             { header: "Remaining", cell: (row) => row.remaining_sessions ?? 0 },
+            { header: "Waived", cell: (row) => money(row.waived_amount) },
             { header: "Credit", cell: (row) => money(row.credit_amount) }
           ]} />
         </section>
         <section className="grid gap-3">
           <h2 className="section-title">Payment history</h2>
-          <DataTable rows={payments ?? []} columns={[
-            { header: "Season", cell: (row: any) => row.seasons?.name ?? "-" },
-            { header: "Date", cell: (row) => row.payment_date },
-            { header: "Amount", cell: (row) => money(row.amount) },
-            { header: "Sessions", cell: (row) => row.sessions_covered ?? "-" }
+          <DataTable rows={paymentHistoryRows(payments ?? [], waivers ?? [])} columns={[
+            { header: "Type", cell: (row) => row.type },
+            { header: "Season", cell: (row) => row.season },
+            { header: "Session", cell: (row) => row.session },
+            { header: "Date", cell: (row) => row.date },
+            { header: "Amount", cell: (row) => row.type === "Waiver" ? `${money(row.amount)} waived` : money(row.amount) },
+            { header: "Sessions", cell: (row) => row.sessions },
+            { header: "Note", cell: (row) => row.note ?? "-" }
           ]} />
         </section>
         <section className="grid gap-3">
@@ -81,4 +91,27 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       </div>
     </AppShell>
   );
+}
+
+function paymentHistoryRows(payments: any[], waivers: any[]) {
+  return [
+    ...payments.map((row) => ({
+      type: "Payment",
+      season: row.seasons?.name ?? "-",
+      session: "Season payment",
+      date: row.payment_date,
+      amount: Number(row.amount ?? 0),
+      sessions: row.sessions_covered ?? "-",
+      note: row.reference_note
+    })),
+    ...waivers.map((row) => ({
+      type: "Waiver",
+      season: row.seasons?.name ?? "-",
+      session: [row.sessions?.session_date, row.sessions?.name].filter(Boolean).join(" - ") || "Session waiver",
+      date: String(row.waived_at ?? row.created_at ?? ""),
+      amount: Number(row.waiver_amount ?? 0),
+      sessions: "-",
+      note: row.waiver_reason
+    }))
+  ].sort((left, right) => String(right.date).localeCompare(String(left.date)) || left.season.localeCompare(right.season));
 }

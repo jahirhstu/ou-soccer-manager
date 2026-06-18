@@ -25,6 +25,8 @@ type SessionChargeRow = {
   player_id: string;
   session_id: string;
   amount: number | string | null;
+  original_amount?: number | string | null;
+  waiver_amount?: number | string | null;
 };
 type SessionAttendanceRow = {
   player_id: string;
@@ -825,14 +827,14 @@ function estimateSessionCharge({
   if (!attendance) return 0;
   const matchedPlayerId = getDefaultMatchedPlayerId(attendance.playerName, players, playersByName, aliasesByName);
   if (matchedPlayerId !== playerId) return 0;
-  const existingCharge = sessionCharges.some((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
+  const existingCharge = sessionCharges.find((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
   const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
   const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
   const existingNonBillable = Boolean(existingAttendance?.status && !existingBillable);
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
   if (billable) return existingCharge || existingBillable ? 0 : sessionPrice;
   if (existingNonBillable) return 0;
-  return existingCharge || existingBillable ? -sessionPrice : 0;
+  return existingCharge || existingBillable ? -Number(existingCharge?.amount ?? sessionPrice) : 0;
 }
 
 function getImportAttendanceForPlayer(attendanceRows: ParsedWhatsAppImport["attendance"], playerName: string) {

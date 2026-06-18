@@ -12,6 +12,7 @@ export type TransferType =
 export type LedgerType =
   | "payment_received"
   | "session_used"
+  | "fee_waived"
   | "credit_added"
   | "credit_transferred_out"
   | "credit_transferred_in"

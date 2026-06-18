@@ -11,9 +11,13 @@ import Link from "next/link";
 export default async function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-  const [{ data: session }, { data: attendance }, { data: dropouts }, { data: goals }, { data: teams }, { data: matches }, profile] = await Promise.all([
+  const [{ data: session }, { data: attendance }, { data: charges }, { data: dropouts }, { data: goals }, { data: teams }, { data: matches }, profile] = await Promise.all([
     supabase.from("sessions").select("*,seasons(name),playgrounds(name)").eq("id", id).single(),
     supabase.from("attendance").select("*,players(display_name)").eq("session_id", id),
+    supabase
+      .from("session_player_charges")
+      .select("*")
+      .eq("session_id", id),
     supabase.from("dropouts").select("*,original:players!dropouts_original_player_id_fkey(display_name),replacement:players!dropouts_replacement_player_id_fkey(display_name)").eq("session_id", id),
     supabase.from("goals").select("*,session_teams(name),scorer:players!goals_scorer_id_fkey(display_name),assist:players!goals_assist_player_id_fkey(display_name)").eq("session_id", id),
     supabase
@@ -30,6 +34,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   ]);
   const isAdmin = hasPermission(profile?.role, "manage_all");
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
+  const chargeByPlayerId = new Map((charges ?? []).map((charge: any) => [charge.player_id, charge]));
   const matchRows = (matches ?? []) as MatchRow[];
   const standings = buildSessionStandings(matchRows);
   const fixtureMatches = matchRows.map((match) => ({
@@ -147,6 +152,8 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           <DataTable rows={attendance ?? []} columns={[
             { header: "Player", cell: (row: any) => row.players?.display_name ?? "-" },
             { header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
+            { header: "Charge", cell: (row: any) => chargeSummary(chargeByPlayerId.get(row.player_id), session) },
+            { header: "Waiver", cell: (row: any) => waiverSummary(chargeByPlayerId.get(row.player_id)) },
             { header: "Notes", cell: (row) => row.notes ?? "-" }
           ]} />
         </section>
@@ -291,4 +298,19 @@ function awayTeamName(match: MatchRow) {
 
 function signed(value: number) {
   return value > 0 ? `+${value}` : String(value);
+}
+
+function chargeSummary(charge: any, session: any) {
+  const originalAmount = Number(charge?.original_amount ?? charge?.amount ?? session?.price_per_session ?? session?.seasons?.price_per_session ?? 0);
+  const netAmount = Number(charge?.amount ?? originalAmount);
+  if (!charge) return `${money(originalAmount)} pending`;
+  if (Number(charge.waiver_amount ?? 0) > 0) return `${money(netAmount)} of ${money(originalAmount)}`;
+  return money(netAmount);
+}
+
+function waiverSummary(charge: any) {
+  const waiverAmount = Number(charge?.waiver_amount ?? 0);
+  if (!charge || waiverAmount <= 0) return "-";
+  const reason = charge.waiver_reason ? ` - ${charge.waiver_reason}` : "";
+  return `${money(waiverAmount)} waived${reason}`;
 }
