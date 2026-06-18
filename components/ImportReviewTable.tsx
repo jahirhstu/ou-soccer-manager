@@ -808,8 +808,8 @@ function estimateSessionCharge({
   const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
   const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
-  if (billable) return existingCharge ? 0 : sessionPrice;
-  return existingCharge && existingBillable ? -sessionPrice : 0;
+  if (billable) return existingCharge || existingBillable ? 0 : sessionPrice;
+  return existingCharge || existingBillable ? -sessionPrice : 0;
 }
 
 function getImportAttendanceForPlayer(attendanceRows: ParsedWhatsAppImport["attendance"], playerName: string) {
