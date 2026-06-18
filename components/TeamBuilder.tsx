@@ -183,13 +183,9 @@ export function TeamBuilder({
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
   const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
   const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
-  const hasAllCaptainsSelected = teams.length > 0 && teams.every((team) => Boolean(team.captainPlayerId));
-  const hasCaptainPick = teams.some((team) => team.playerIds.some((playerId) => playerId !== team.captainPlayerId));
   const [teamBuildingStarted, setTeamBuildingStarted] = useState(() => {
     const initialTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2, players);
-    return initialTeams.length > 0 &&
-      initialTeams.every((team) => Boolean(team.captainPlayerId)) &&
-      initialTeams.some((team) => team.playerIds.some((playerId) => playerId !== team.captainPlayerId));
+    return captainsSelectedForTeams(initialTeams) && hasPickedPlayerForTeams(initialTeams);
   });
   const canUseRoulette = canEdit && !(draftMode === "balanced" && balancedDraftStarted && effectivePickCursor > 0);
 
@@ -298,6 +294,7 @@ export function TeamBuilder({
         if (typeof payload.isTossing === "boolean") setIsTossing(payload.isTossing);
         if (Array.isArray(payload.tossOrderKeys) || payload.tossOrderKeys === null) setTossOrderKeys(payload.tossOrderKeys);
         if (Number.isFinite(Number(payload.rouletteRotation))) setRouletteRotation(Number(payload.rouletteRotation));
+        if (Array.isArray(payload.teams) && isPostCaptainLivePick(payload.action, payload.teams)) setTeamBuildingStarted(true);
         if (payload.action) notifyLiveAction(payload.action);
         window.setTimeout(() => {
           applyingRemoteUpdate.current = false;
@@ -371,10 +368,6 @@ export function TeamBuilder({
       if (tossTimerRef.current) clearInterval(tossTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (hasAllCaptainsSelected && hasCaptainPick) setTeamBuildingStarted(true);
-  }, [hasAllCaptainsSelected, hasCaptainPick]);
 
   function clearPressState() {
     if (pressHoldTimerRef.current) clearTimeout(pressHoldTimerRef.current);
@@ -470,11 +463,13 @@ export function TeamBuilder({
       });
       if (!didAssign) return current;
       const isDraftPick = source === "pool" && (draftMode !== "balanced" || balancedDraftStarted);
+      const isPostCaptainPlayerPick = source === "pool" && captainsSelectedForTeams(nextTeams) && targetTeam?.captainPlayerId !== playerId;
       const nextPickCursor = isDraftPick ? basePickCursor + 1 : basePickCursor;
       const action = createLiveAction(isDraftPick ? "pick" : "move", `${targetTeam?.name ?? "Team"} ${isDraftPick ? "picked" : "received"} ${player?.name ?? "player"}${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
         playerId,
         teamKey: targetTeamKey
       });
+      if (isPostCaptainPlayerPick) setTeamBuildingStarted(true);
       setPickCursor(nextPickCursor);
       setDraggingPlayerId(null);
       setLocalDragPreview(null);
@@ -942,6 +937,20 @@ function RouletteWheel({
       </div>
     </div>
   );
+}
+
+function captainsSelectedForTeams(teams: DraftTeam[]) {
+  return teams.length > 0 && teams.every((team) => Boolean(team.captainPlayerId));
+}
+
+function hasPickedPlayerForTeams(teams: DraftTeam[]) {
+  return teams.some((team) => team.playerIds.some((playerId) => playerId !== team.captainPlayerId));
+}
+
+function isPostCaptainLivePick(action: LiveAction | null | undefined, teams: DraftTeam[]) {
+  if (!action?.playerId || !action.teamKey || (action.kind !== "pick" && action.kind !== "move")) return false;
+  const targetTeam = teams.find((team) => team.key === action.teamKey);
+  return captainsSelectedForTeams(teams) && targetTeam?.captainPlayerId !== action.playerId;
 }
 
 function PickOrderList({ activeTeamKey, playersById, teams }: { activeTeamKey?: string; playersById: Map<string, TeamBuilderPlayer>; teams: DraftTeam[] }) {
