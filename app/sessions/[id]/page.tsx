@@ -36,6 +36,11 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const chargeByPlayerId = new Map((charges ?? []).map((charge: any) => [charge.player_id, charge]));
   const matchRows = (matches ?? []) as MatchRow[];
+  const goalsByMatchId = new Map<string, GoalRow[]>();
+  for (const goal of (goals ?? []) as GoalRow[]) {
+    if (!goal.match_id) continue;
+    goalsByMatchId.set(goal.match_id, [...(goalsByMatchId.get(goal.match_id) ?? []), goal]);
+  }
   const standings = buildSessionStandings(matchRows);
   const fixtureMatches = matchRows.map((match) => ({
     matchNumber: match.match_number,
@@ -126,6 +131,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
           <DataTable rows={matchRows} columns={[
             { header: "Game", cell: (row) => row.match_number },
             { header: "Result", cell: (row) => `${row.team_a?.name ?? "-"} ${row.team_a_score}-${row.team_b_score} ${row.team_b?.name ?? "-"}` },
+            { header: "Goals/Assists", cell: (row) => <GoalDetails goals={goalsByMatchId.get(row.id) ?? []} /> },
             { header: "Home/Away", cell: (row) => homeAwayLabel(row) }
           ]} />
         </section>
@@ -171,6 +177,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
 }
 
 type MatchRow = {
+  id: string;
   match_number: number;
   team_a_id: string;
   team_b_id: string;
@@ -183,6 +190,32 @@ type MatchRow = {
   team_a?: { name?: string | null } | null;
   team_b?: { name?: string | null } | null;
 };
+
+type GoalRow = {
+  match_id?: string | null;
+  goal_count?: number | string | null;
+  scorer?: { display_name?: string | null } | null;
+  assist?: { display_name?: string | null } | null;
+};
+
+function GoalDetails({ goals }: { goals: GoalRow[] }) {
+  const details = goals.flatMap((goal) => {
+    const parsedCount = Number(goal.goal_count ?? 1);
+    const count = Number.isFinite(parsedCount) ? Math.max(1, Math.floor(parsedCount)) : 1;
+    const scorer = goal.scorer?.display_name ?? "-";
+    const assist = goal.assist?.display_name;
+    const label = `Scorer: ${scorer}${assist ? ` | Assist: ${assist}` : ""}`;
+    return Array.from({ length: count }, () => label);
+  });
+
+  if (!details.length) return "-";
+
+  return (
+    <div className="grid gap-1">
+      {details.map((detail, index) => <div key={`${detail}-${index}`}>{detail}</div>)}
+    </div>
+  );
+}
 
 type Standing = {
   teamId: string;
