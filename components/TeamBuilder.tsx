@@ -4,7 +4,7 @@ import { useActionState, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { DragEvent, KeyboardEvent, PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crown, ListOrdered, RadioTower, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crown, ListOrdered, RadioTower, RotateCcw, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
 import { autosaveSessionTeamBuilderDraft, saveSessionTeamBuilder } from "@/lib/actions/team-builder";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -487,6 +487,29 @@ export function TeamBuilder({
     broadcastLive({ draftMode: nextMode, action });
   }
 
+  function resetTeamBuilding() {
+    if (!canEdit) return;
+    const confirmed = window.confirm("Reset team building? This will return all non-captain players to the draft pool and reset the Balanced draft order.");
+    if (!confirmed) return;
+    if (tossTimerRef.current) clearInterval(tossTimerRef.current);
+    tossTimerRef.current = null;
+    const nextTeams = teams.map((team) => ({
+      ...team,
+      playerIds: team.captainPlayerId && playersById.has(team.captainPlayerId) ? [team.captainPlayerId] : []
+    }));
+    const action = createLiveAction("settings", "Team building reset.");
+    setTeams(nextTeams);
+    setPickCursor(0);
+    setTossOrderKeys(null);
+    setRouletteRotation(0);
+    setIsTossing(false);
+    setDraggingPlayerId(null);
+    setLocalDragPreview(null);
+    setRemoteDragPreview(null);
+    notifyLiveAction(action);
+    broadcastLive({ teams: nextTeams, pickCursor: 0, isTossing: false, tossOrderKeys: null, rouletteRotation: 0, action });
+  }
+
   function startToss() {
     if (isTossing) return;
     setIsTossing(true);
@@ -704,6 +727,16 @@ export function TeamBuilder({
               </div>
               <p className="text-xs text-emerald-800">Players not assigned to a team remain in the draft pool.</p>
             </div>
+            {canEdit ? (
+              <button
+                className="col-span-2 inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50 sm:text-sm"
+                onClick={resetTeamBuilding}
+                type="button"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset teams
+              </button>
+            ) : null}
           </div>
           <RouletteWheel canEdit={canUseRoulette} displayTeams={pickOrderTeams} isSpinning={isTossing} onToggle={isTossing ? stopToss : startToss} rotation={rouletteRotation} segmentTeams={teams} />
           <div className="grid gap-3">
