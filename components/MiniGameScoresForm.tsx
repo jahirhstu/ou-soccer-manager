@@ -101,7 +101,7 @@ export function MiniGameScoresForm({
   }
 
   return (
-    <form action={action} className="grid gap-4">
+    <form action={action} className="grid gap-4 pb-20">
       <input name="sessionId" type="hidden" value={sessionId} />
       <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
       <div className="panel grid gap-3 p-3">
@@ -243,10 +243,12 @@ export function MiniGameScoresForm({
         })}
       </div>
       {!readOnly ? (
-        <button className="btn-primary sticky bottom-3 z-10 w-fit shadow-lg sm:static sm:shadow-sm" disabled={pending || !teams.length}>
-          <Save className="h-4 w-4" />
-          {pending ? "Saving..." : "Save game scores"}
-        </button>
+        <div className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 flex justify-end sm:left-auto">
+          <button className="btn-primary w-full shadow-lg sm:w-auto" disabled={pending || !teams.length}>
+            <Save className="h-4 w-4" />
+            {pending ? "Saving..." : "Save game scores"}
+          </button>
+        </div>
       ) : null}
     </form>
   );
