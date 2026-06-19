@@ -171,7 +171,9 @@ export function TeamBuilder({
   const overfilledTeam = teams.find((team) => team.playerIds.length > playersPerTeam);
   const totalCapacity = teams.length * playersPerTeam;
   const pickOrderTeams = useMemo(() => orderedTeamsForToss(teams, tossOrderKeys), [teams, tossOrderKeys]);
-  const balancedDraftStarted = draftMode === "balanced" && Boolean(tossOrderKeys?.length);
+  const captainsReady = captainsSelectedForTeams(teams);
+  const teamBuildingStarted = captainsReady && hasPickedPlayerForTeams(teams);
+  const balancedDraftStarted = draftMode === "balanced" && captainsReady && Boolean(tossOrderKeys?.length);
   const effectivePickCursor = draftMode === "balanced" && !balancedDraftStarted ? 0 : pickCursor;
   const remainingDraftPicks = teams.reduce((total, team) => total + Math.max(playersPerTeam - team.playerIds.length, 0), 0);
   const trackedDraftPicks = draftMode === "balanced" ? effectivePickCursor + remainingDraftPicks : players.length;
@@ -183,8 +185,7 @@ export function TeamBuilder({
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
   const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
   const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
-  const teamBuildingStarted = captainsSelectedForTeams(teams) && hasPickedPlayerForTeams(teams);
-  const canUseRoulette = canEdit && !(draftMode === "balanced" && balancedDraftStarted && effectivePickCursor > 0);
+  const canUseRoulette = canEdit && !(draftMode === "balanced" && teamBuildingStarted);
 
   useEffect(() => {
     if (state?.success) {
