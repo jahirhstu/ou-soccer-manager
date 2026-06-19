@@ -455,7 +455,11 @@ export function TeamBuilder({
         if (team.key !== targetTeamKey) return team;
         if (team.playerIds.includes(playerId) || team.playerIds.length >= playersPerTeam) return team;
         didAssign = true;
-        return { ...team, playerIds: [...team.playerIds, playerId] };
+        return {
+          ...team,
+          captainPlayerId: team.captainPlayerId || playerId,
+          playerIds: [...team.playerIds, playerId]
+        };
       });
       if (!didAssign) return current;
       const isDraftPick = source === "pool" && (draftMode !== "balanced" || balancedDraftStarted);
