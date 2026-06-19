@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { FixtureScheduleCard } from "@/components/FixtureScheduleCard";
+import { MatchGoalDetails } from "@/components/MatchGoalDetails";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
@@ -32,6 +33,7 @@ type PublicSessionDetail = {
     notes: string | null;
   }>;
   goals?: Array<{
+    matchNumber: number | null;
     goalType: "goal" | "own_goal" | null;
     scorerName: string | null;
     assistName: string | null;
@@ -60,6 +62,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
   const detail = (data ?? {}) as PublicSessionDetail;
   const session = detail.session;
   const matches = detail.matches ?? [];
+  const goalsByMatchNumber = groupGoalsByMatchNumber(detail.goals ?? []);
   const standings = buildSessionStandings(matches);
   const fixtureMatches = matches.map((match) => ({
     matchNumber: match.matchNumber,
@@ -131,6 +134,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             columns={[
               { header: "Game", cell: (row) => row.matchNumber },
               { header: "Result", cell: (row) => `${row.teamAName ?? "-"} ${row.teamAScore ?? 0}-${row.teamBScore ?? 0} ${row.teamBName ?? "-"}` },
+              { header: "Goals/Assists", cell: (row) => <MatchGoalDetails goals={goalsByMatchNumber.get(row.matchNumber) ?? []} /> },
               { header: "Home/Away", cell: (row) => homeAwayLabel(row) }
             ]}
           />
@@ -322,4 +326,13 @@ function signed(value: number) {
 function numberValue(value: number | string | null | undefined) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function groupGoalsByMatchNumber(goals: NonNullable<PublicSessionDetail["goals"]>) {
+  const grouped = new Map<number, NonNullable<PublicSessionDetail["goals"]>>();
+  for (const goal of goals) {
+    if (goal.matchNumber == null) continue;
+    grouped.set(goal.matchNumber, [...(grouped.get(goal.matchNumber) ?? []), goal]);
+  }
+  return grouped;
 }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Award, CalendarDays, Medal, ShieldCheck, Trophy } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
+import { MatchGoalDetails } from "@/components/MatchGoalDetails";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
@@ -24,6 +25,7 @@ type PublicSessionSummary = {
 };
 
 type GoalRow = {
+  matchNumber: number | null;
   goalType: "goal" | "own_goal" | null;
   scorerName: string | null;
   assistName: string | null;
@@ -83,7 +85,9 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   const goals = detail.goals ?? [];
   const standings = buildSessionStandings(matches);
   const podium = standings.slice(0, 3);
+  const goalsByMatchNumber = groupGoalsByMatchNumber(goals);
   const matchRows = matches.map((match) => ({
+    matchNumber: match.matchNumber,
     game: `Game ${match.matchNumber}`,
     result: `${match.teamAName ?? "Team A"} ${numberValue(match.teamAScore)}-${numberValue(match.teamBScore)} ${match.teamBName ?? "Team B"}`,
     homeAway: homeAwayLabel(match)
@@ -167,7 +171,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
           />
         </section>
 
-        <section className="grid gap-3 lg:grid-cols-2">
+        <section className="grid items-start gap-3 lg:grid-cols-2">
           <div className="grid gap-3">
             <h2 className="section-title">Top scorers</h2>
             <DataTable
@@ -203,6 +207,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
             columns={[
               { header: "Game", cell: (row) => row.game },
               { header: "Result", cell: (row) => row.result },
+              { header: "Goals/Assists", cell: (row) => <MatchGoalDetails goals={goalsByMatchNumber.get(row.matchNumber) ?? []} /> },
               { header: "Home/Away", cell: (row) => row.homeAway }
             ]}
             empty="No game scores recorded yet."
@@ -281,6 +286,15 @@ function aggregatePlayers(goals: GoalRow[], field: "scorerName" | "assistName"):
       total: row.total
     }))
     .sort((left, right) => right.total - left.total || left.playerName.localeCompare(right.playerName));
+}
+
+function groupGoalsByMatchNumber(goals: GoalRow[]) {
+  const grouped = new Map<number, GoalRow[]>();
+  for (const goal of goals) {
+    if (goal.matchNumber == null) continue;
+    grouped.set(goal.matchNumber, [...(grouped.get(goal.matchNumber) ?? []), goal]);
+  }
+  return grouped;
 }
 
 function buildSessionStandings(matches: MatchRow[]): Standing[] {
