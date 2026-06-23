@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "test:db": "supabase test db",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {

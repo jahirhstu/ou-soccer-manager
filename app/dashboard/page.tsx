@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppShell } from "../(shell)";
 import { money } from "@/lib/utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 type DashboardSummaryRow = {
   season_id: string;
@@ -24,6 +25,8 @@ type DashboardExpenseRow = {
 
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }] = await Promise.all([
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
@@ -31,7 +34,7 @@ export default async function DashboardPage() {
     supabase.from("payments").select("amount,payment_date,players(display_name)").gt("amount", 0).order("created_at", { ascending: false }).limit(5),
     supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
-    supabase.rpc("public_player_report"),
+    supabase.rpc("internal_scoped_player_report", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }),
     supabase.from("payments").select("season_id,session_id,amount").gt("amount", 0),
     supabase.from("club_expenses").select("season_id,amount")
   ]);

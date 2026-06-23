@@ -6,15 +6,21 @@ import {
 } from "lucide-react";
 import { AdminNav } from "@/components/AdminNav";
 import { logoutAction } from "@/lib/actions/auth";
-import { getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
 import { tenantPath } from "@/lib/tenant";
-import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
+import { getActiveProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import type { UserRole } from "@/lib/types";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
   const tenantSlug = await getRequestTenantSlug();
-  const programSlug = await getRequestProgramSlug();
+  const programSlug = await getActiveProgramSlug();
+  const program = await getCurrentProgram();
+  const supabase = await createSupabaseServerClient();
+  const { data: modules } = program?.id
+    ? await supabase.from("program_modules").select("module_key").eq("program_id", program.id).eq("enabled", true)
+    : { data: null };
+  const enabledModules = modules?.map((module) => module.module_key) ?? null;
   const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug, programSlug);
   return (
     <div className="min-h-screen">
@@ -27,11 +33,14 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               <span className="block text-xs font-medium text-slate-500">{profile?.organization_name ?? "Club operations"}</span>
             </span>
           </Link>
-          <form action={logoutAction}>
-            <button className="btn-secondary min-h-9 px-3">
-              <LogOut className="h-4 w-4" /> Logout
-            </button>
-          </form>
+          <div className="flex items-center gap-2">
+            <Link className="btn-secondary min-h-9 px-3" href="/select-context">Switch</Link>
+            <form action={logoutAction}>
+              <button className="btn-secondary min-h-9 px-3">
+                <LogOut className="h-4 w-4" /> Logout
+              </button>
+            </form>
+          </div>
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[220px_1fr]">
@@ -45,11 +54,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-xs font-medium text-slate-500 group-open:inline">Close</span>
           </summary>
           <nav className="grid gap-1 border-t border-line p-2">
-            <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} />
+            <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
           </nav>
         </details>
         <aside className="panel hidden gap-1 p-2 md:sticky md:top-20 md:grid md:self-start">
-          <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} />
+          <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
         </aside>
         <main className="min-w-0">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">

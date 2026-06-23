@@ -1,5 +1,6 @@
 import { PublicShell } from "@/components/PublicShell";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 type LeaderboardRow = {
   board: "team" | "captain";
@@ -19,7 +20,9 @@ type LeaderboardRow = {
 
 export default async function PublicLeaderboardsPage() {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("public_leaderboards");
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
+  const { data, error } = await supabase.rpc("scoped_public_leaderboards", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null });
   const rows = (data ?? []) as LeaderboardRow[];
   const teamRows = rows.filter((row) => row.board === "team");
   const captainRows = rows.filter((row) => row.board === "captain");

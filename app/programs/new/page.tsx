@@ -1,32 +1,26 @@
 import { AppShell } from "../../(shell)";
 import { saveProgram } from "@/lib/actions/crud";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 
-const activityTypes = [
-  { value: "soccer", label: "Soccer" },
-  { value: "cricket", label: "Cricket" },
-  { value: "badminton", label: "Badminton" },
-  { value: "volleyball", label: "Volleyball" },
-  { value: "basketball", label: "Basketball" },
-  { value: "picnic", label: "Picnic" },
-  { value: "outdoor-gathering", label: "Outdoor gathering" },
-  { value: "generic-event", label: "Generic event" },
-  { value: "generic", label: "Generic" }
-];
-
-export default function NewProgramPage() {
+export default async function NewProgramPage() {
+  const profile = await getCurrentProfile();
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("organization_enabled_programs")
+    .select("program_template_id,program_templates!inner(name)")
+    .eq("organization_id", profile?.organization_id ?? "")
+    .eq("enabled", true);
   return (
     <AppShell>
       <form action={saveProgram} className="panel grid max-w-xl gap-3 p-5">
         <h1 className="section-title">New program</h1>
         <input className="input" name="name" placeholder="Program name, e.g. Soccer or Summer Picnic" required />
-        <select className="input" name="category" defaultValue="sport">
-          <option value="sport">Sport</option>
-          <option value="event">Event</option>
-          <option value="social">Social</option>
-          <option value="generic">Generic</option>
-        </select>
-        <select className="input" name="activity_type" defaultValue="soccer">
-          {activityTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+        <select className="input" name="program_template_id" required defaultValue="">
+          <option disabled value="">Select an enabled template</option>
+          {(data ?? []).map((item: any) => {
+            const template = Array.isArray(item.program_templates) ? item.program_templates[0] : item.program_templates;
+            return <option key={item.program_template_id} value={item.program_template_id}>{template?.name}</option>;
+          })}
         </select>
         <select className="input" name="status" defaultValue="active">
           <option value="active">Active</option>

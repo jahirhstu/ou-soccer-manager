@@ -1,10 +1,13 @@
 import { ImportReviewTable } from "@/components/ImportReviewTable";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { AppShell } from "../(shell)";
 import { MessageSquareText } from "lucide-react";
 
 export default async function ImportWhatsAppPage() {
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [
     { data: players },
     { data: aliases },
@@ -21,7 +24,7 @@ export default async function ImportWhatsAppPage() {
     supabase.from("seasons").select("*").order("name"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }),
     supabase.from("playgrounds").select("*").order("name"),
-    supabase.rpc("public_player_report"),
+    supabase.rpc("internal_scoped_player_report", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }),
     supabase.from("ledger_entries").select("player_id,season_id,session_id,type,amount,sessions_count"),
     supabase.from("attendance").select("player_id,session_id,status"),
     supabase.from("session_player_charges").select("player_id,session_id,amount,original_amount,waiver_amount")

@@ -30,7 +30,7 @@ export async function saveSessionTeamBuilder(_: unknown, formData: FormData) {
     if (!Array.isArray(teams)) return { error: "Team data is invalid." };
 
     const supabase = await createSupabaseServerClient();
-    const { error } = await supabase.rpc("save_session_team_builder", {
+    const { error } = await supabase.rpc("save_program_team_builder", {
       p_players_per_team: playersPerTeam,
       p_session_id: sessionId,
       p_teams: teams
@@ -70,7 +70,7 @@ export async function autosaveSessionTeamBuilderDraft(payload: TeamBuilderDraftP
     if (!sessionId) return { error: "Session is missing." };
 
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("save_session_team_builder_draft", {
+    const { data, error } = await supabase.rpc("save_program_team_builder_draft", {
       p_draft_mode: draftMode,
       p_pick_cursor: pickCursor,
       p_players_per_team: playersPerTeam,

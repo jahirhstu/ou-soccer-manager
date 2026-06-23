@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { hasPermission, isSessionScoreReadOnly } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
+import { requireEnabledProgramModule } from "../program-access";
 
 type MiniGameGoalInput = {
   scorerId?: string;
@@ -48,6 +49,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     if (!Array.isArray(games)) return { error: "Game score data is invalid." };
 
     const supabase = await createSupabaseServerClient();
+    await requireSessionModule(supabase, profile.organization_id, sessionId, "scores");
     const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError };
 
@@ -168,7 +170,7 @@ export async function savePublicGameScores(_: unknown, formData: FormData) {
     if (!Array.isArray(games)) return { error: "Game score data is invalid." };
 
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("public_save_game_scores", {
+    const { data, error } = await supabase.rpc("save_program_game_scores", {
       p_games: games,
       p_session_id: sessionId
     });
@@ -193,6 +195,7 @@ export async function saveSessionFixture(_: unknown, formData: FormData) {
     if (!Array.isArray(games)) return { error: "Fixture data is invalid." };
 
     const supabase = await createSupabaseServerClient();
+    await requireSessionModule(supabase, profile.organization_id, sessionId, "fixtures");
     const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError.replace("Scores", "Fixtures") };
 
@@ -271,6 +274,7 @@ export async function generateSessionFixture(_: unknown, formData: FormData) {
     if (!sessionId) return { error: "Session is missing." };
 
     const supabase = await createSupabaseServerClient();
+    await requireSessionModule(supabase, profile.organization_id, sessionId, "fixtures");
     const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError.replace("Scores", "Fixtures") };
 
@@ -505,6 +509,7 @@ export async function saveTeamLineup(_: unknown, formData: FormData) {
     if (!Array.isArray(positions)) return { error: "Lineup positions are invalid." };
 
     const supabase = await createSupabaseServerClient();
+    await requireSessionModule(supabase, profile.organization_id, sessionId, "teams");
     const { data: teamPlayer, error: teamPlayerError } = await supabase
       .from("session_team_players")
       .select("id")
@@ -547,7 +552,9 @@ export async function linkCaptainPlayerProfile(_: unknown, formData: FormData) {
     if (!playerId) return { error: "Choose the player profile that belongs to you." };
 
     const supabase = await createSupabaseServerClient();
-    const { error } = await supabase.rpc("link_current_captain_player_profile", { p_player_id: playerId });
+    const { data: session, error: sessionError } = await supabase.from("sessions").select("program_id").eq("id", sessionId).maybeSingle();
+    if (sessionError || !session?.program_id) throw new Error(sessionError?.message ?? "Program context is required.");
+    const { error } = await supabase.rpc("link_current_program_player_profile", { p_player_id: playerId, p_program_id: session.program_id });
     if (error) throw new Error(error.message);
 
     if (sessionId) revalidatePath(`/sessions/${sessionId}/lineups`);
@@ -555,4 +562,21 @@ export async function linkCaptainPlayerProfile(_: unknown, formData: FormData) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not link captain profile." };
   }
+}
+
+async function requireSessionModule(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId: string | null | undefined,
+  sessionId: string,
+  moduleKey: string
+) {
+  if (!organizationId) throw new Error("Organization context is required.");
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("program_id")
+    .eq("id", sessionId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  await requireEnabledProgramModule(supabase, organizationId, data?.program_id, moduleKey);
 }

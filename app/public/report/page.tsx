@@ -4,6 +4,7 @@ import { PublicShell } from "@/components/PublicShell";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { cn, money } from "@/lib/utils";
 
 type PublicPlayerReportRow = {
@@ -56,10 +57,12 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data, error }, { data: highlightsData, error: highlightsError }, { data: streaksData, error: streaksError }, profile] = await Promise.all([
-    supabase.rpc("public_player_report"),
-    supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
-    supabase.rpc("public_player_session_streaks", { p_season_id: filters.season || null }),
+    supabase.rpc("scoped_public_player_report", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }),
+    supabase.rpc("scoped_public_dashboard_highlights", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: filters.season || null }),
+    supabase.rpc("scoped_public_player_session_streaks", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: filters.season || null }),
     getCurrentProfile()
   ]);
   const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
@@ -67,6 +70,8 @@ export default async function PublicPlayerReportPage({
     if (filters.season && row.season_id !== filters.season) return false;
     return true;
   }), sortKey(filters.sort));
+  const showBalances = ((data ?? []) as PublicPlayerReportRow[]).some((row) => row.balance_amount != null);
+  const showPayments = ((data ?? []) as PublicPlayerReportRow[]).some((row) => row.total_paid_amount != null);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
   const highlights = ((highlightsData ?? []) as PublicHighlightRow[]).reduce((map, row) => map.set(row.metric, row), new Map<PublicHighlightRow["metric"], PublicHighlightRow>());
@@ -153,18 +158,18 @@ export default async function PublicPlayerReportPage({
                     <h2 className="truncate text-lg font-semibold text-ink">{row.player_name ?? "Unknown player"}</h2>
                     <p className="mt-1 truncate text-xs font-medium text-slate-500">{row.season_name ?? "Season"}</p>
                   </div>
-                  <span className={cn("shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
+                  {showBalances ? <span className={cn("shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
                     {status.label}
-                  </span>
+                  </span> : null}
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <StatBox label="Balance" value={money(Math.abs(numberValue(row.balance_amount)))} tone={status.tone} />
+                <div className={cn("mt-4 grid gap-2", showBalances ? "grid-cols-3" : "grid-cols-2")}>
+                  {showBalances ? <StatBox label="Balance" value={money(Math.abs(numberValue(row.balance_amount)))} tone={status.tone} /> : null}
                   <StatBox label="Goals" value={String(row.goals ?? 0)} />
                   <StatBox label="Assists" value={String(row.assists ?? 0)} />
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                  <MiniMetric label="Paid" value={money(numberValue(row.total_paid_amount))} />
-                  <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} />
+                  {showPayments ? <MiniMetric label="Paid" value={money(numberValue(row.total_paid_amount))} /> : null}
+                  {showBalances ? <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} /> : null}
                   <MiniMetric label="Played" value={String(row.appearances ?? row.total_played_sessions ?? 0)} />
                   <MiniMetric label="Confirmed" value={String(numberValue(row.confirmed_sessions))} />
                 </div>

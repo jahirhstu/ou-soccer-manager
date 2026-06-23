@@ -3,6 +3,7 @@ import { PublicShell } from "@/components/PublicShell";
 import { saveMiniGameScores, savePublicGameScores } from "@/lib/actions/session-management";
 import { hasPermission, isSessionScoreReadOnly } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import Link from "next/link";
 
 type PublicScoreData = {
@@ -42,8 +43,10 @@ type PublicScoreData = {
 export default async function PublicGameScoresPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data, error }, profile] = await Promise.all([
-    supabase.rpc("public_game_score_editor", { p_session_id: id }),
+    supabase.rpc("scoped_public_game_score_editor", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_session_id: id }),
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
@@ -51,7 +54,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
   const teamOptions = scoreData.teams ?? [];
-  const readOnly = isSessionScoreReadOnly(profile?.role, scoreData.session ?? null, currentTorontoDate());
+  const readOnly = !canManageSessionActivity || isSessionScoreReadOnly(profile?.role, scoreData.session ?? null, currentTorontoDate());
   const existingGames: MatchInput[] = [...(scoreData.matches ?? [])]
     .sort((left, right) => Number(left.matchNumber) - Number(right.matchNumber))
     .map((match) => ({
@@ -92,7 +95,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
             existingGames={existingGames}
             heading="Game scores"
             readOnly={readOnly}
-            readOnlyReason="Scores are read-only because this session is completed or past its date."
+            readOnlyReason={canManageSessionActivity ? "Scores are read-only because this session is completed or past its date." : "Sign in as a program manager or captain to edit scores."}
             saveAction={isAdmin ? saveMiniGameScores : savePublicGameScores}
             sessionId={id}
             sessionLabel={scoreData.session?.name ?? scoreData.session?.sessionDate ?? "Session"}

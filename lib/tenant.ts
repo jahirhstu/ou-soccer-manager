@@ -6,14 +6,18 @@ const reservedSegments = new Set([
   "expenses",
   "favicon.ico",
   "import-whatsapp",
+  "invite",
+  "join",
   "leagues",
   "login",
   "payments",
+  "platform",
   "performance",
   "players",
   "programs",
   "public",
   "reports",
+  "select-context",
   "seasons",
   "sessions",
   "settings",
@@ -54,6 +58,17 @@ export function tenantPath(pathname: string, tenantSlug?: string | null, program
   if (getTenantSlugFromPathname(pathname)) return pathname;
   const program = normalizePathSegment(programSlug);
   return program ? `/${slug}/${program}${pathname}` : `/${slug}${pathname}`;
+}
+
+export function getActiveProgramSlugForTenant(
+  tenantSlug: string | null | undefined,
+  cookieTenantSlug: string | null | undefined,
+  cookieProgramSlug: string | null | undefined
+) {
+  const tenant = normalizeTenantSlug(tenantSlug);
+  const cookieTenant = normalizeTenantSlug(cookieTenantSlug);
+  if (!tenant || tenant !== cookieTenant) return "";
+  return normalizePathSegment(cookieProgramSlug);
 }
 
 function normalizePathSegment(value: string | null | undefined) {

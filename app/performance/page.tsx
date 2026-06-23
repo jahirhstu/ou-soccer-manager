@@ -21,12 +21,12 @@ export default async function PerformancePage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [profile, currentProgram, { data: programs }, { data: players }] = await Promise.all([
+  const [profile, currentProgram, { data: players }] = await Promise.all([
     getCurrentProfile(),
     getCurrentProgram(),
-    supabase.from("programs").select("*").eq("status", "active").order("name"),
     supabase.from("players").select("*").eq("status", "active").order("display_name")
   ]);
+  const programs = currentProgram ? [currentProgram] : [];
   const selectedProgramId = currentProgram?.id ?? filters.program ?? programs?.[0]?.id ?? "";
   const selectedProgram = programs?.find((program) => program.id === selectedProgramId) ?? currentProgram;
   const selectedSeasonId = filters.season ?? "";

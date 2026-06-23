@@ -1,12 +1,17 @@
 import { AppShell } from "../(shell)";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { cleanupClubData } from "@/lib/actions/admin";
+import { cleanupClubData, updatePublicReportSettings } from "@/lib/actions/admin";
 import { hasPermission } from "@/lib/permissions";
-import { getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ cleanup?: string }> }) {
   const [{ cleanup }, profile] = await Promise.all([searchParams, getCurrentProfile()]);
   const isAdmin = hasPermission(profile?.role, "manage_all");
+  const supabase = await createSupabaseServerClient();
+  const [{ data: organization }, { data: organizationSettings }] = profile?.organization_id ? await Promise.all([
+    supabase.from("organizations").select("public_reports_enabled").eq("id", profile.organization_id).maybeSingle(),
+    supabase.from("organization_settings").select("public_balances_enabled,public_payments_enabled").eq("organization_id", profile.organization_id).maybeSingle()
+  ]) : [{ data: null }, { data: null }];
 
   return (
     <AppShell>
@@ -27,6 +32,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <section className="panel p-5 text-sm text-slate-600">
           Manage roles in Supabase profiles. Service role keys stay server-side only.
         </section>
+
+        {isAdmin ? (
+          <form action={updatePublicReportSettings} className="panel grid gap-3 p-5">
+            <h2 className="section-title">Public reports</h2>
+            <label className="flex items-center gap-2 text-sm"><input defaultChecked={organization?.public_reports_enabled ?? false} name="public_reports_enabled" type="checkbox" /> Enable public reports</label>
+            <label className="flex items-center gap-2 text-sm"><input defaultChecked={organizationSettings?.public_payments_enabled ?? false} name="public_payments_enabled" type="checkbox" /> Show payment totals publicly</label>
+            <label className="flex items-center gap-2 text-sm"><input defaultChecked={organizationSettings?.public_balances_enabled ?? false} name="public_balances_enabled" type="checkbox" /> Show balances and amounts owed publicly</label>
+            <button className="btn-primary w-fit">Save report settings</button>
+          </form>
+        ) : null}
 
         {isAdmin ? (
           <section className="panel grid gap-4 border-rose-200 p-5">

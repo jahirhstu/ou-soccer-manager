@@ -1,13 +1,16 @@
 import { TeamBuilder, type TeamBuilderData } from "@/components/TeamBuilder";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { AppShell } from "../../../../(shell)";
 
 export default async function EditTeamPlayersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data, error }, profile] = await Promise.all([
-    supabase.rpc("public_session_team_builder", { p_session_id: id }),
+    supabase.rpc("scoped_public_session_team_builder", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_session_id: id }),
     getCurrentProfile()
   ]);
   const canEdit = hasPermission(profile?.role, "manage_attendance");
