@@ -17,12 +17,13 @@ export async function applySessionUsage({
 }) {
   const { data: session, error: sessionError } = await supabase
     .from("sessions")
-    .select("id,season_id,session_date,status,price_per_session,seasons(price_per_session)")
+    .select("id,season_id,program_id,session_date,status,price_per_session,seasons(price_per_session,program_id)")
     .eq("id", sessionId)
     .single();
   if (sessionError) throw new Error(sessionError.message);
 
   const effectivePrice = Number(session.price_per_session ?? (session.seasons as any)?.price_per_session ?? 0);
+  const programId = session.program_id ?? (session.seasons as any)?.program_id ?? null;
   const shouldMarkConfirmedPlayed = markSessionCompleted || session.status === "completed" || String(session.session_date) < currentDateString();
 
   const { data: attendance, error: attendanceError } = await supabase
@@ -59,6 +60,7 @@ export async function applySessionUsage({
       .from("session_player_charges")
       .insert({
         season_id: session.season_id,
+        program_id: programId,
         player_id: row.player_id,
         session_id: sessionId,
         amount: effectivePrice,
@@ -85,6 +87,7 @@ export async function applySessionUsage({
 
   const ledgerRows = newCharges.map((charge) => ({
       season_id: session.season_id,
+      program_id: programId,
       player_id: charge.playerId,
       session_id: sessionId,
       type: "session_used",
