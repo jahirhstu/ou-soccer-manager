@@ -415,44 +415,86 @@ function generatePairings(teams: FixtureTeam[], repeats: number, avoidFirstTeamI
 }
 
 function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string }>, avoidFirstTeamId: string, preferredBackToBackTeamIds: Set<string>) {
-  const remaining = [...pairings];
-  const ordered: Array<{ teamAId: string; teamBId: string }> = [];
-  const backToBackCounts = new Map<string, number>();
+  type IndexedPairing = { teamAId: string; teamBId: string; originalIndex: number };
+  type SearchState = {
+    ordered: IndexedPairing[];
+    remaining: IndexedPairing[];
+    counts: Map<string, number>;
+    totalBackToBack: number;
+    nonPreferredBackToBack: number;
+    preferredBackToBack: number;
+    avoidFirstPenalty: number;
+    originalOrderPenalty: number;
+  };
 
-  while (remaining.length) {
-    const previous = ordered[ordered.length - 1];
-    let bestIndex = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
+  const initialRemaining = pairings.map((pairing, originalIndex) => ({ ...pairing, originalIndex }));
+  let states: SearchState[] = [{
+    ordered: [],
+    remaining: initialRemaining,
+    counts: new Map(),
+    totalBackToBack: 0,
+    nonPreferredBackToBack: 0,
+    preferredBackToBack: 0,
+    avoidFirstPenalty: 0,
+    originalOrderPenalty: 0
+  }];
+  const beamWidth = Math.max(250, Math.min(5000, pairings.length * pairings.length * 50));
 
-    for (let index = 0; index < remaining.length; index += 1) {
-      const candidate = remaining[index];
-      const overlapPenalty = previous ? backToBackPenalty(previous, candidate, preferredBackToBackTeamIds) : 0;
-      const candidateLoad = (backToBackCounts.get(candidate.teamAId) ?? 0) + (backToBackCounts.get(candidate.teamBId) ?? 0);
-      const avoidFirstPenalty = !previous && avoidFirstTeamId && hasTeam(candidate, avoidFirstTeamId) ? 100 : 0;
-      const score = overlapPenalty + candidateLoad * 10 + avoidFirstPenalty + index;
-      if (score < bestScore) {
-        bestScore = score;
-        bestIndex = index;
+  while (states[0]?.remaining.length) {
+    const nextStates: SearchState[] = [];
+    for (const state of states) {
+      const previous = state.ordered[state.ordered.length - 1];
+      for (let index = 0; index < state.remaining.length; index += 1) {
+        const candidate = state.remaining[index];
+        const sharedIds = previous ? sharedTeamIds(previous, candidate) : [];
+        const preferredCount = sharedIds.filter((teamId) => preferredBackToBackTeamIds.has(teamId)).length;
+        const nonPreferredCount = sharedIds.length - preferredCount;
+        const counts = new Map(state.counts);
+        for (const teamId of sharedIds) counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
+        nextStates.push({
+          ordered: [...state.ordered, candidate],
+          remaining: state.remaining.filter((_, remainingIndex) => remainingIndex !== index),
+          counts,
+          totalBackToBack: state.totalBackToBack + sharedIds.length,
+          nonPreferredBackToBack: state.nonPreferredBackToBack + nonPreferredCount,
+          preferredBackToBack: state.preferredBackToBack + preferredCount,
+          avoidFirstPenalty: state.avoidFirstPenalty + (!previous && avoidFirstTeamId && hasTeam(candidate, avoidFirstTeamId) ? 1 : 0),
+          originalOrderPenalty: state.originalOrderPenalty + Math.abs(candidate.originalIndex - state.ordered.length)
+        });
       }
     }
 
-    const [next] = remaining.splice(bestIndex, 1);
-    const previousGame = ordered[ordered.length - 1];
-    if (previousGame) {
-      for (const teamId of sharedTeamIds(previousGame, next)) {
-        backToBackCounts.set(teamId, (backToBackCounts.get(teamId) ?? 0) + 1);
-      }
-    }
-    ordered.push(next);
+    states = nextStates.sort(compareFixtureSearchStates).slice(0, beamWidth);
   }
 
-  return ordered;
+  return (states[0]?.ordered ?? initialRemaining).map(({ originalIndex: _originalIndex, ...pairing }) => pairing);
 }
 
-function backToBackPenalty(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }, preferredBackToBackTeamIds: Set<string>) {
-  return sharedTeamIds(left, right).reduce((total, teamId) => {
-    return total + (preferredBackToBackTeamIds.has(teamId) ? 1000 : 10000);
-  }, 0);
+function compareFixtureSearchStates(left: {
+  counts: Map<string, number>;
+  totalBackToBack: number;
+  nonPreferredBackToBack: number;
+  preferredBackToBack: number;
+  avoidFirstPenalty: number;
+  originalOrderPenalty: number;
+}, right: {
+  counts: Map<string, number>;
+  totalBackToBack: number;
+  nonPreferredBackToBack: number;
+  preferredBackToBack: number;
+  avoidFirstPenalty: number;
+  originalOrderPenalty: number;
+}) {
+  return left.totalBackToBack - right.totalBackToBack ||
+    left.nonPreferredBackToBack - right.nonPreferredBackToBack ||
+    maxBackToBackCount(left.counts) - maxBackToBackCount(right.counts) ||
+    left.preferredBackToBack - right.preferredBackToBack ||
+    left.avoidFirstPenalty - right.avoidFirstPenalty ||
+    left.originalOrderPenalty - right.originalOrderPenalty;
+}
+
+function maxBackToBackCount(counts: Map<string, number>) {
+  return Math.max(0, ...counts.values());
 }
 
 function summarizeBackToBack(games: FixtureGame[], teamsById: Map<string, string>) {
