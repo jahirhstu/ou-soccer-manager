@@ -14,8 +14,11 @@ type MiniGameGoalInput = {
 type MiniGameInput = {
   matchNumber: number;
   displayOrder?: number;
-  teamAId: string;
-  teamBId: string;
+  matchType?: "regular" | "final";
+  teamAId?: string;
+  teamBId?: string;
+  teamASource?: "standings_rank_1";
+  teamBSource?: "standings_rank_2";
   awayTeamId?: string;
   resultStatus?: "scheduled" | "played";
   scheduledStartTime?: string;
@@ -30,8 +33,11 @@ type FixtureTeam = {
 type FixtureGameInput = {
   matchNumber: number;
   displayOrder?: number;
-  teamAId: string;
-  teamBId: string;
+  matchType?: "regular" | "final";
+  teamAId?: string;
+  teamBId?: string;
+  teamASource?: "standings_rank_1";
+  teamBSource?: "standings_rank_2";
   awayTeamId?: string;
   scheduledStartTime?: string;
   scheduledEndTime?: string;
@@ -113,8 +119,11 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
             session_id: sessionId,
             match_number: matchNumber,
             display_order: Number.isFinite(Number(game.displayOrder)) && Number(game.displayOrder) > 0 ? Number(game.displayOrder) : matchNumber,
+            match_type: game.matchType === "final" ? "final" : "regular",
             team_a_id: game.teamAId,
             team_b_id: game.teamBId,
+            team_a_source: game.teamASource === "standings_rank_1" ? "standings_rank_1" : null,
+            team_b_source: game.teamBSource === "standings_rank_2" ? "standings_rank_2" : null,
             away_team_id: awayTeamId,
             scheduled_start_time: validTimeOrNull(game.scheduledStartTime),
             scheduled_end_time: validTimeOrNull(game.scheduledEndTime),
@@ -211,15 +220,20 @@ export async function saveSessionFixture(_: unknown, formData: FormData) {
       const matchNumber = Number(game.matchNumber || index + 1);
       const teamAId = String(game.teamAId ?? "");
       const teamBId = String(game.teamBId ?? "");
+      const isFinal = game.matchType === "final";
       const awayTeamId = game.awayTeamId === teamAId || game.awayTeamId === teamBId ? game.awayTeamId : null;
       if (!Number.isFinite(matchNumber) || matchNumber <= 0) continue;
-      if (!teamIds.has(teamAId) || !teamIds.has(teamBId) || teamAId === teamBId) continue;
+      if (!isFinal && (!teamIds.has(teamAId) || !teamIds.has(teamBId) || teamAId === teamBId)) continue;
+      if (isFinal && teamAId && (!teamIds.has(teamAId) || !teamIds.has(teamBId) || teamAId === teamBId)) continue;
       rows.push({
         session_id: sessionId,
         match_number: matchNumber,
         display_order: index + 1,
-        team_a_id: teamAId,
-        team_b_id: teamBId,
+        match_type: isFinal ? "final" : "regular",
+        team_a_id: teamAId || null,
+        team_b_id: teamBId || null,
+        team_a_source: isFinal ? "standings_rank_1" : null,
+        team_b_source: isFinal ? "standings_rank_2" : null,
         away_team_id: awayTeamId,
         scheduled_start_time: validTimeOrNull(game.scheduledStartTime),
         scheduled_end_time: validTimeOrNull(game.scheduledEndTime),
@@ -464,18 +478,20 @@ function minutesToTime(value: number) {
 }
 
 function normalizeMiniGameGoals(game: MiniGameInput, playerTeamIds: Map<string, string>) {
+  const teamAId = game.teamAId ?? "";
+  const teamBId = game.teamBId ?? "";
   return (game.goals ?? [])
     .map((goal) => {
       const scorerId = String(goal.scorerId ?? "");
       const goalType = goal.goalType === "own_goal" ? "own_goal" : "goal";
       const scorerTeamId = playerTeamIds.get(scorerId);
       const sessionTeamId = goalType === "own_goal"
-        ? scorerTeamId === game.teamAId
-          ? game.teamBId
-          : scorerTeamId === game.teamBId
-            ? game.teamAId
+        ? scorerTeamId === teamAId
+          ? teamBId
+          : scorerTeamId === teamBId
+            ? teamAId
             : ""
-        : scorerTeamId === game.teamAId || scorerTeamId === game.teamBId
+        : scorerTeamId === teamAId || scorerTeamId === teamBId
           ? scorerTeamId
           : "";
       const assistPlayerId = goalType === "own_goal" ? "" : String(goal.assistPlayerId ?? "");

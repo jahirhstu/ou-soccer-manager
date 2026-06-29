@@ -35,8 +35,10 @@ type GoalRow = {
 
 type MatchRow = {
   matchNumber: number;
-  teamAId: string;
-  teamBId: string;
+  teamAId: string | null;
+  teamBId: string | null;
+  teamASource?: string | null;
+  teamBSource?: string | null;
   awayTeamId?: string | null;
   scheduledStartTime?: string | null;
   scheduledEndTime?: string | null;
@@ -89,7 +91,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   const matchRows = matches.map((match) => ({
     matchNumber: match.matchNumber,
     game: `Game ${match.matchNumber}`,
-    result: `${match.teamAName ?? "Team A"} ${numberValue(match.teamAScore)}-${numberValue(match.teamBScore)} ${match.teamBName ?? "Team B"}`,
+    result: `${match.teamAName ?? sourceLabel(match.teamASource, "Team A")} ${numberValue(match.teamAScore)}-${numberValue(match.teamBScore)} ${match.teamBName ?? sourceLabel(match.teamBSource, "Team B")}`,
     homeAway: homeAwayLabel(match)
   }));
   const scorerRows = aggregatePlayers(goals.filter((goal) => goal.goalType !== "own_goal"), "scorerName");
@@ -320,6 +322,7 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
   };
 
   for (const match of matches) {
+    if (!match.teamAId || !match.teamBId) continue;
     const teamA = ensure(match.teamAId, match.teamAName ?? "Team A");
     const teamB = ensure(match.teamBId, match.teamBName ?? "Team B");
     if (match.resultStatus !== "played") continue;
@@ -366,6 +369,12 @@ function homeTeamName(match: MatchRow) {
   if (match.awayTeamId === match.teamAId) return match.teamBName ?? "Team B";
   if (match.awayTeamId === match.teamBId) return match.teamAName ?? "Team A";
   return null;
+}
+
+function sourceLabel(source: string | null | undefined, fallback: string) {
+  if (source === "standings_rank_1") return "1st place";
+  if (source === "standings_rank_2") return "2nd place";
+  return fallback;
 }
 
 function awayTeamName(match: MatchRow) {

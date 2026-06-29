@@ -23,8 +23,11 @@ type PublicScoreData = {
     id: string;
     matchNumber: number;
     displayOrder?: number | null;
-    teamAId: string;
-    teamBId: string;
+    matchType?: "regular" | "final" | null;
+    teamAId?: string | null;
+    teamBId?: string | null;
+    teamASource?: "standings_rank_1" | null;
+    teamBSource?: "standings_rank_2" | null;
     awayTeamId?: string | null;
     resultStatus?: "scheduled" | "played" | null;
     scheduledStartTime?: string | null;
@@ -58,8 +61,11 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
       key: match.id,
       matchNumber: match.matchNumber,
       displayOrder: match.displayOrder ?? undefined,
-      teamAId: match.teamAId,
-      teamBId: match.teamBId,
+      matchType: match.matchType === "final" ? "final" : "regular",
+      teamAId: match.teamAId ?? undefined,
+      teamBId: match.teamBId ?? undefined,
+      teamASource: match.teamASource === "standings_rank_1" ? "standings_rank_1" : undefined,
+      teamBSource: match.teamBSource === "standings_rank_2" ? "standings_rank_2" : undefined,
       awayTeamId: match.awayTeamId ?? "",
       resultStatus: match.resultStatus === "played" ? "played" : "scheduled",
       scheduledStartTime: match.scheduledStartTime ?? "",

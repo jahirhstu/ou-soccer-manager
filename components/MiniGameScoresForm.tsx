@@ -15,8 +15,11 @@ export type MatchInput = {
   key: string;
   matchNumber: number;
   displayOrder?: number;
-  teamAId: string;
-  teamBId: string;
+  matchType?: "regular" | "final";
+  teamAId?: string;
+  teamBId?: string;
+  teamASource?: "standings_rank_1";
+  teamBSource?: "standings_rank_2";
   awayTeamId?: string;
   resultStatus?: "scheduled" | "played";
   scheduledStartTime?: string;
@@ -61,11 +64,15 @@ export function MiniGameScoresForm({
     }
     return map;
   }, [teams]);
-  const payload = games.map((game, index) => ({
+  const resolvedGames = useMemo(() => resolveStandingSourceGames(games, teams, teamByPlayer), [games, teams, teamByPlayer]);
+  const payload = resolvedGames.map((game, index) => ({
     matchNumber: game.matchNumber,
     displayOrder: game.matchNumber || index + 1,
+    matchType: game.matchType ?? "regular",
     teamAId: game.teamAId,
     teamBId: game.teamBId,
+    teamASource: game.teamASource,
+    teamBSource: game.teamBSource,
     awayTeamId: game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : undefined,
     resultStatus: hasScoredGoals(game) ? "played" : game.resultStatus,
     scheduledStartTime: game.scheduledStartTime || undefined,
@@ -114,14 +121,14 @@ export function MiniGameScoresForm({
         </div>
       </div>
       <div className="grid gap-3">
-        {games.map((game, index) => {
+        {resolvedGames.map((game, index) => {
           const selectablePlayers = uniquePlayers([
-            ...(playersByTeam.get(game.teamAId) ?? []),
-            ...(playersByTeam.get(game.teamBId) ?? [])
+            ...playersForTeam(playersByTeam, game.teamAId),
+            ...playersForTeam(playersByTeam, game.teamBId)
           ]);
           const gameScore = calculateGameScore(game, teamByPlayer);
-          const teamAName = teamName(teams, game.teamAId);
-          const teamBName = teamName(teams, game.teamBId);
+          const teamAName = teamDisplayName(teams, game, "a");
+          const teamBName = teamDisplayName(teams, game, "b");
           const awayTeamId = game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : "";
           const homeTeamName = awayTeamId ? teamName(teams, awayTeamId === game.teamAId ? game.teamBId : game.teamAId) : "";
           const awayTeamName = awayTeamId ? teamName(teams, awayTeamId) : "";
@@ -153,6 +160,11 @@ export function MiniGameScoresForm({
                     {gameScore.teamAScore}-{gameScore.teamBScore}
                   </div>
                   <div className="truncate text-sm font-semibold text-ink">{teamBName}</div>
+                  {game.matchType === "final" ? (
+                    <div className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-pitch ring-1 ring-emerald-100">
+                      Final
+                    </div>
+                  ) : null}
                   {awayTeamId ? (
                     <div className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-pitch ring-1 ring-emerald-100">
                       {homeTeamName} home | {awayTeamName} away
@@ -183,6 +195,9 @@ export function MiniGameScoresForm({
                   <div>
                     <h3 className="text-sm font-semibold text-ink">Goals and assists</h3>
                     <p className="text-xs text-slate-500">{teamAName} vs {teamBName}</p>
+                    {game.matchType === "final" && (!game.teamAId || !game.teamBId) ? (
+                      <p className="text-xs font-medium text-amber-700">Final teams resolve from the current top two standings before saving.</p>
+                    ) : null}
                   </div>
                   {!readOnly ? (
                     <button
@@ -204,13 +219,13 @@ export function MiniGameScoresForm({
                 </div>
                 {game.goals.map((goal) => {
                   const scorerTeamId = teamByPlayer.get(goal.scorerId) ?? "";
-                  const assistPlayers = goal.scorerId && scorerTeamId ? playersByTeam.get(scorerTeamId) ?? [] : selectablePlayers;
+                  const assistPlayers = goal.scorerId && scorerTeamId ? playersForTeam(playersByTeam, scorerTeamId) : selectablePlayers;
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
                       <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
                         <GoalTypeSelect disabled={readOnly} onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
                         <PlayerSelect
-                          disabled={readOnly}
+                          disabled={readOnly || !game.teamAId || !game.teamBId}
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
                           onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, assistPlayerId: "" })}
                           players={selectablePlayers}
@@ -286,6 +301,10 @@ function uniquePlayers(players: Array<{ id: string; name: string }>) {
   return Array.from(new Map(players.map((player) => [player.id, player])).values()).sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function playersForTeam(playersByTeam: Map<string, Array<{ id: string; name: string }>>, teamId?: string) {
+  return teamId ? playersByTeam.get(teamId) ?? [] : [];
+}
+
 function randomKey(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -310,15 +329,80 @@ function hasScoredGoals(game: MatchInput) {
 function inferScoringTeamId(goal: GoalInput, game: Pick<MatchInput, "teamAId" | "teamBId">, teamByPlayer: Map<string, string>) {
   const playerTeamId = teamByPlayer.get(goal.scorerId);
   if (goal.goalType === "own_goal") {
-    if (playerTeamId === game.teamAId) return game.teamBId;
-    if (playerTeamId === game.teamBId) return game.teamAId;
+    if (playerTeamId === game.teamAId) return game.teamBId ?? "";
+    if (playerTeamId === game.teamBId) return game.teamAId ?? "";
     return "";
   }
   return playerTeamId === game.teamAId || playerTeamId === game.teamBId ? playerTeamId : "";
 }
 
-function teamName(teams: TeamOption[], teamId: string) {
+function teamName(teams: TeamOption[], teamId?: string) {
+  if (!teamId) return "-";
   return teams.find((team) => team.id === teamId)?.name ?? "-";
+}
+
+function teamDisplayName(teams: TeamOption[], game: MatchInput, side: "a" | "b") {
+  const teamId = side === "a" ? game.teamAId : game.teamBId;
+  const source = side === "a" ? game.teamASource : game.teamBSource;
+  if (teamId) return teamName(teams, teamId);
+  if (source === "standings_rank_1") return "1st place";
+  if (source === "standings_rank_2") return "2nd place";
+  return side === "a" ? "Team A" : "Team B";
+}
+
+function resolveStandingSourceGames(games: MatchInput[], teams: TeamOption[], teamByPlayer: Map<string, string>) {
+  const standings = buildStandingsForResolution(games, teams, teamByPlayer);
+  return games.map((game) => {
+    if (game.matchType !== "final") return game;
+    const teamAId = game.teamAId || (game.teamASource === "standings_rank_1" ? standings[0]?.teamId : undefined);
+    const teamBId = game.teamBId || (game.teamBSource === "standings_rank_2" ? standings[1]?.teamId : undefined);
+    return {
+      ...game,
+      teamAId,
+      teamBId,
+      awayTeamId: game.awayTeamId === teamAId || game.awayTeamId === teamBId ? game.awayTeamId : ""
+    };
+  });
+}
+
+function buildStandingsForResolution(games: MatchInput[], teams: TeamOption[], teamByPlayer: Map<string, string>) {
+  const rows = new Map(teams.map((team) => [team.id, {
+    teamId: team.id,
+    name: team.name,
+    played: 0,
+    points: 0,
+    goalsFor: 0,
+    awayGoals: 0,
+    goalDifference: 0
+  }]));
+
+  for (const game of games) {
+    if (game.matchType === "final" || !game.teamAId || !game.teamBId) continue;
+    if (game.resultStatus !== "played" && !hasScoredGoals(game)) continue;
+    const score = calculateGameScore(game, teamByPlayer);
+    const teamA = rows.get(game.teamAId);
+    const teamB = rows.get(game.teamBId);
+    if (!teamA || !teamB) continue;
+    applyStandingResult(teamA, score.teamAScore, score.teamBScore, game.awayTeamId === game.teamAId);
+    applyStandingResult(teamB, score.teamBScore, score.teamAScore, game.awayTeamId === game.teamBId);
+  }
+
+  return Array.from(rows.values()).sort((left, right) =>
+    right.points - left.points ||
+    right.goalDifference - left.goalDifference ||
+    right.goalsFor - left.goalsFor ||
+    right.awayGoals - left.awayGoals ||
+    left.name.localeCompare(right.name)
+  );
+}
+
+function applyStandingResult(row: { played: number; points: number; goalsFor: number; awayGoals: number; goalDifference: number }, goalsFor: number, goalsAgainst: number, isAway = false) {
+  row.played += 1;
+  row.goalsFor += goalsFor;
+  if (isAway) row.awayGoals += goalsFor;
+  row.goalDifference += goalsFor - goalsAgainst;
+  if (goalsFor > goalsAgainst) row.points += 3;
+  if (goalsFor === goalsAgainst) row.points += 1;
 }
 
 function parseTimeToMinutes(value?: string | null) {
