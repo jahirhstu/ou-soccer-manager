@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { hasPermission } from "../permissions";
+import { createSupabaseAdminClient } from "../supabase/admin";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 
 const orgRoles = ["owner", "admin", "captain", "player"] as const;
@@ -75,6 +76,34 @@ export async function updateOrganizationUser(formData: FormData) {
     })
     .eq("id", member.profile_id);
   if (updateProfileError) throw new Error(updateProfileError.message);
+
+  revalidatePath("/users");
+}
+
+export async function updateOrganizationUserPassword(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!hasPermission(profile?.role, "manage_all")) throw new Error("Unauthorized");
+  if (!profile?.organization_id) throw new Error("No organization found for this account.");
+
+  const memberId = String(formData.get("member_id") ?? "");
+  const password = String(formData.get("password") ?? "");
+  if (!memberId) throw new Error("Invalid user update.");
+  if (!password.trim()) return;
+  if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+
+  const supabase = await createSupabaseServerClient();
+  const { data: member, error: memberError } = await supabase
+    .from("organization_members")
+    .select("id,profile_id,organization_id")
+    .eq("id", memberId)
+    .eq("organization_id", profile.organization_id)
+    .single();
+  if (memberError) throw new Error(memberError.message);
+  if (!member?.profile_id) throw new Error("No auth user is linked to this organization member.");
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { error } = await adminSupabase.auth.admin.updateUserById(member.profile_id, { password });
+  if (error) throw new Error(error.message);
 
   revalidatePath("/users");
 }
