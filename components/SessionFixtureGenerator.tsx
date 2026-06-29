@@ -43,6 +43,7 @@ export function SessionFixtureGenerator({
   const [state, action, pending] = useActionState(saveSessionFixture, null as { success?: boolean; message?: string; error?: string } | null);
   const [games, setGames] = useState<FixtureGame[]>(() => renumberGames(existingGames));
   const [avoidFirstTeamId, setAvoidFirstTeamId] = useState("");
+  const [backToBackTeamIds, setBackToBackTeamIds] = useState<string[]>([]);
   const [repeatMatchups, setRepeatMatchups] = useState(teams.length === 2 ? 3 : 2);
   const [breakAfterGames, setBreakAfterGames] = useState(3);
   const [breakLengthMinutes, setBreakLengthMinutes] = useState(10);
@@ -69,7 +70,11 @@ export function SessionFixtureGenerator({
 
   function generateFixture() {
     if (teams.length < 2 || locked) return;
-    const pairings = optimizePairingOrder(generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId), avoidFirstTeamId);
+    const pairings = optimizePairingOrder(
+      generatePairings(teams, Math.max(1, Number(repeatMatchups) || 1), avoidFirstTeamId),
+      avoidFirstTeamId,
+      new Set(backToBackTeamIds)
+    );
     const timedGames = applyFixtureTimes(
       pairings.map((pairing, index) => ({
         key: randomKey("fixture-game"),
@@ -145,8 +150,18 @@ export function SessionFixtureGenerator({
           <NumberInput label="Later games min" min={1} onChange={setSecondSegmentMinutes} value={secondSegmentMinutes} />
         </div>
 
+        <TeamCheckboxGroup
+          label="Preferred back-to-back teams"
+          onChange={setBackToBackTeamIds}
+          teams={teams}
+          value={backToBackTeamIds}
+        />
+
         <p className="text-xs text-slate-500">
           Session time: {formatSessionTimeRange(sessionStartTime, sessionEndTime)}. Repeated matchups reverse home/away by default.
+        </p>
+        <p className="text-xs text-slate-500">
+          Selected back-to-back teams are preferred when consecutive games cannot be avoided.
         </p>
         {teams.length < 2 ? <p className="text-xs font-medium text-amber-700">Create at least two teams before generating fixtures.</p> : null}
         {hasPlayedMatches ? <p className="text-xs font-medium text-amber-700">Fixture cannot be changed after game scores have been saved.</p> : null}
@@ -264,6 +279,49 @@ function TeamSelect({ label, onChange, optionalLabel, teams, value }: { label: s
   );
 }
 
+function TeamCheckboxGroup({
+  label,
+  onChange,
+  teams,
+  value
+}: {
+  label: string;
+  onChange: (value: string[]) => void;
+  teams: FixtureTeam[];
+  value: string[];
+}) {
+  const selected = new Set(value);
+
+  function toggle(teamId: string, checked: boolean) {
+    const next = new Set(selected);
+    if (checked) {
+      next.add(teamId);
+    } else {
+      next.delete(teamId);
+    }
+    onChange(Array.from(next));
+  }
+
+  return (
+    <fieldset className="grid gap-2 rounded-md border border-line bg-white p-3">
+      <legend className="px-1 text-xs font-semibold uppercase text-slate-500">{label}</legend>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {teams.map((team) => (
+          <label className="flex min-h-9 items-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-slate-700" key={team.id}>
+            <input
+              checked={selected.has(team.id)}
+              className="h-4 w-4 accent-emerald-700"
+              onChange={(event) => toggle(team.id, event.target.checked)}
+              type="checkbox"
+            />
+            <span className="min-w-0 truncate">{team.name}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function NumberInput({ label, min, onChange, value }: { label: string; min: number; onChange: (value: number) => void; value: number }) {
   return (
     <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase text-slate-500">
@@ -306,7 +364,7 @@ function generatePairings(teams: FixtureTeam[], repeats: number, avoidFirstTeamI
   return pairings;
 }
 
-function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string }>, avoidFirstTeamId: string) {
+function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string }>, avoidFirstTeamId: string, preferredBackToBackTeamIds: Set<string>) {
   const remaining = [...pairings];
   const ordered: Array<{ teamAId: string; teamBId: string }> = [];
   const backToBackCounts = new Map<string, number>();
@@ -318,10 +376,10 @@ function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string
 
     for (let index = 0; index < remaining.length; index += 1) {
       const candidate = remaining[index];
-      const overlap = previous ? sharedTeamCount(previous, candidate) : 0;
+      const overlapPenalty = previous ? backToBackPenalty(previous, candidate, preferredBackToBackTeamIds) : 0;
       const candidateLoad = (backToBackCounts.get(candidate.teamAId) ?? 0) + (backToBackCounts.get(candidate.teamBId) ?? 0);
       const avoidFirstPenalty = !previous && avoidFirstTeamId && hasTeam(candidate, avoidFirstTeamId) ? 100 : 0;
-      const score = overlap * 1000 + candidateLoad * 10 + avoidFirstPenalty + index;
+      const score = overlapPenalty + candidateLoad * 10 + avoidFirstPenalty + index;
       if (score < bestScore) {
         bestScore = score;
         bestIndex = index;
@@ -339,6 +397,12 @@ function optimizePairingOrder(pairings: Array<{ teamAId: string; teamBId: string
   }
 
   return ordered;
+}
+
+function backToBackPenalty(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }, preferredBackToBackTeamIds: Set<string>) {
+  return sharedTeamIds(left, right).reduce((total, teamId) => {
+    return total + (preferredBackToBackTeamIds.has(teamId) ? 100 : 1000);
+  }, 0);
 }
 
 function summarizeBackToBack(games: FixtureGame[], teamsById: Map<string, string>) {
@@ -363,10 +427,6 @@ function summarizeBackToBack(games: FixtureGame[], teamsById: Map<string, string
 
 function hasTeam(pairing: { teamAId: string; teamBId: string }, teamId: string) {
   return pairing.teamAId === teamId || pairing.teamBId === teamId;
-}
-
-function sharedTeamCount(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }) {
-  return sharedTeamIds(left, right).length;
 }
 
 function sharedTeamIds(left: { teamAId: string; teamBId: string }, right: { teamAId: string; teamBId: string }) {
