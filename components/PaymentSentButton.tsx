@@ -7,11 +7,13 @@ import { submitPaymentSentNotification } from "@/lib/actions/notifications";
 
 export function PaymentSentButton({
   amount,
+  compact = false,
   disabled = false,
   playerId,
   seasonId
 }: {
   amount: string;
+  compact?: boolean;
   disabled?: boolean;
   playerId: string;
   seasonId: string;
@@ -38,7 +40,7 @@ export function PaymentSentButton({
     >
       <input name="playerId" type="hidden" value={playerId} />
       <input name="seasonId" type="hidden" value={seasonId} />
-      <button className="btn-primary min-h-9 w-full justify-center px-3 text-xs sm:w-auto" disabled={sent || pending} type="submit">
+      <button className={`${compact ? "min-h-7 px-2 py-0.5 text-[11px]" : "min-h-9 w-full justify-center px-3 text-xs sm:w-auto"} btn-primary`} disabled={sent || pending} type="submit">
         <Send className="h-3.5 w-3.5" />
         {pending ? "Sending..." : sent ? "Payment sent" : "Payment sent"}
       </button>

@@ -164,9 +164,20 @@ export default async function PublicPlayerReportPage({
                     <h2 className="truncate text-lg font-semibold text-ink">{row.player_name ?? "Unknown player"}</h2>
                     <p className="mt-1 truncate text-xs font-medium text-slate-500">{row.season_name ?? "Season"}</p>
                   </div>
-                  <span className={cn("shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
-                    {status.label}
-                  </span>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
+                      {status.label}
+                    </span>
+                    {owedAmount > 0 ? (
+                      <PaymentSentButton
+                        amount={money(owedAmount)}
+                        compact
+                        disabled={paymentAlreadySent}
+                        playerId={row.player_id}
+                        seasonId={row.season_id}
+                      />
+                    ) : null}
+                  </div>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   <StatBox label="Balance" value={money(Math.abs(numberValue(row.balance_amount)))} tone={status.tone} />
@@ -183,16 +194,6 @@ export default async function PublicPlayerReportPage({
                   latestSession={row.latest_session ?? row.last_attended_sessions?.[0] ?? null}
                   upcomingSession={row.upcoming_session ?? null}
                 />
-                {owedAmount > 0 ? (
-                  <div className="mt-3">
-                    <PaymentSentButton
-                      amount={money(owedAmount)}
-                      disabled={paymentAlreadySent}
-                      playerId={row.player_id}
-                      seasonId={row.season_id}
-                    />
-                  </div>
-                ) : null}
               </article>
             );
           })}
