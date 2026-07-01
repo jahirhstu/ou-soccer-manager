@@ -57,7 +57,7 @@ export default async function NotificationsPage() {
             { header: "Message", cell: (row) => <span className="font-medium text-ink">{row.message}</span> },
             { header: "Player", cell: (row) => row.player?.display_name ?? "-" },
             { header: "Season", cell: (row) => row.season?.name ?? "-" },
-            { header: "Amount", cell: (row) => money(row.amount) },
+            { header: "Amount", cell: (row) => money(Number(row.amount)) },
             { header: "Created", cell: (row) => formatDateTime(row.created_at) },
             {
               header: "Action",
