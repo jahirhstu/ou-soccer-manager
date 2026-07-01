@@ -117,6 +117,8 @@ export async function savePayment(formData: FormData) {
     new_data: parsed
   });
   revalidatePath("/payments");
+  revalidatePath("/public/report");
+  revalidatePath("/notifications");
   redirect("/payments?success=payment_saved");
 }
 

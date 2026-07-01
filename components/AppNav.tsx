@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Bell,
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
@@ -55,6 +56,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/players", label: "Players", subLabel: "Profiles and status", icon: Users, roles: ["admin"] },
       { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"] },
       { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"] },
+      { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"] },
       { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"] },
       { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"] },
       { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"] },
@@ -74,11 +76,13 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
 ];
 
 export function AppNav({
+  unreadNotificationCount = 0,
   role,
   tenantSlug,
   programSlug,
   variant = "app"
 }: {
+  unreadNotificationCount?: number;
   role?: UserRole;
   tenantSlug?: string | null;
   programSlug?: string | null;
@@ -102,6 +106,7 @@ export function AppNav({
           ) : null}
           {section.items.map(({ href, icon: Icon, label, subLabel }) => {
             const active = isActive(internalPathname, href);
+            const showUnreadCount = href === "/notifications" && unreadNotificationCount > 0;
             return (
               <Link
                 aria-current={active ? "page" : undefined}
@@ -114,7 +119,14 @@ export function AppNav({
               >
                 <Icon className="h-4 w-4" />
                 <span>
-                  <span className="block leading-tight">{label}</span>
+                  <span className="flex min-w-0 items-center justify-between gap-2 leading-tight">
+                    <span className="truncate">{label}</span>
+                    {showUnreadCount ? (
+                      <span className="grid h-5 min-w-5 place-items-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold text-white">
+                        {unreadNotificationCount}
+                      </span>
+                    ) : null}
+                  </span>
                   {subLabel ? <span className={cn("block text-xs font-normal text-slate-500", active && "text-emerald-700")}>{subLabel}</span> : null}
                 </span>
               </Link>

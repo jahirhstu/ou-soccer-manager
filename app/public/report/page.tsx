@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Flame, Handshake, Search, ShieldCheck, TrendingDown, Trophy } from "lucide-react";
 import { PublicShell } from "@/components/PublicShell";
+import { PaymentSentButton } from "@/components/PaymentSentButton";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
@@ -47,6 +48,12 @@ type PublicPlayerStreakRow = {
   session_names: string[] | null;
 };
 
+type PaymentNotificationKey = {
+  player_id: string;
+  season_id: string;
+  amount: number | string;
+};
+
 type SortKey = "name" | "balance" | "goals" | "assists" | "played" | "season";
 
 export default async function PublicPlayerReportPage({
@@ -56,10 +63,11 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [{ data, error }, { data: highlightsData, error: highlightsError }, { data: streaksData, error: streaksError }, profile] = await Promise.all([
+  const [{ data, error }, { data: highlightsData, error: highlightsError }, { data: streaksData, error: streaksError }, { data: notificationKeys }, profile] = await Promise.all([
     supabase.rpc("public_player_report"),
     supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
     supabase.rpc("public_player_session_streaks", { p_season_id: filters.season || null }),
+    supabase.rpc("public_payment_notification_keys"),
     getCurrentProfile()
   ]);
   const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
@@ -76,6 +84,7 @@ export default async function PublicPlayerReportPage({
   const streakRows = (streaksData ?? []) as PublicPlayerStreakRow[];
   const topWinningStreak = streakRows.find((row) => row.streak_type === "winning");
   const topLosingStreak = streakRows.find((row) => row.streak_type === "losing");
+  const notifiedBalances = new Set(((notificationKeys ?? []) as PaymentNotificationKey[]).map(notificationKey));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -146,6 +155,8 @@ export default async function PublicPlayerReportPage({
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => {
             const status = balanceStatus(row);
+            const owedAmount = status.tone === "owes" ? Math.abs(numberValue(row.balance_amount)) : 0;
+            const paymentAlreadySent = owedAmount > 0 && notifiedBalances.has(notificationKey({ player_id: row.player_id, season_id: row.season_id, amount: owedAmount }));
             return (
               <article className={cn("rounded-lg border bg-white p-4 shadow-sm", status.cardClass)} key={`${row.player_id}-${row.season_id}`}>
                 <div className="flex items-start justify-between gap-3">
@@ -172,6 +183,16 @@ export default async function PublicPlayerReportPage({
                   latestSession={row.latest_session ?? row.last_attended_sessions?.[0] ?? null}
                   upcomingSession={row.upcoming_session ?? null}
                 />
+                {owedAmount > 0 ? (
+                  <div className="mt-3">
+                    <PaymentSentButton
+                      amount={money(owedAmount)}
+                      disabled={paymentAlreadySent}
+                      playerId={row.player_id}
+                      seasonId={row.season_id}
+                    />
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -277,6 +298,10 @@ function uniqueSeasons(rows: PublicPlayerReportRow[]) {
     if (row.season_id) seasons.set(row.season_id, row.season_name ?? "Season");
   }
   return Array.from(seasons.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function notificationKey(row: PaymentNotificationKey) {
+  return `${row.player_id}:${row.season_id}:${Number(row.amount).toFixed(2)}`;
 }
 
 function sortKey(value: string | undefined): SortKey {
