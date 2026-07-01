@@ -1,5 +1,6 @@
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
+import { UserPasswordForm } from "@/components/UserPasswordForm";
 import { UserUpdateForm } from "@/components/UserUpdateForm";
 import { InvitationForm } from "@/components/InvitationForm";
 import { hasPermission } from "@/lib/permissions";
@@ -58,6 +59,10 @@ export default async function UsersPage() {
             cell: (row) => (
               <UserUpdateForm memberId={row.id} playerId={row.player_id} players={players ?? []} role={row.role} status={row.status} />
             )
+          },
+          {
+            header: "Password",
+            cell: (row) => <UserPasswordForm memberId={row.id} />
           }
         ]} />
       </div>

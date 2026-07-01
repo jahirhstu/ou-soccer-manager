@@ -29,7 +29,7 @@ export default async function PaymentReportPage({
     return true;
   }), sortKey(filters.sort));
   const csv = [
-    "Player,Season,Amount paid,Paid sessions,Played sessions,Remaining sessions,Used,Waived,Credit,Refund due,Owes",
+    "Player,Season,Amount paid,Paid sessions,Billable sessions,Remaining sessions,Used,Waived,Credit,Refund due,Owes",
     ...filteredRows.map((row) =>
       [
         row.player_name,
@@ -85,7 +85,7 @@ export default async function PaymentReportPage({
         { header: "Status", cell: (row) => <BalanceBadge status={paymentStatus(row)} /> },
         { header: "Amount paid", cell: (row) => money(row.total_paid_amount) },
         { header: "Paid sessions", cell: (row) => row.total_paid_sessions ?? 0 },
-        { header: "Played sessions", cell: (row) => row.total_played_sessions ?? 0 },
+        { header: "Billable sessions", cell: (row) => row.total_played_sessions ?? 0 },
         { header: "Remaining sessions", cell: (row) => row.remaining_sessions ?? 0 },
         { header: "Used", cell: (row) => money(row.estimated_used_amount) },
         { header: "Waived", cell: (row) => money(row.waived_amount) },

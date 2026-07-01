@@ -20,8 +20,11 @@ export default async function SessionFixturePage({ params }: { params: Promise<{
     key: match.id,
     matchNumber: match.match_number,
     displayOrder: match.display_order ?? undefined,
+    matchType: match.match_type === "final" ? "final" : "regular",
     teamAId: match.team_a_id,
     teamBId: match.team_b_id,
+    teamASource: match.team_a_source === "standings_rank_1" ? "standings_rank_1" : undefined,
+    teamBSource: match.team_b_source === "standings_rank_2" ? "standings_rank_2" : undefined,
     awayTeamId: match.away_team_id ?? "",
     scheduledStartTime: match.scheduled_start_time ?? "",
     scheduledEndTime: match.scheduled_end_time ?? ""

@@ -69,8 +69,8 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
   const standings = buildSessionStandings(matches);
   const fixtureMatches = matches.map((match) => ({
     matchNumber: match.matchNumber,
-    teamAName: match.teamAName,
-    teamBName: match.teamBName,
+    teamAName: match.teamAName ?? sourceLabel(match.teamASource, "Team A"),
+    teamBName: match.teamBName ?? sourceLabel(match.teamBSource, "Team B"),
     homeTeamName: homeTeamName(match),
     awayTeamName: awayTeamName(match),
     scheduledStartTime: match.scheduledStartTime,
@@ -136,7 +136,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             rows={matches}
             columns={[
               { header: "Game", cell: (row) => row.matchNumber },
-              { header: "Result", cell: (row) => `${row.teamAName ?? "-"} ${row.teamAScore ?? 0}-${row.teamBScore ?? 0} ${row.teamBName ?? "-"}` },
+              { header: "Result", cell: (row) => `${row.teamAName ?? sourceLabel(row.teamASource, "Team A")} ${row.teamAScore ?? 0}-${row.teamBScore ?? 0} ${row.teamBName ?? sourceLabel(row.teamBSource, "Team B")}` },
               { header: "Goals/Assists", cell: (row) => <MatchGoalDetails goals={goalsByMatchNumber.get(row.matchNumber) ?? []} /> },
               { header: "Home/Away", cell: (row) => homeAwayLabel(row) }
             ]}
@@ -199,8 +199,10 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
 
 type MatchRow = {
   matchNumber: number;
-  teamAId: string;
-  teamBId: string;
+  teamAId: string | null;
+  teamBId: string | null;
+  teamASource?: string | null;
+  teamBSource?: string | null;
   awayTeamId?: string | null;
   scheduledStartTime?: string | null;
   scheduledEndTime?: string | null;
@@ -251,6 +253,7 @@ function buildSessionStandings(matches: MatchRow[]): Standing[] {
   };
 
   for (const match of matches) {
+    if (!match.teamAId || !match.teamBId) continue;
     const teamA = ensure(match.teamAId, match.teamAName ?? "Team A");
     const teamB = ensure(match.teamBId, match.teamBName ?? "Team B");
     if (match.resultStatus !== "played") continue;
@@ -301,6 +304,12 @@ function homeTeamName(match: MatchRow) {
   if (match.awayTeamId === match.teamAId) return match.teamBName ?? "Team B";
   if (match.awayTeamId === match.teamBId) return match.teamAName ?? "Team A";
   return null;
+}
+
+function sourceLabel(source: string | null | undefined, fallback: string) {
+  if (source === "standings_rank_1") return "1st place";
+  if (source === "standings_rank_2") return "2nd place";
+  return fallback;
 }
 
 function awayTeamName(match: MatchRow) {
