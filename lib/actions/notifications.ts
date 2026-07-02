@@ -38,16 +38,15 @@ export async function markNotificationRead(formData: FormData) {
   if (!notificationId) throw new Error("Notification is required.");
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("notifications")
-    .update({
-      read_at: new Date().toISOString(),
-      read_by: profile.id
-    })
-    .eq("id", notificationId)
-    .is("read_at", null);
+  const { data, error } = await supabase.rpc("accept_notification", {
+    p_notification_id: notificationId
+  });
   if (error) throw new Error(error.message);
+  if (data && typeof data === "object" && "error" in data) throw new Error(String(data.error));
 
   revalidatePath("/notifications");
   revalidatePath("/dashboard");
+  revalidatePath("/payments");
+  revalidatePath("/reports/payments");
+  revalidatePath("/public/report");
 }
