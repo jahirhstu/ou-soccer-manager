@@ -39,7 +39,7 @@ export async function markNotificationRead(formData: FormData) {
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
-    .from("payment_notifications")
+    .from("notifications")
     .update({
       read_at: new Date().toISOString(),
       read_by: profile.id

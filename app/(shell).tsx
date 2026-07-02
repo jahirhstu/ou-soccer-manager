@@ -90,7 +90,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 async function getUnreadNotificationCount() {
   const supabase = await createSupabaseServerClient();
   const { count } = await supabase
-    .from("payment_notifications")
+    .from("notifications")
     .select("id", { count: "exact", head: true })
     .is("read_at", null);
   return count ?? 0;

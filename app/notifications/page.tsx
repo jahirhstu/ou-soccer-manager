@@ -23,7 +23,7 @@ export default async function NotificationsPage() {
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("payment_notifications")
+    .from("notifications")
     .select("id,amount,message,read_at,created_at,player:players(display_name),season:seasons(name)")
     .order("read_at", { ascending: true, nullsFirst: true })
     .order("created_at", { ascending: false });
