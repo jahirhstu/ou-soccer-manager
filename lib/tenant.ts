@@ -8,6 +8,7 @@ const reservedSegments = new Set([
   "import-whatsapp",
   "leagues",
   "login",
+  "notifications",
   "payments",
   "performance",
   "players",
