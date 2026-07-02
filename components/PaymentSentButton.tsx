@@ -42,7 +42,7 @@ export function PaymentSentButton({
       <input name="seasonId" type="hidden" value={seasonId} />
       <button className={`${compact ? "min-h-7 px-2 py-0.5 text-[11px]" : "min-h-9 w-full justify-center px-3 text-xs sm:w-auto"} btn-primary`} disabled={sent || pending} type="submit">
         <Send className="h-3.5 w-3.5" />
-        {pending ? "Sending..." : sent ? "Payment sent" : "Payment sent"}
+        {pending ? "Sending..." : "Sent"}
       </button>
     </form>
   );
