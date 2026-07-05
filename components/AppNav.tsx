@@ -56,6 +56,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/players", label: "Players", subLabel: "Profiles and status", icon: Users, roles: ["admin"] },
       { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"] },
       { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"] },
+      { href: "/payments/reminders", label: "Reminders", subLabel: "WhatsApp drafts", icon: MessageSquareText, roles: ["admin"] },
       { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"] },
       { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"] },
       { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"] },

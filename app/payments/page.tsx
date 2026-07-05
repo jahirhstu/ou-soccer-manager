@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeDollarSign, Plus } from "lucide-react";
+import { BadgeDollarSign, MessageSquareText, Plus } from "lucide-react";
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { PaymentFlashToast } from "@/components/PaymentFlashToast";
@@ -45,6 +45,7 @@ export default async function PaymentsPage({
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">{program?.name ? `${program.name} payments` : "Payments"}</h1>
         <div className="flex flex-wrap gap-2">
+          <Link className="btn-secondary" href="/payments/reminders"><MessageSquareText className="h-4 w-4" /> WhatsApp reminders</Link>
           <Link className="btn-secondary" href="/payments/waiver"><BadgeDollarSign className="h-4 w-4" /> Record waiver</Link>
           <Link className="btn-primary" href="/payments/new"><Plus className="h-4 w-4" /> Record payment</Link>
         </div>
