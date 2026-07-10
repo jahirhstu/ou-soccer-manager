@@ -336,14 +336,14 @@ export function MiniGameScoresForm({
         return {
           ...game,
           goals: [
-            ...game.goals,
             ...goalsForGame.map((goal) => ({
               assistPlayerId: goal.goalType === "own_goal" ? "" : goal.assistPlayerId ?? "",
               goalCount: Math.max(1, Number(goal.goalCount ?? 1) || 1),
               goalType: goal.goalType === "own_goal" ? "own_goal" as const : "goal" as const,
               key: randomKey("voice-goal"),
               scorerId: goal.scorerId ?? ""
-            }))
+            })),
+            ...game.goals
           ]
         };
       })
@@ -557,8 +557,8 @@ export function MiniGameScoresForm({
                       onClick={() =>
                         updateGame(game.key, {
                           goals: [
-                            ...game.goals,
-                            { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 }
+                            { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 },
+                            ...game.goals
                           ]
                         })
                       }
