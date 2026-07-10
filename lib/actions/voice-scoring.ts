@@ -145,7 +145,7 @@ function parseVoiceScoringRuleBased(rawText: string): Pick<VoiceScoringParseResu
   const segments = rawText.split(/[.;\n]+/).map((segment) => segment.trim()).filter(Boolean);
   let currentMatchNumber: number | null = null;
   for (const segment of segments) {
-    const matchNumber = parseMatchNumber(segment) ?? currentMatchNumber;
+    const matchNumber: number | null = parseMatchNumber(segment) ?? currentMatchNumber;
     if (matchNumber) currentMatchNumber = matchNumber;
     const scorerName = extractNameAfter(segment, ["goal by", "scored by", "score by", "scorer", "by"]);
     if (!matchNumber || !scorerName) continue;
@@ -162,7 +162,7 @@ function parseVoiceScoringRuleBased(rawText: string): Pick<VoiceScoringParseResu
   return { goals };
 }
 
-function parseMatchNumber(text: string) {
+function parseMatchNumber(text: string): number | null {
   const normalized = normalizeText(text);
   const numeric = normalized.match(/\b(?:game|match|g)\s*(\d+)\b/);
   if (numeric) return Number(numeric[1]);
