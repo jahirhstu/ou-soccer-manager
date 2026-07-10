@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Copy, Send } from "lucide-react";
+import { Check, Copy, Download, Send } from "lucide-react";
 import { toast } from "sonner";
 import { money } from "@/lib/utils";
 
@@ -16,6 +16,9 @@ export type WhatsappReminderRow = {
 };
 
 const interacEmail = "jahirhstu2@gmail.com";
+const appLink = "https://ou-soccer-manager.vercel.app/";
+const paymentSentGuidePath = "/payment-sent-guide.png";
+const confirmationLine = `Confirm payment by click on the Sent button beside your name in the app. App link: ${appLink}`;
 
 export function WhatsappReminderBuilder({ rows }: { rows: WhatsappReminderRow[] }) {
   const [selected, setSelected] = useState(() => new Set(rows.filter((row) => !row.pendingPaymentSent).map(rowKey)));
@@ -68,6 +71,24 @@ export function WhatsappReminderBuilder({ rows }: { rows: WhatsappReminderRow[] 
               <Copy className="h-4 w-4" />
               Copy group draft
             </button>
+          </div>
+        </div>
+        <div className="grid gap-3 rounded-md border border-line bg-slate-50 p-3 md:grid-cols-[160px_1fr]">
+          <img alt="Sent button guide" className="w-full rounded-md border border-line bg-white" src={paymentSentGuidePath} />
+          <div className="grid content-start gap-2">
+            <div className="text-sm font-semibold text-ink">Attach this image in WhatsApp</div>
+            <p className="text-sm text-slate-600">
+              WhatsApp links can only prefill text. Download or open this image, attach it in WhatsApp, then paste/send the draft below.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <a className="btn-secondary min-h-9 px-3 text-xs" download="payment-sent-guide.png" href={paymentSentGuidePath}>
+                <Download className="h-3.5 w-3.5" />
+                Download image
+              </a>
+              <a className="btn-secondary min-h-9 px-3 text-xs" href={paymentSentGuidePath} rel="noopener noreferrer" target="_blank">
+                Open image
+              </a>
+            </div>
           </div>
         </div>
         <textarea className="input min-h-48 font-mono text-sm" readOnly value={groupMessage} />
@@ -140,12 +161,17 @@ function buildGroupMessage(rows: WhatsappReminderRow[]) {
     "",
     ...rows.map((row) => `- ${row.playerName}: ${money(row.amount)}`),
     "",
-    `Please send Interac to ${interacEmail}. If you already sent it, tap Sent on the public status page.`
+    `Please send Interac to ${interacEmail}.`,
+    confirmationLine
   ].join("\n");
 }
 
 function buildPersonalMessage(row: WhatsappReminderRow) {
-  return `Hi ${firstName(row.playerName)}, friendly reminder: you currently owe ${money(row.amount)} for OU Soccer. Please send Interac to ${interacEmail}. If you already sent it, tap Sent on the public status page.`;
+  return [
+    `Hi ${firstName(row.playerName)}, friendly reminder: you currently owe ${money(row.amount)} for OU Soccer.`,
+    `Please send Interac to ${interacEmail}.`,
+    confirmationLine
+  ].join("\n\n");
 }
 
 function firstName(value: string) {
