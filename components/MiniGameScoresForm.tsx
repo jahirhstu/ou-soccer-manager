@@ -103,6 +103,10 @@ export function MiniGameScoresForm({
   const lastSavedPayloadRef = useRef<string | null>(null);
   const recognitionRef = useRef<VoiceRecognition | null>(null);
   const saveSequenceRef = useRef(0);
+  const voiceBaseTranscriptRef = useRef("");
+  const voiceParsedOnStopRef = useRef(false);
+  const voiceSessionTranscriptRef = useRef("");
+  const voiceShouldListenRef = useRef(false);
   const [voiceCommand, setVoiceCommand] = useState("");
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceParsePending, setVoiceParsePending] = useState(false);
@@ -232,7 +236,10 @@ export function MiniGameScoresForm({
   }, [payloadJson, readOnly, saveNow]);
 
   useEffect(() => {
-    return () => recognitionRef.current?.stop();
+    return () => {
+      voiceShouldListenRef.current = false;
+      recognitionRef.current?.stop();
+    };
   }, []);
 
   function updateGame(key: string, patch: Partial<MatchInput>) {
@@ -286,33 +293,57 @@ export function MiniGameScoresForm({
       return;
     }
     recognitionRef.current?.stop();
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
+    voiceBaseTranscriptRef.current = voiceCommand.trim();
+    voiceParsedOnStopRef.current = false;
+    voiceSessionTranscriptRef.current = "";
+    voiceShouldListenRef.current = true;
     setVoiceListening(true);
     setVoiceResult(null);
+    startRecognitionLoop(Recognition);
+  }
+
+  function startRecognitionLoop(Recognition: VoiceRecognitionConstructor) {
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
 
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
         .map((result) => result[0]?.transcript ?? "")
         .join(" ")
         .trim();
-      setVoiceCommand(transcript);
-      if (transcript) void parseVoiceCommand(transcript);
+      voiceSessionTranscriptRef.current = transcript;
+      setVoiceCommand(joinTranscript(voiceBaseTranscriptRef.current, transcript));
     };
     recognition.onerror = (event) => {
+      if (event.error === "no-speech" && voiceShouldListenRef.current) return;
+      voiceShouldListenRef.current = false;
+      setVoiceListening(false);
       const message = event.error ? `Voice scoring failed: ${event.error}` : "Voice scoring failed.";
       toast.error(message);
       setVoiceResult({ error: message });
     };
-    recognition.onend = () => setVoiceListening(false);
+    recognition.onend = () => {
+      voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceSessionTranscriptRef.current);
+      voiceSessionTranscriptRef.current = "";
+      if (voiceShouldListenRef.current) {
+        window.setTimeout(() => {
+          if (voiceShouldListenRef.current) startRecognitionLoop(Recognition);
+        }, 150);
+        return;
+      }
+      const finalTranscript = voiceBaseTranscriptRef.current.trim();
+      setVoiceListening(false);
+      if (finalTranscript && !voiceParsedOnStopRef.current) void parseVoiceCommand(finalTranscript);
+    };
 
     try {
       recognition.start();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start voice scoring.";
+      voiceShouldListenRef.current = false;
       setVoiceListening(false);
       setVoiceResult({ error: message });
       toast.error(message);
@@ -320,8 +351,14 @@ export function MiniGameScoresForm({
   }
 
   function stopVoiceScoring() {
+    voiceShouldListenRef.current = false;
+    voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceSessionTranscriptRef.current);
+    voiceSessionTranscriptRef.current = "";
+    voiceParsedOnStopRef.current = true;
+    setVoiceCommand(voiceBaseTranscriptRef.current);
     recognitionRef.current?.stop();
     setVoiceListening(false);
+    if (voiceBaseTranscriptRef.current.trim()) void parseVoiceCommand(voiceBaseTranscriptRef.current);
   }
 
   function applyVoiceGoals() {
@@ -400,7 +437,7 @@ export function MiniGameScoresForm({
                 type="button"
               >
                 <Mic className="h-3.5 w-3.5" />
-                {voiceListening ? "Listening" : "Record"}
+                {voiceListening ? "Stop" : "Record"}
               </button>
             </div>
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
@@ -417,7 +454,12 @@ export function MiniGameScoresForm({
                 <button className="btn-secondary min-h-9 px-3 text-xs" disabled={voiceParsePending || !voiceCommand.trim()} onClick={() => void parseVoiceCommand()} type="button">
                   {voiceParsePending ? "Parsing..." : "Parse"}
                 </button>
-                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => { setVoiceCommand(""); setVoiceResult(null); }} type="button">
+                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => {
+                  voiceBaseTranscriptRef.current = "";
+                  voiceSessionTranscriptRef.current = "";
+                  setVoiceCommand("");
+                  setVoiceResult(null);
+                }} type="button">
                   <X className="h-3.5 w-3.5" />
                   Clear
                 </button>
@@ -766,6 +808,10 @@ function getSpeechRecognition(): VoiceRecognitionConstructor | null {
     webkitSpeechRecognition?: VoiceRecognitionConstructor;
   };
   return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function joinTranscript(base: string, next: string) {
+  return [base.trim(), next.trim()].filter(Boolean).join(" ").trim();
 }
 
 function buildVoicePreviewGoals(
