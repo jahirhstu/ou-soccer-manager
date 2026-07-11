@@ -248,7 +248,9 @@ export function MiniGameScoresForm({
   }
 
   function deleteGoal(game: MatchInput, goalKey: string) {
-    if (!window.confirm("Delete this goal? This change will be saved automatically.")) return;
+    const goal = game.goals.find((item) => item.key === goalKey);
+    const hasSelectedPlayer = Boolean(goal?.scorerId || goal?.assistPlayerId);
+    if (hasSelectedPlayer && !window.confirm("Delete this goal? This change will be saved automatically.")) return;
     updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goalKey) });
   }
 
