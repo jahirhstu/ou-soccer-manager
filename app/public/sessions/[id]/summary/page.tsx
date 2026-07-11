@@ -86,11 +86,11 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
 
   const detail = (data ?? {}) as PublicSessionSummary;
   const session = detail.session;
-  const matches = detail.matches ?? [];
   const goals = detail.goals ?? [];
+  const goalsByMatchNumber = groupGoalsByMatchNumber(goals);
+  const matches = applyGoalScoresToMatches(detail.matches ?? [], goalsByMatchNumber);
   const standings = buildSessionStandings(matches);
   const podium = standings.slice(0, 3);
-  const goalsByMatchNumber = groupGoalsByMatchNumber(goals);
   const matchRows = matches.map((match) => ({
     matchNumber: match.matchNumber,
     game: `Game ${match.matchNumber}`,
@@ -300,6 +300,31 @@ function groupGoalsByMatchNumber(goals: GoalRow[]) {
     grouped.set(goal.matchNumber, [...(grouped.get(goal.matchNumber) ?? []), goal]);
   }
   return grouped;
+}
+
+function applyGoalScoresToMatches(matches: MatchRow[], goalsByMatchNumber: Map<number, GoalRow[]>) {
+  return matches.map((match) => {
+    const goals = goalsByMatchNumber.get(match.matchNumber) ?? [];
+    if (!goals.length) return match;
+    const score = calculateScoreFromGoals(match, goals);
+    return {
+      ...match,
+      teamAScore: score.teamAScore,
+      teamBScore: score.teamBScore
+    };
+  });
+}
+
+function calculateScoreFromGoals(match: MatchRow, goals: GoalRow[]) {
+  return goals.reduce(
+    (score, goal) => {
+      const count = Math.max(1, numberValue(goal.goalCount || 1));
+      if (goal.teamName === match.teamAName) score.teamAScore += count;
+      if (goal.teamName === match.teamBName) score.teamBScore += count;
+      return score;
+    },
+    { teamAScore: 0, teamBScore: 0 }
+  );
 }
 
 function buildSessionStandings(matches: MatchRow[]): Standing[] {

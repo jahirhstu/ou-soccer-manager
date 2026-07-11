@@ -1,4 +1,5 @@
 import type { ParsedWhatsAppImport } from "../types";
+import { geminiCandidateModels, generateGeminiJson } from "../llm/json";
 import { parseSessionDate } from "../utils";
 import { RuleBasedWhatsAppParser } from "./rule-based";
 import type { WhatsAppParser } from "./types";
@@ -17,16 +18,15 @@ export class GeminiWhatsAppParser implements WhatsAppParser {
     }
 
     try {
-      const { payload, model } = await generateWithModelFallback({
+      const result = await generateGeminiJson({
         apiKey,
-        input,
-        models: getCandidateModels()
+        models: getCandidateModels(),
+        prompt: `${parserInstructions()}\n\nWhatsApp message:\n${input}`,
+        schema: geminiParsedWhatsAppImportSchema
       });
-      const text = extractGeminiText(payload);
-      if (!text) throw new Error(`Gemini parser returned no text from ${model}.`);
 
-      const parsed = normalizeParsedJson(JSON.parse(text), input);
-      parsed.parser = { engine: "llm", provider: "gemini", model };
+      const parsed = normalizeParsedJson(result.json, input);
+      parsed.parser = { engine: "llm", provider: "gemini", model: result.model };
       return parsed;
     } catch (error) {
       const parsed = await this.fallback.parse(input);
@@ -38,51 +38,8 @@ export class GeminiWhatsAppParser implements WhatsAppParser {
   }
 }
 
-async function generateWithModelFallback({ apiKey, input, models }: { apiKey: string; input: string; models: string[] }) {
-  const errors: string[] = [];
-  for (const model of models) {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: `${parserInstructions()}\n\nWhatsApp message:\n${input}` }]
-            }
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: geminiParsedWhatsAppImportSchema
-          }
-        })
-      });
-
-    if (response.ok) {
-      return { payload: await response.json(), model };
-    }
-
-    const body = await response.text();
-    errors.push(`${model}: ${response.status} ${body}`);
-    if (![404, 429, 503].includes(response.status)) break;
-  }
-
-  throw new Error(errors.join(" | "));
-}
-
 function getCandidateModels() {
-  const configured = process.env.GEMINI_WHATSAPP_PARSER_MODEL?.trim();
-  const defaults = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-flash-latest",
-    "gemini-1.5-flash-latest"
-  ];
-  return Array.from(new Set([configured, ...defaults].filter(Boolean) as string[]));
+  return geminiCandidateModels(process.env.GEMINI_WHATSAPP_PARSER_MODEL);
 }
 
 export async function listGeminiModels(apiKey = process.env.GEMINI_API_KEY) {
@@ -131,10 +88,6 @@ Rules:
 - Add warnings for ambiguity.
 - Clean names, e.g. "rocky bhai" -> "Rocky Bhai".
 - Return dates as YYYY-MM-DD. If a date has month/day but no year, use current year ${currentYear}.`;
-}
-
-function extractGeminiText(payload: any) {
-  return payload.candidates?.[0]?.content?.parts?.map((part: any) => part.text ?? "").join("").trim();
 }
 
 function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  Bell,
   LogOut,
   Menu,
   ShieldCheck
@@ -22,6 +23,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     : { data: null };
   const enabledModules = modules?.map((module) => module.module_key) ?? null;
   const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug, programSlug);
+  const unreadNotificationCount = profile?.role === "admin" ? await getUnreadNotificationCount() : 0;
+  const notificationsHref = tenantPath("/notifications", tenantSlug, programSlug);
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
@@ -35,6 +38,17 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="flex items-center gap-2">
             <Link className="btn-secondary min-h-9 px-3" href="/select-context">Switch</Link>
+            {profile?.role === "admin" ? (
+              <Link className="btn-secondary relative min-h-9 px-3" href={notificationsHref}>
+                <Bell className="h-4 w-4" />
+                <span className="hidden sm:inline">Notifications</span>
+                {unreadNotificationCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold text-white">
+                    {unreadNotificationCount}
+                  </span>
+                ) : null}
+              </Link>
+            ) : null}
             <form action={logoutAction}>
               <button className="btn-secondary min-h-9 px-3">
                 <LogOut className="h-4 w-4" /> Logout
@@ -54,11 +68,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-xs font-medium text-slate-500 group-open:inline">Close</span>
           </summary>
           <nav className="grid gap-1 border-t border-line p-2">
-            <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
+            <AdminNav unreadNotificationCount={unreadNotificationCount} role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
           </nav>
         </details>
         <aside className="panel hidden gap-1 p-2 md:sticky md:top-20 md:grid md:self-start">
-          <AdminNav role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
+          <AdminNav unreadNotificationCount={unreadNotificationCount} role={profile?.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />
         </aside>
         <main className="min-w-0">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -78,6 +92,15 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+async function getUnreadNotificationCount() {
+  const supabase = await createSupabaseServerClient();
+  const { count } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .is("read_at", null);
+  return count ?? 0;
 }
 
 function roleHomeHref(role: UserRole | undefined) {

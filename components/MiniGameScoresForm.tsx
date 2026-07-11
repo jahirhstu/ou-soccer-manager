@@ -1,9 +1,58 @@
 "use client";
 
-import { Fragment, useActionState, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Check, Mic, Plus, Save, Trash2, X } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
+import { parseVoiceScoringCommand } from "@/lib/actions/voice-scoring";
+
+type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
+type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+type VoiceRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onresult: ((event: VoiceRecognitionEvent) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type VoiceRecognitionConstructor = new () => VoiceRecognition;
+type VoiceRecognitionEvent = {
+  resultIndex: number;
+  results: ArrayLike<{
+    0: { transcript: string };
+    isFinal: boolean;
+  }>;
+};
+type ParsedVoiceScoringGoal = {
+  assistName?: string;
+  confidence?: "low" | "medium" | "high";
+  goalCount?: number;
+  goalType?: GoalInput["goalType"];
+  matchNumber: number;
+  scorerName: string;
+};
+type VoiceScoringPreviewGoal = ParsedVoiceScoringGoal & {
+  assistPlayerId?: string;
+  error?: string;
+  gameKey?: string;
+  scorerId?: string;
+  warning?: string;
+};
+type VoiceScoringResult = {
+  goals?: ParsedVoiceScoringGoal[];
+  parser?: {
+    engine: "llm" | "rule_based";
+    provider: "openai" | "gemini" | "rule_based";
+    model?: string;
+    fallbackUsed?: boolean;
+  };
+  rawText?: string;
+  warnings?: string[];
+  error?: string;
+};
 
 export type TeamOption = {
   id: string;
@@ -54,8 +103,21 @@ export function MiniGameScoresForm({
   sessionLabel?: string;
   teams: TeamOption[];
 }) {
-  const [state, action, pending] = useActionState(saveAction, null as { success?: boolean; message?: string; error?: string } | null);
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [saveMessage, setSaveMessage] = useState("All changes saved.");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedPayloadRef = useRef<string | null>(null);
+  const recognitionRef = useRef<VoiceRecognition | null>(null);
+  const saveSequenceRef = useRef(0);
+  const voiceBaseTranscriptRef = useRef("");
+  const voiceInterimTranscriptRef = useRef("");
+  const voiceParsedOnStopRef = useRef(false);
+  const voiceShouldListenRef = useRef(false);
+  const [voiceCommand, setVoiceCommand] = useState("");
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceParsePending, setVoiceParsePending] = useState(false);
+  const [voiceResult, setVoiceResult] = useState<VoiceScoringResult | null>(null);
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -87,11 +149,105 @@ export function MiniGameScoresForm({
         goalType: goal.goalType
       }))
   }));
+  const payloadJson = JSON.stringify(payload);
+  const voiceContextJson = JSON.stringify({
+    matches: resolvedGames
+      .filter((game) => game.teamAId && game.teamBId)
+      .map((game) => ({
+        matchNumber: game.matchNumber,
+        teams: [
+          {
+            name: teamDisplayName(teams, game, "a"),
+            players: playersForTeam(playersByTeam, game.teamAId).map((player) => player.name)
+          },
+          {
+            name: teamDisplayName(teams, game, "b"),
+            players: playersForTeam(playersByTeam, game.teamBId).map((player) => player.name)
+          }
+        ]
+      }))
+  });
+  const voicePreviewGoals = useMemo(
+    () => buildVoicePreviewGoals(voiceResult?.goals ?? [], resolvedGames, teams, playersByTeam),
+    [playersByTeam, resolvedGames, teams, voiceResult]
+  );
+  const validVoicePreviewGoals = voicePreviewGoals.filter((goal) => !goal.error && goal.gameKey && goal.scorerId);
 
   useEffect(() => {
-    if (state?.success) toast.success(state.message ?? "Scores saved.");
-    if (state?.error) toast.error(state.error);
-  }, [state]);
+    if (lastSavedPayloadRef.current === null) lastSavedPayloadRef.current = payloadJson;
+  }, [payloadJson]);
+
+  const saveNow = useCallback(async (showSuccessToast = false) => {
+    if (readOnly) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!teams.length) {
+      const message = "Create teams before saving game scores.";
+      setSaveStatus("error");
+      setSaveMessage(message);
+      toast.error(message);
+      return;
+    }
+    if (payloadJson === lastSavedPayloadRef.current) {
+      setSaveStatus("saved");
+      setSaveMessage("All changes saved.");
+      if (showSuccessToast) toast.success("Scores already saved.");
+      return;
+    }
+
+    const sequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = sequence;
+    setSaveStatus("saving");
+    setSaveMessage("Saving changes...");
+
+    const formData = new FormData();
+    formData.set("sessionId", sessionId);
+    formData.set("gamesJson", payloadJson);
+
+    let result: SaveActionResult;
+    try {
+      result = await saveAction(null, formData) as SaveActionResult;
+      if (sequence !== saveSequenceRef.current) return;
+    } catch (error) {
+      if (sequence !== saveSequenceRef.current) return;
+      const message = error instanceof Error ? error.message : "Could not save game scores.";
+      setSaveStatus("error");
+      setSaveMessage(message);
+      toast.error(message);
+      return;
+    }
+
+    if (result?.error) {
+      setSaveStatus("error");
+      setSaveMessage(result.error);
+      toast.error(result.error);
+      return;
+    }
+
+    lastSavedPayloadRef.current = payloadJson;
+    setSaveStatus("saved");
+    setSaveMessage(result?.message ?? "All changes saved.");
+    if (showSuccessToast) toast.success(result?.message ?? "Scores saved.");
+  }, [payloadJson, readOnly, saveAction, sessionId, teams.length]);
+
+  useEffect(() => {
+    if (readOnly || lastSavedPayloadRef.current === null || payloadJson === lastSavedPayloadRef.current) return;
+    setSaveStatus("dirty");
+    setSaveMessage("Unsaved changes. Saving shortly...");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void saveNow(false);
+    }, 700);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [payloadJson, readOnly, saveNow]);
+
+  useEffect(() => {
+    return () => {
+      voiceShouldListenRef.current = false;
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   function updateGame(key: string, patch: Partial<MatchInput>) {
     setGames((current) => current.map((game) => game.key === key ? { ...game, ...patch } : game));
@@ -107,18 +263,257 @@ export function MiniGameScoresForm({
     );
   }
 
+  function deleteGoal(game: MatchInput, goalKey: string) {
+    if (!window.confirm("Delete this goal? This change will be saved automatically.")) return;
+    updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goalKey) });
+  }
+
+  async function parseVoiceCommand(commandText = voiceCommand) {
+    const text = commandText.trim();
+    if (!text) {
+      toast.error("Enter or record a scoring command first.");
+      return;
+    }
+    setVoiceParsePending(true);
+    setVoiceResult(null);
+    const formData = new FormData();
+    formData.set("commandText", text);
+    formData.set("contextJson", voiceContextJson);
+    try {
+      const result = await parseVoiceScoringCommand(formData);
+      setVoiceResult(result);
+      if (result.error) toast.error(result.error);
+      if (!result.error && !(result.goals?.length)) toast.error("No goals were found in that command.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not parse voice scoring command.";
+      setVoiceResult({ error: message });
+      toast.error(message);
+    } finally {
+      setVoiceParsePending(false);
+    }
+  }
+
+  function startVoiceScoring() {
+    const Recognition = getSpeechRecognition();
+    if (!Recognition) {
+      toast.error("Voice scoring is not supported in this browser.");
+      return;
+    }
+    recognitionRef.current?.stop();
+    voiceBaseTranscriptRef.current = voiceCommand.trim();
+    voiceInterimTranscriptRef.current = "";
+    voiceParsedOnStopRef.current = false;
+    voiceShouldListenRef.current = true;
+    setVoiceListening(true);
+    setVoiceResult(null);
+    startRecognitionLoop(Recognition);
+  }
+
+  function startRecognitionLoop(Recognition: VoiceRecognitionConstructor) {
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript?.trim() ?? "";
+        if (!transcript) continue;
+        if (result.isFinal) {
+          voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, transcript);
+        } else {
+          interimTranscript = joinTranscript(interimTranscript, transcript);
+        }
+      }
+      voiceInterimTranscriptRef.current = interimTranscript;
+      setVoiceCommand(joinTranscript(voiceBaseTranscriptRef.current, interimTranscript));
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "no-speech" && voiceShouldListenRef.current) return;
+      voiceShouldListenRef.current = false;
+      setVoiceListening(false);
+      const message = event.error ? `Voice scoring failed: ${event.error}` : "Voice scoring failed.";
+      toast.error(message);
+      setVoiceResult({ error: message });
+    };
+    recognition.onend = () => {
+      const displayedTranscript = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
+      voiceInterimTranscriptRef.current = "";
+      if (voiceShouldListenRef.current) {
+        window.setTimeout(() => {
+          if (voiceShouldListenRef.current) startRecognitionLoop(Recognition);
+        }, 150);
+        return;
+      }
+      const finalTranscript = displayedTranscript.trim();
+      setVoiceListening(false);
+      if (finalTranscript && !voiceParsedOnStopRef.current) void parseVoiceCommand(finalTranscript);
+    };
+
+    try {
+      recognition.start();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start voice scoring.";
+      voiceShouldListenRef.current = false;
+      setVoiceListening(false);
+      setVoiceResult({ error: message });
+      toast.error(message);
+    }
+  }
+
+  function stopVoiceScoring() {
+    voiceShouldListenRef.current = false;
+    voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
+    voiceInterimTranscriptRef.current = "";
+    voiceParsedOnStopRef.current = true;
+    setVoiceCommand(voiceBaseTranscriptRef.current);
+    recognitionRef.current?.stop();
+    setVoiceListening(false);
+    if (voiceBaseTranscriptRef.current.trim()) void parseVoiceCommand(voiceBaseTranscriptRef.current);
+  }
+
+  function applyVoiceGoals() {
+    if (!validVoicePreviewGoals.length) {
+      toast.error("No valid parsed goals to add.");
+      return;
+    }
+    setGames((current) =>
+      current.map((game) => {
+        const goalsForGame = validVoicePreviewGoals.filter((goal) => goal.gameKey === game.key && goal.scorerId);
+        if (!goalsForGame.length) return game;
+        return {
+          ...game,
+          goals: [
+            ...goalsForGame.map((goal) => ({
+              assistPlayerId: goal.goalType === "own_goal" ? "" : goal.assistPlayerId ?? "",
+              goalCount: Math.max(1, Number(goal.goalCount ?? 1) || 1),
+              goalType: goal.goalType === "own_goal" ? "own_goal" as const : "goal" as const,
+              key: randomKey("voice-goal"),
+              scorerId: goal.scorerId ?? ""
+            })),
+            ...game.goals
+          ]
+        };
+      })
+    );
+    toast.success(`${validVoicePreviewGoals.length} voice goal${validVoicePreviewGoals.length === 1 ? "" : "s"} added.`);
+    setVoiceResult(null);
+    setVoiceCommand("");
+  }
+
   return (
-    <form action={action} className="grid gap-4 pb-20">
-      <input name="sessionId" type="hidden" value={sessionId} />
-      <input name="gamesJson" type="hidden" value={JSON.stringify(payload)} />
+    <div className="grid gap-4 pb-4">
       <div className="panel grid gap-3 p-3">
-        <div>
-          <h1 className="page-title">{heading}</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {sessionLabel}: record goals, assists, and own goals against the saved fixture. Scores are calculated from goal events.
-          </p>
-          {readOnly ? <p className="mt-2 text-sm font-medium text-amber-700">{readOnlyReason}</p> : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="page-title">{heading}</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {sessionLabel}: record goals, assists, and own goals against the saved fixture. Scores are calculated from goal events.
+            </p>
+            {readOnly ? <p className="mt-2 text-sm font-medium text-amber-700">{readOnlyReason}</p> : null}
+          </div>
+          {!readOnly ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+                saveStatus === "error"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : saveStatus === "saving" || saveStatus === "dirty"
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-800"
+              }`} aria-live="polite">
+                {saveMessage}
+              </div>
+              <button
+                className="btn-secondary min-h-9 px-3 text-xs"
+                disabled={saveStatus === "saving" || !teams.length}
+                onClick={() => void saveNow(true)}
+                type="button"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {saveStatus === "saving" ? "Saving..." : "Save now"}
+              </button>
+            </div>
+          ) : null}
         </div>
+        {!readOnly ? (
+          <div className="grid gap-3 rounded-md border border-line bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">Voice scoring</h2>
+                <p className="text-xs text-slate-500">Record or type multiple scoring commands, then review before adding.</p>
+              </div>
+              <button
+                className={`btn-secondary min-h-9 px-3 text-xs ${voiceListening ? "border-emerald-300 bg-emerald-50 text-emerald-800" : ""}`}
+                onClick={() => voiceListening ? stopVoiceScoring() : startVoiceScoring()}
+                type="button"
+              >
+                <Mic className="h-3.5 w-3.5" />
+                {voiceListening ? "Stop" : "Record"}
+              </button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+              <textarea
+                className="input min-h-20 resize-y text-sm"
+                onChange={(event) => {
+                  setVoiceCommand(event.target.value);
+                  setVoiceResult(null);
+                }}
+                placeholder="Example: Game five, goal by Imon assist by Morshadul. Goal by M Asad assist by Rokibul."
+                value={voiceCommand}
+              />
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={voiceParsePending || !voiceCommand.trim()} onClick={() => void parseVoiceCommand()} type="button">
+                  {voiceParsePending ? "Parsing..." : "Parse"}
+                </button>
+                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => {
+                  voiceBaseTranscriptRef.current = "";
+                  voiceInterimTranscriptRef.current = "";
+                  setVoiceCommand("");
+                  setVoiceResult(null);
+                }} type="button">
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </div>
+            </div>
+            {voiceResult ? (
+              <div className={`grid gap-2 rounded-md border p-3 text-sm ${
+                voiceResult.error
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : validVoicePreviewGoals.length
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-semibold">
+                    {voiceResult.error ? "Could not parse command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
+                  </div>
+                  {voiceResult.parser ? (
+                    <div className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold">
+                      Parsed by {voiceResult.parser.engine === "llm" ? "LLM based" : "Rule based"}
+                    </div>
+                  ) : null}
+                </div>
+                {voiceResult.error ? <p className="text-xs">{voiceResult.error}</p> : null}
+                {voicePreviewGoals.length ? (
+                  <div className="rounded-md border border-white/70 bg-white px-3 py-2 text-xs text-slate-700">
+                    {validVoicePreviewGoals.length} of {voicePreviewGoals.length} parsed goal{voicePreviewGoals.length === 1 ? "" : "s"} can be added.
+                    {voicePreviewGoals.length > validVoicePreviewGoals.length ? " Some parsed items could not be matched to this fixture." : ""}
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!validVoicePreviewGoals.length} onClick={applyVoiceGoals} type="button">
+                    <Check className="h-3.5 w-3.5" />
+                    Add valid goals
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="grid gap-3">
         {resolvedGames.map((game, index) => {
@@ -205,8 +600,8 @@ export function MiniGameScoresForm({
                       onClick={() =>
                         updateGame(game.key, {
                           goals: [
-                            ...game.goals,
-                            { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 }
+                            { key: randomKey("goal"), scorerId: "", assistPlayerId: "", goalType: "goal", goalCount: 1 },
+                            ...game.goals
                           ]
                         })
                       }
@@ -239,7 +634,7 @@ export function MiniGameScoresForm({
                           <input className="input min-h-9 w-full px-2 text-center text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-400" disabled={readOnly} min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
                         </label>
                         {!readOnly ? (
-                          <button className="btn-secondary min-h-9 w-11 shrink-0 px-0" onClick={() => updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goal.key) })} type="button" aria-label="Delete goal">
+                          <button className="btn-secondary min-h-9 w-11 shrink-0 px-0" onClick={() => deleteGoal(game, goal.key)} type="button" aria-label="Delete goal">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         ) : null}
@@ -257,15 +652,7 @@ export function MiniGameScoresForm({
           );
         })}
       </div>
-      {!readOnly ? (
-        <div className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 flex justify-end sm:left-auto">
-          <button className="btn-primary w-full shadow-lg sm:w-auto" disabled={pending || !teams.length}>
-            <Save className="h-4 w-4" />
-            {pending ? "Saving..." : "Save game scores"}
-          </button>
-        </div>
-      ) : null}
-    </form>
+    </div>
   );
 }
 
@@ -426,4 +813,111 @@ function minutesBetween(start?: string | null, end?: string | null) {
   const endMinutes = parseTimeToMinutes(end);
   if (startMinutes == null || endMinutes == null) return 0;
   return Math.max(0, endMinutes - startMinutes);
+}
+
+function getSpeechRecognition(): VoiceRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as Window & {
+    SpeechRecognition?: VoiceRecognitionConstructor;
+    webkitSpeechRecognition?: VoiceRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function joinTranscript(base: string, next: string) {
+  const cleanBase = base.trim();
+  const cleanNext = next.trim();
+  if (!cleanBase) return cleanNext;
+  if (!cleanNext) return cleanBase;
+
+  const normalizedBase = normalizeVoiceText(cleanBase);
+  const normalizedNext = normalizeVoiceText(cleanNext);
+  if (normalizedBase === normalizedNext || normalizedBase.endsWith(normalizedNext)) return cleanBase;
+  if (normalizedNext.startsWith(normalizedBase)) return cleanNext;
+
+  const baseWords = cleanBase.split(/\s+/);
+  const nextWords = cleanNext.split(/\s+/);
+  const normalizedBaseWords = normalizedBase.split(/\s+/);
+  const normalizedNextWords = normalizedNext.split(/\s+/);
+  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedNextWords.length);
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const baseTail = normalizedBaseWords.slice(-size).join(" ");
+    const nextHead = normalizedNextWords.slice(0, size).join(" ");
+    if (baseTail === nextHead) return [...baseWords, ...nextWords.slice(size)].join(" ").trim();
+  }
+
+  return `${cleanBase} ${cleanNext}`.trim();
+}
+
+function buildVoicePreviewGoals(
+  goals: ParsedVoiceScoringGoal[],
+  games: MatchInput[],
+  teams: TeamOption[],
+  playersByTeam: Map<string, Array<{ id: string; name: string }>>
+): VoiceScoringPreviewGoal[] {
+  return goals.map((goal) => {
+    const game = games.find((item) => Number(item.matchNumber) === Number(goal.matchNumber));
+    if (!game) return { ...goal, error: `Game ${goal.matchNumber} does not exist.` };
+    const selectablePlayers = uniquePlayers([
+      ...playersForTeam(playersByTeam, game.teamAId),
+      ...playersForTeam(playersByTeam, game.teamBId)
+    ]);
+    const scorer = findPlayerByVoice(goal.scorerName, selectablePlayers);
+    if (!scorer) {
+      return {
+        ...goal,
+        error: `Could not match scorer "${goal.scorerName}" in ${teamName(teams, game.teamAId)} vs ${teamName(teams, game.teamBId)}.`
+      };
+    }
+    const assist = goal.assistName ? findPlayerByVoice(goal.assistName, selectablePlayers) : null;
+    if (goal.assistName && !assist) {
+      return {
+        ...goal,
+        error: `Could not match assist "${goal.assistName}" in ${teamName(teams, game.teamAId)} vs ${teamName(teams, game.teamBId)}.`,
+        gameKey: game.key,
+        scorerId: scorer.id
+      };
+    }
+    return {
+      ...goal,
+      assistName: assist?.name ?? goal.assistName,
+      assistPlayerId: assist?.id,
+      gameKey: game.key,
+      goalCount: Math.max(1, Number(goal.goalCount ?? 1) || 1),
+      goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
+      scorerId: scorer.id,
+      scorerName: scorer.name,
+      warning: goal.confidence === "low" ? "Low confidence match. Review before adding." : undefined
+    };
+  });
+}
+
+function findPlayerByVoice(text: string, players: Array<{ id: string; name: string }>) {
+  const normalizedText = ` ${normalizeVoiceText(text)} `;
+  const scoredPlayers = players
+    .map((player) => {
+      const normalizedName = normalizeVoiceText(player.name);
+      const nameParts = normalizedName.split(" ").filter(Boolean);
+      if (!normalizedName) return { player, score: 0 };
+      if (normalizedText.includes(` ${normalizedName} `)) return { player, score: 100 + normalizedName.length };
+      const matchingParts = nameParts.filter((part) => normalizedText.includes(` ${part} `));
+      if (matchingParts.length === nameParts.length && nameParts.length > 1) return { player, score: 80 + normalizedName.length };
+      if (matchingParts.length && nameParts.length === 1) return { player, score: 70 + normalizedName.length };
+      if (matchingParts.length) return { player, score: 40 + matchingParts.join("").length };
+      return { player, score: 0 };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  return scoredPlayers[0]?.player ?? null;
+}
+
+function normalizeVoiceText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }

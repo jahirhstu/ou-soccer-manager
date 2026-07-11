@@ -35,12 +35,12 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   const isAdmin = hasPermission(profile?.role, "manage_all");
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const chargeByPlayerId = new Map((charges ?? []).map((charge: any) => [charge.player_id, charge]));
-  const matchRows = (matches ?? []) as MatchRow[];
   const goalsByMatchId = new Map<string, GoalRow[]>();
   for (const goal of (goals ?? []) as GoalRow[]) {
     if (!goal.match_id) continue;
     goalsByMatchId.set(goal.match_id, [...(goalsByMatchId.get(goal.match_id) ?? []), goal]);
   }
+  const matchRows = applyGoalScoresToMatches((matches ?? []) as MatchRow[], goalsByMatchId);
   const standings = buildSessionStandings(matchRows);
   const fixtureMatches = matchRows.map((match) => ({
     matchNumber: match.match_number,
@@ -194,6 +194,7 @@ type MatchRow = {
 type GoalRow = {
   match_id?: string | null;
   goal_count?: number | string | null;
+  session_teams?: { name?: string | null } | null;
   scorer?: { display_name?: string | null } | null;
   assist?: { display_name?: string | null } | null;
 };
@@ -214,6 +215,32 @@ function GoalDetails({ goals }: { goals: GoalRow[] }) {
     <div className="grid gap-1">
       {details.map((detail, index) => <div key={`${detail}-${index}`}>{detail}</div>)}
     </div>
+  );
+}
+
+function applyGoalScoresToMatches(matches: MatchRow[], goalsByMatchId: Map<string, GoalRow[]>) {
+  return matches.map((match) => {
+    const goals = goalsByMatchId.get(match.id) ?? [];
+    if (!goals.length) return match;
+    const score = calculateScoreFromGoals(match, goals);
+    return {
+      ...match,
+      team_a_score: score.teamAScore,
+      team_b_score: score.teamBScore
+    };
+  });
+}
+
+function calculateScoreFromGoals(match: MatchRow, goals: GoalRow[]) {
+  return goals.reduce(
+    (score, goal) => {
+      const parsedCount = Number(goal.goal_count ?? 1);
+      const count = Number.isFinite(parsedCount) ? Math.max(1, Math.floor(parsedCount)) : 1;
+      if (goal.session_teams?.name === match.team_a?.name) score.teamAScore += count;
+      if (goal.session_teams?.name === match.team_b?.name) score.teamBScore += count;
+      return score;
+    },
+    { teamAScore: 0, teamBScore: 0 }
   );
 }
 
