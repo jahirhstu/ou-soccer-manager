@@ -825,7 +825,28 @@ function getSpeechRecognition(): VoiceRecognitionConstructor | null {
 }
 
 function joinTranscript(base: string, next: string) {
-  return [base.trim(), next.trim()].filter(Boolean).join(" ").trim();
+  const cleanBase = base.trim();
+  const cleanNext = next.trim();
+  if (!cleanBase) return cleanNext;
+  if (!cleanNext) return cleanBase;
+
+  const normalizedBase = normalizeVoiceText(cleanBase);
+  const normalizedNext = normalizeVoiceText(cleanNext);
+  if (normalizedBase === normalizedNext || normalizedBase.endsWith(normalizedNext)) return cleanBase;
+  if (normalizedNext.startsWith(normalizedBase)) return cleanNext;
+
+  const baseWords = cleanBase.split(/\s+/);
+  const nextWords = cleanNext.split(/\s+/);
+  const normalizedBaseWords = normalizedBase.split(/\s+/);
+  const normalizedNextWords = normalizedNext.split(/\s+/);
+  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedNextWords.length);
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const baseTail = normalizedBaseWords.slice(-size).join(" ");
+    const nextHead = normalizedNextWords.slice(0, size).join(" ");
+    if (baseTail === nextHead) return [...baseWords, ...nextWords.slice(size)].join(" ").trim();
+  }
+
+  return `${cleanBase} ${cleanNext}`.trim();
 }
 
 function buildVoicePreviewGoals(
