@@ -433,32 +433,19 @@ export function MiniGameScoresForm({
               }`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold">
-                    {voiceResult.error ? "Could not parse command" : `${voicePreviewGoals.length} parsed goal${voicePreviewGoals.length === 1 ? "" : "s"}`}
+                    {voiceResult.error ? "Could not parse command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
                   </div>
                   {voiceResult.parser ? (
                     <div className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold">
-                      {voiceResult.parser.provider} {voiceResult.parser.engine}{voiceResult.parser.fallbackUsed ? " fallback" : ""}
+                      Parsed by {voiceResult.parser.engine === "llm" ? "LLM based" : "Rule based"}
                     </div>
                   ) : null}
                 </div>
                 {voiceResult.error ? <p className="text-xs">{voiceResult.error}</p> : null}
-                {voiceResult.warnings?.length ? (
-                  <div className="grid gap-1 text-xs">
-                    {voiceResult.warnings.map((warning, warningIndex) => <div key={`${warning}-${warningIndex}`}>{warning}</div>)}
-                  </div>
-                ) : null}
                 {voicePreviewGoals.length ? (
-                  <div className="grid gap-2">
-                    {voicePreviewGoals.map((goal, goalIndex) => (
-                      <div className="rounded-md border border-white/70 bg-white px-3 py-2 text-xs text-slate-700" key={`${goal.matchNumber}-${goal.scorerName}-${goalIndex}`}>
-                        <div className="font-semibold text-ink">
-                          G{goal.matchNumber}: {goal.goalType === "own_goal" ? "Own goal by" : "Goal by"} {goal.scorerName}
-                          {goal.assistName ? ` | Assist: ${goal.assistName}` : ""}
-                        </div>
-                        {goal.error ? <div className="mt-1 font-semibold text-red-700">{goal.error}</div> : null}
-                        {goal.warning ? <div className="mt-1 font-semibold text-amber-700">{goal.warning}</div> : null}
-                      </div>
-                    ))}
+                  <div className="rounded-md border border-white/70 bg-white px-3 py-2 text-xs text-slate-700">
+                    {validVoicePreviewGoals.length} of {voicePreviewGoals.length} parsed goal{voicePreviewGoals.length === 1 ? "" : "s"} can be added.
+                    {voicePreviewGoals.length > validVoicePreviewGoals.length ? " Some parsed items could not be matched to this fixture." : ""}
                   </div>
                 ) : null}
                 <div className="flex flex-wrap justify-end gap-2">
