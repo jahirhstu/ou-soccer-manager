@@ -14,11 +14,18 @@ type VoiceRecognition = {
   lang: string;
   onend: (() => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
-  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
+  onresult: ((event: VoiceRecognitionEvent) => void) | null;
   start: () => void;
   stop: () => void;
 };
 type VoiceRecognitionConstructor = new () => VoiceRecognition;
+type VoiceRecognitionEvent = {
+  resultIndex: number;
+  results: ArrayLike<{
+    0: { transcript: string };
+    isFinal: boolean;
+  }>;
+};
 type ParsedVoiceScoringGoal = {
   assistName?: string;
   confidence?: "low" | "medium" | "high";
@@ -104,8 +111,8 @@ export function MiniGameScoresForm({
   const recognitionRef = useRef<VoiceRecognition | null>(null);
   const saveSequenceRef = useRef(0);
   const voiceBaseTranscriptRef = useRef("");
+  const voiceInterimTranscriptRef = useRef("");
   const voiceParsedOnStopRef = useRef(false);
-  const voiceSessionTranscriptRef = useRef("");
   const voiceShouldListenRef = useRef(false);
   const [voiceCommand, setVoiceCommand] = useState("");
   const [voiceListening, setVoiceListening] = useState(false);
@@ -294,8 +301,8 @@ export function MiniGameScoresForm({
     }
     recognitionRef.current?.stop();
     voiceBaseTranscriptRef.current = voiceCommand.trim();
+    voiceInterimTranscriptRef.current = "";
     voiceParsedOnStopRef.current = false;
-    voiceSessionTranscriptRef.current = "";
     voiceShouldListenRef.current = true;
     setVoiceListening(true);
     setVoiceResult(null);
@@ -310,12 +317,19 @@ export function MiniGameScoresForm({
     recognition.lang = "en-US";
 
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
-      voiceSessionTranscriptRef.current = transcript;
-      setVoiceCommand(joinTranscript(voiceBaseTranscriptRef.current, transcript));
+      let interimTranscript = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript?.trim() ?? "";
+        if (!transcript) continue;
+        if (result.isFinal) {
+          voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, transcript);
+        } else {
+          interimTranscript = joinTranscript(interimTranscript, transcript);
+        }
+      }
+      voiceInterimTranscriptRef.current = interimTranscript;
+      setVoiceCommand(joinTranscript(voiceBaseTranscriptRef.current, interimTranscript));
     };
     recognition.onerror = (event) => {
       if (event.error === "no-speech" && voiceShouldListenRef.current) return;
@@ -326,15 +340,15 @@ export function MiniGameScoresForm({
       setVoiceResult({ error: message });
     };
     recognition.onend = () => {
-      voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceSessionTranscriptRef.current);
-      voiceSessionTranscriptRef.current = "";
+      const displayedTranscript = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
+      voiceInterimTranscriptRef.current = "";
       if (voiceShouldListenRef.current) {
         window.setTimeout(() => {
           if (voiceShouldListenRef.current) startRecognitionLoop(Recognition);
         }, 150);
         return;
       }
-      const finalTranscript = voiceBaseTranscriptRef.current.trim();
+      const finalTranscript = displayedTranscript.trim();
       setVoiceListening(false);
       if (finalTranscript && !voiceParsedOnStopRef.current) void parseVoiceCommand(finalTranscript);
     };
@@ -352,8 +366,8 @@ export function MiniGameScoresForm({
 
   function stopVoiceScoring() {
     voiceShouldListenRef.current = false;
-    voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceSessionTranscriptRef.current);
-    voiceSessionTranscriptRef.current = "";
+    voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
+    voiceInterimTranscriptRef.current = "";
     voiceParsedOnStopRef.current = true;
     setVoiceCommand(voiceBaseTranscriptRef.current);
     recognitionRef.current?.stop();
@@ -456,7 +470,7 @@ export function MiniGameScoresForm({
                 </button>
                 <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => {
                   voiceBaseTranscriptRef.current = "";
-                  voiceSessionTranscriptRef.current = "";
+                  voiceInterimTranscriptRef.current = "";
                   setVoiceCommand("");
                   setVoiceResult(null);
                 }} type="button">
