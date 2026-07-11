@@ -1,9 +1,8 @@
 import type { ParsedWhatsAppImport } from "../types";
+import { generateOpenAIJson } from "../llm/json";
 import { parseSessionDate } from "../utils";
 import { RuleBasedWhatsAppParser } from "./rule-based";
 import type { WhatsAppParser } from "./types";
-
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 export class OpenAIWhatsAppParser implements WhatsAppParser {
   private fallback = new RuleBasedWhatsAppParser();
@@ -20,45 +19,16 @@ export class OpenAIWhatsAppParser implements WhatsAppParser {
 
     try {
       const model = process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini";
-      const response = await fetch(OPENAI_RESPONSES_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          input: [
-            {
-              role: "system",
-              content: parserInstructions()
-            },
-            {
-              role: "user",
-              content: input
-            }
-          ],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "parsed_whatsapp_import",
-              strict: true,
-              schema: parsedWhatsAppImportJsonSchema
-            }
-          }
-        })
+      const result = await generateOpenAIJson({
+        apiKey,
+        input,
+        model,
+        schema: parsedWhatsAppImportJsonSchema,
+        schemaName: "parsed_whatsapp_import",
+        system: parserInstructions()
       });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI parser failed: ${response.status} ${await response.text()}`);
-      }
-
-      const payload = await response.json();
-      const text = extractResponseText(payload);
-      if (!text) throw new Error("OpenAI parser returned no structured text.");
-
-      const parsed = normalizeParsedJson(JSON.parse(text), input);
-      parsed.parser = { engine: "llm", provider: "openai", model };
+      const parsed = normalizeParsedJson(result.json, input);
+      parsed.parser = { engine: "llm", provider: "openai", model: result.model };
       return parsed;
     } catch (error) {
       const parsed = await this.fallback.parse(input);
@@ -104,16 +74,6 @@ Important rules:
 - Mark uncertain extraction with confidence low or medium and add warnings.
 - Keep names human-clean, e.g. "Rocky bhai" -> "Rocky Bhai".
 - Return dates as YYYY-MM-DD. If a date has month/day but no year, use current year ${currentYear}.`;
-}
-
-function extractResponseText(payload: any) {
-  if (typeof payload.output_text === "string") return payload.output_text;
-  for (const output of payload.output ?? []) {
-    for (const content of output.content ?? []) {
-      if (typeof content.text === "string") return content.text;
-    }
-  }
-  return undefined;
 }
 
 function normalizeParsedJson(value: any, rawText: string): ParsedWhatsAppImport {

@@ -1,5 +1,7 @@
 "use server";
 
+import { geminiCandidateModels, generateGeminiJson, generateOpenAIJson } from "@/lib/llm/json";
+
 type VoiceScoringGoal = {
   assistName?: string;
   confidence?: "low" | "medium" | "high";
@@ -32,8 +34,6 @@ type VoiceScoringContext = {
   }>;
 };
 
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-
 export async function parseVoiceScoringCommand(formData: FormData): Promise<VoiceScoringParseResult> {
   const rawText = String(formData.get("commandText") ?? "").trim();
   if (!rawText) return { error: "Enter or record a scoring command first." };
@@ -63,32 +63,14 @@ export async function parseVoiceScoringCommand(formData: FormData): Promise<Voic
 async function parseWithGemini(rawText: string, context: VoiceScoringContext): Promise<VoiceScoringParseResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return parseVoiceScoringCommandFallback(rawText, "Gemini key is missing.");
-  const model = process.env.GEMINI_WHATSAPP_PARSER_MODEL?.trim() || "gemini-2.5-flash";
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `${voiceScoringInstructions(context)}\n\nScoring command:\n${rawText}` }]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: geminiVoiceScoringSchema
-        }
-      })
+    const result = await generateGeminiJson({
+      apiKey,
+      models: geminiCandidateModels(process.env.GEMINI_WHATSAPP_PARSER_MODEL),
+      prompt: `${voiceScoringInstructions(context)}\n\nScoring command:\n${rawText}`,
+      schema: geminiVoiceScoringSchema
     });
-    if (!response.ok) throw new Error(`Gemini scoring parser failed: ${response.status} ${await response.text()}`);
-    const payload = await response.json();
-    const text = payload.candidates?.[0]?.content?.parts?.map((part: any) => part.text ?? "").join("").trim();
-    if (!text) throw new Error("Gemini scoring parser returned no text.");
-    return normalizeVoiceScoringJson(JSON.parse(text), rawText, { engine: "llm", provider: "gemini", model });
+    return normalizeVoiceScoringJson(result.json, rawText, { engine: "llm", provider: "gemini", model: result.model });
   } catch (error) {
     return parseVoiceScoringCommandFallback(rawText, error instanceof Error ? error.message : "Gemini scoring parser failed.");
   }
@@ -99,33 +81,15 @@ async function parseWithOpenAI(rawText: string, context: VoiceScoringContext): P
   if (!apiKey) return parseVoiceScoringCommandFallback(rawText, "OpenAI key is missing.");
   const model = process.env.OPENAI_WHATSAPP_PARSER_MODEL ?? "gpt-4.1-mini";
   try {
-    const response = await fetch(OPENAI_RESPONSES_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        input: [
-          { role: "system", content: voiceScoringInstructions(context) },
-          { role: "user", content: rawText }
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "voice_scoring_command",
-            strict: true,
-            schema: openAIVoiceScoringSchema
-          }
-        }
-      })
+    const result = await generateOpenAIJson({
+      apiKey,
+      input: rawText,
+      model,
+      schema: openAIVoiceScoringSchema,
+      schemaName: "voice_scoring_command",
+      system: voiceScoringInstructions(context)
     });
-    if (!response.ok) throw new Error(`OpenAI scoring parser failed: ${response.status} ${await response.text()}`);
-    const payload = await response.json();
-    const text = extractOpenAIText(payload);
-    if (!text) throw new Error("OpenAI scoring parser returned no structured text.");
-    return normalizeVoiceScoringJson(JSON.parse(text), rawText, { engine: "llm", provider: "openai", model });
+    return normalizeVoiceScoringJson(result.json, rawText, { engine: "llm", provider: "openai", model: result.model });
   } catch (error) {
     return parseVoiceScoringCommandFallback(rawText, error instanceof Error ? error.message : "OpenAI scoring parser failed.");
   }
@@ -246,16 +210,6 @@ Rules:
 
 Available games and players:
 ${JSON.stringify(context, null, 2)}`;
-}
-
-function extractOpenAIText(payload: any) {
-  if (typeof payload.output_text === "string") return payload.output_text;
-  for (const output of payload.output ?? []) {
-    for (const content of output.content ?? []) {
-      if (typeof content.text === "string") return content.text;
-    }
-  }
-  return undefined;
 }
 
 function cleanName(value: unknown) {
