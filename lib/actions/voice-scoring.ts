@@ -24,6 +24,13 @@ type VoiceScoringParseResult = {
   error?: string;
 };
 
+type VoiceTranscriptionResult = {
+  error?: string;
+  model?: string;
+  provider?: "openai";
+  transcript?: string;
+};
+
 type VoiceScoringContext = {
   matches: Array<{
     matchNumber: number;
@@ -58,6 +65,64 @@ export async function parseVoiceScoringCommand(formData: FormData): Promise<Voic
     rawText,
     warnings: ["LLM parser key is missing. Used simple voice scoring parser."]
   };
+}
+
+export async function transcribeVoiceScoringAudio(formData: FormData): Promise<VoiceTranscriptionResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { error: "OPENAI_API_KEY is missing. Audio transcription requires OpenAI for now." };
+
+  const audio = formData.get("audio");
+  if (!(audio instanceof File) || audio.size <= 0) return { error: "No audio recording was received." };
+
+  const contextText = String(formData.get("contextText") ?? "").trim();
+  const models = openAITranscriptionModels();
+  const errors: string[] = [];
+  for (const model of models) {
+    const result = await tryOpenAITranscription({ apiKey, audio, contextText, model });
+    if (result.transcript) return result;
+    if (result.error) errors.push(result.error);
+  }
+
+  return { error: errors.join(" | ") || "Could not transcribe audio." };
+}
+
+async function tryOpenAITranscription({
+  apiKey,
+  audio,
+  contextText,
+  model
+}: {
+  apiKey: string;
+  audio: File;
+  contextText: string;
+  model: string;
+}): Promise<VoiceTranscriptionResult> {
+  try {
+    const body = new FormData();
+    body.set("file", audio, audio.name || "voice-scoring.webm");
+    body.set("model", model);
+    body.set("response_format", "json");
+    if (contextText) body.set("prompt", contextText);
+
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body
+    });
+    if (!response.ok) return { error: `${model}: ${response.status} ${await response.text()}` };
+
+    const payload = await response.json();
+    const transcript = String(payload.text ?? "").trim();
+    if (!transcript) return { error: `${model}: transcription returned no text.` };
+    return { model, provider: "openai", transcript };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "OpenAI transcription failed." };
+  }
+}
+
+function openAITranscriptionModels() {
+  const configured = process.env.OPENAI_TRANSCRIPTION_MODEL?.trim();
+  return Array.from(new Set([configured, "gpt-4o-mini-transcribe", "whisper-1"].filter(Boolean) as string[]));
 }
 
 async function parseWithGemini(rawText: string, context: VoiceScoringContext): Promise<VoiceScoringParseResult> {
