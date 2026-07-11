@@ -27,7 +27,7 @@ type VoiceScoringParseResult = {
 type VoiceTranscriptionResult = {
   error?: string;
   model?: string;
-  provider?: "openai";
+  provider?: "gemini" | "openai";
   transcript?: string;
 };
 
@@ -68,22 +68,91 @@ export async function parseVoiceScoringCommand(formData: FormData): Promise<Voic
 }
 
 export async function transcribeVoiceScoringAudio(formData: FormData): Promise<VoiceTranscriptionResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { error: "OPENAI_API_KEY is missing. Audio transcription requires OpenAI for now." };
-
   const audio = formData.get("audio");
   if (!(audio instanceof File) || audio.size <= 0) return { error: "No audio recording was received." };
 
   const contextText = String(formData.get("contextText") ?? "").trim();
-  const models = openAITranscriptionModels();
+  const providers = voiceTranscriptionProviders();
   const errors: string[] = [];
-  for (const model of models) {
-    const result = await tryOpenAITranscription({ apiKey, audio, contextText, model });
-    if (result.transcript) return result;
-    if (result.error) errors.push(result.error);
+
+  for (const provider of providers) {
+    if (provider === "gemini") {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        errors.push("GEMINI_API_KEY is missing.");
+        continue;
+      }
+      for (const model of geminiCandidateModels(process.env.GEMINI_TRANSCRIPTION_MODEL)) {
+        const result = await tryGeminiTranscription({ apiKey, audio, contextText, model });
+        if (result.transcript) return result;
+        if (result.error) errors.push(result.error);
+      }
+    }
+
+    if (provider === "openai") {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        errors.push("OPENAI_API_KEY is missing.");
+        continue;
+      }
+      for (const model of openAITranscriptionModels()) {
+        const result = await tryOpenAITranscription({ apiKey, audio, contextText, model });
+        if (result.transcript) return result;
+        if (result.error) errors.push(result.error);
+      }
+    }
   }
 
   return { error: errors.join(" | ") || "Could not transcribe audio." };
+}
+
+async function tryGeminiTranscription({
+  apiKey,
+  audio,
+  contextText,
+  model
+}: {
+  apiKey: string;
+  audio: File;
+  contextText: string;
+  model: string;
+}): Promise<VoiceTranscriptionResult> {
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: geminiTranscriptionPrompt(contextText) },
+              {
+                inlineData: {
+                  data: Buffer.from(await audio.arrayBuffer()).toString("base64"),
+                  mimeType: normalizeGeminiAudioMimeType(audio.type)
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0
+        }
+      })
+    });
+    if (!response.ok) return { error: `${model}: ${response.status} ${await response.text()}` };
+
+    const payload = await response.json();
+    const transcript = extractGeminiText(payload)?.replace(/^["']|["']$/g, "").trim();
+    if (!transcript) return { error: `${model}: transcription returned no text.` };
+    return { model, provider: "gemini", transcript };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Gemini transcription failed." };
+  }
 }
 
 async function tryOpenAITranscription({
@@ -123,6 +192,34 @@ async function tryOpenAITranscription({
 function openAITranscriptionModels() {
   const configured = process.env.OPENAI_TRANSCRIPTION_MODEL?.trim();
   return Array.from(new Set([configured, "gpt-4o-mini-transcribe", "whisper-1"].filter(Boolean) as string[]));
+}
+
+function voiceTranscriptionProviders() {
+  const configured = process.env.VOICE_TRANSCRIPTION_PROVIDER?.trim().toLowerCase();
+  if (configured === "openai") return ["openai", "gemini"] as const;
+  return ["gemini", "openai"] as const;
+}
+
+function geminiTranscriptionPrompt(contextText: string) {
+  return [
+    "Generate an exact transcript of the speech in this audio.",
+    "Return only the spoken words, with no summary, labels, markdown, or explanation.",
+    "The speech is a soccer scoring command. Preserve player names and game numbers as accurately as possible.",
+    contextText ? `Context:\n${contextText}` : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function normalizeGeminiAudioMimeType(mimeType: string) {
+  if (mimeType.includes("wav")) return "audio/wav";
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "audio/mp3";
+  if (mimeType.includes("aac")) return "audio/aac";
+  if (mimeType.includes("ogg")) return "audio/ogg";
+  if (mimeType.includes("flac")) return "audio/flac";
+  return "audio/wav";
+}
+
+function extractGeminiText(payload: any) {
+  return payload.candidates?.[0]?.content?.parts?.map((part: any) => part.text ?? "").join("").trim();
 }
 
 async function parseWithGemini(rawText: string, context: VoiceScoringContext): Promise<VoiceScoringParseResult> {

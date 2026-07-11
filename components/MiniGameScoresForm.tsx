@@ -8,6 +8,7 @@ import { parseVoiceScoringCommand, transcribeVoiceScoringAudio } from "@/lib/act
 
 type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+type AudioContextConstructor = new () => AudioContext;
 type ParsedVoiceScoringGoal = {
   assistName?: string;
   confidence?: "low" | "medium" | "high";
@@ -88,11 +89,14 @@ export function MiniGameScoresForm({
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveMessage, setSaveMessage] = useState("All changes saved.");
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioRecordingFailedRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioSamplesRef = useRef<Float32Array[]>([]);
+  const audioSampleRateRef = useRef(44100);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const saveSequenceRef = useRef(0);
   const [voiceCommand, setVoiceCommand] = useState("");
   const [voiceParsePending, setVoiceParsePending] = useState(false);
@@ -225,10 +229,7 @@ export function MiniGameScoresForm({
 
   useEffect(() => {
     return () => {
-      const recorder = mediaRecorderRef.current;
-      if (recorder?.state === "recording") recorder.stop();
-      recorder?.stream.getTracks().forEach((track) => track.stop());
-      mediaRecorderRef.current = null;
+      cleanupVoiceRecording();
     };
   }, []);
 
@@ -277,43 +278,33 @@ export function MiniGameScoresForm({
   }
 
   async function startVoiceScoring() {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    const AudioContextConstructor = getAudioContextConstructor();
+    if (!navigator.mediaDevices?.getUserMedia || !AudioContextConstructor) {
       toast.error("Audio recording is not supported in this browser.");
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = preferredAudioMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      audioRecordingFailedRef.current = false;
-      mediaRecorderRef.current = recorder;
+      const audioContext = new AudioContextConstructor();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      audioSamplesRef.current = [];
+      audioSampleRateRef.current = audioContext.sampleRate;
+      audioContextRef.current = audioContext;
+      audioProcessorRef.current = processor;
+      audioSourceRef.current = source;
+      audioStreamRef.current = stream;
       setVoiceRecording(true);
       setVoiceResult(null);
 
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      processor.onaudioprocess = (event) => {
+        audioSamplesRef.current.push(new Float32Array(event.inputBuffer.getChannelData(0)));
       };
-      recorder.onerror = () => {
-        audioRecordingFailedRef.current = true;
-        toast.error("Audio recording failed.");
-        setVoiceRecording(false);
-        stream.getTracks().forEach((track) => track.stop());
-        mediaRecorderRef.current = null;
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        mediaRecorderRef.current = null;
-        setVoiceRecording(false);
-        if (audioRecordingFailedRef.current) {
-          audioChunksRef.current = [];
-          audioRecordingFailedRef.current = false;
-          return;
-        }
-        void transcribeAndParseRecording();
-      };
-      recorder.start();
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      if (audioContext.state === "suspended") await audioContext.resume();
     } catch (error) {
+      cleanupVoiceRecording();
       const message = error instanceof Error ? error.message : "Could not start audio recording.";
       setVoiceResult({ error: message });
       toast.error(message);
@@ -321,23 +312,40 @@ export function MiniGameScoresForm({
   }
 
   function stopVoiceScoring() {
-    const recorder = mediaRecorderRef.current;
-    if (!recorder || recorder.state !== "recording") return;
-    recorder.stop();
-  }
-
-  async function transcribeAndParseRecording() {
-    const audioBlob = new Blob(audioChunksRef.current, { type: audioChunksRef.current[0]?.type || "audio/webm" });
-    audioChunksRef.current = [];
+    const audioBlob = finishVoiceRecording();
     if (!audioBlob.size) {
       toast.error("No audio was recorded.");
       return;
     }
+    void transcribeAndParseRecording(audioBlob);
+  }
 
+  function finishVoiceRecording() {
+    const samples = audioSamplesRef.current;
+    const sampleRate = audioSampleRateRef.current;
+    cleanupVoiceRecording();
+    setVoiceRecording(false);
+    audioSamplesRef.current = [];
+    if (!samples.length) return new Blob([], { type: "audio/wav" });
+    return encodeWav(samples, sampleRate);
+  }
+
+  function cleanupVoiceRecording() {
+    audioProcessorRef.current?.disconnect();
+    audioSourceRef.current?.disconnect();
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+    audioProcessorRef.current = null;
+    audioSourceRef.current = null;
+    audioStreamRef.current = null;
+  }
+
+  async function transcribeAndParseRecording(audioBlob: Blob) {
     setVoiceTranscribePending(true);
     setVoiceResult(null);
     const formData = new FormData();
-    const audioType = audioBlob.type || "audio/webm";
+    const audioType = audioBlob.type || "audio/wav";
     formData.set("audio", new File([audioBlob], `voice-scoring-${Date.now()}.${audioFileExtension(audioType)}`, { type: audioType }));
     formData.set("contextText", voiceTranscriptionContext(resolvedGames, teams, playersByTeam));
     try {
@@ -472,7 +480,7 @@ export function MiniGameScoresForm({
               }`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold">
-                    {voiceResult.error ? "Could not parse command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
+                    {voiceResult.error ? "Could not process voice command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
                   </div>
                   {voiceResult.parser ? (
                     <div className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold">
@@ -798,15 +806,52 @@ function minutesBetween(start?: string | null, end?: string | null) {
   return Math.max(0, endMinutes - startMinutes);
 }
 
-function preferredAudioMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mpeg"];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+function getAudioContextConstructor(): AudioContextConstructor | null {
+  if (typeof window === "undefined") return null;
+  const audioWindow = window as Window & { webkitAudioContext?: AudioContextConstructor };
+  return window.AudioContext ?? audioWindow.webkitAudioContext ?? null;
 }
 
 function audioFileExtension(mimeType: string) {
+  if (mimeType.includes("wav")) return "wav";
   if (mimeType.includes("mp4")) return "mp4";
   if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
   return "webm";
+}
+
+function encodeWav(chunks: Float32Array[], sampleRate: number) {
+  const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const buffer = new ArrayBuffer(44 + sampleCount * 2);
+  const view = new DataView(buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + sampleCount * 2, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, sampleCount * 2, true);
+
+  let offset = 44;
+  for (const chunk of chunks) {
+    for (const sample of chunk) {
+      const clamped = Math.max(-1, Math.min(1, sample));
+      view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
 }
 
 function voiceTranscriptionContext(
