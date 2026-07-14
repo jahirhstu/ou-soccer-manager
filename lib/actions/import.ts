@@ -82,6 +82,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       actorId: profile.id
     });
     const targetSession = targetSessionId ? await getSessionStatusForImport(supabase, targetSessionId) : null;
+    ensureParsedPlayersAreAttendance(parsed, Boolean(targetSessionId));
 
     const playerIds = await resolveImportedPlayers({
       supabase,
@@ -315,7 +316,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       }
     }
 
-    if (parsed.importType === "session_update" && targetSessionId) {
+    if (targetSessionId && parsed.attendance?.length) {
       await applySessionUsage({
         supabase,
         sessionId: targetSessionId,
@@ -1099,6 +1100,19 @@ function ensureTeamPlayersAreAttendance(parsed: any) {
       parsed.attendance.push({ playerName: normalizePlayerName(playerName), status: "confirmed", confidence: team.confidence ?? "medium" });
       existing.add(key);
     }
+  }
+}
+
+function ensureParsedPlayersAreAttendance(parsed: any, hasTargetSession = false) {
+  if (parsed.importType !== "session_update" && !hasTargetSession) return;
+  const existing = new Set((parsed.attendance ?? []).map((row: any) => normalizeNameKey(row.playerName)));
+  for (const player of parsed.players ?? []) {
+    const playerName = cleanImportedPlayerName(player.name);
+    const key = normalizeNameKey(playerName);
+    if (!key || existing.has(key)) continue;
+    parsed.attendance ??= [];
+    parsed.attendance.push({ playerName, status: "confirmed", confidence: player.confidence ?? "medium" });
+    existing.add(key);
   }
 }
 

@@ -12,7 +12,7 @@ export async function applySessionUsage({
   supabase: SupabaseClient;
   sessionId: string;
   actorId: string;
-  source: "whatsapp_import" | "session_completed";
+  source: "whatsapp_import" | "session_completed" | "manual";
   markSessionCompleted?: boolean;
 }) {
   const { data: session, error: sessionError } = await supabase
@@ -93,7 +93,7 @@ export async function applySessionUsage({
       type: "session_used",
       amount: effectivePrice,
       sessions_count: 1,
-      description: `${source === "whatsapp_import" ? "WhatsApp session import" : "Session completed"}. Status: ${
+      description: `${sessionUsageDescription(source)}. Status: ${
         charge.status === "confirmed" ? "played" : charge.status
       }.`,
       created_by: actorId
@@ -120,7 +120,7 @@ export async function applySessionUsage({
 
   await supabase.from("audit_logs").insert({
     actor_id: actorId,
-    action: source === "whatsapp_import" ? "session_usage_imported" : "session_completed",
+    action: source === "whatsapp_import" ? "session_usage_imported" : source === "manual" ? "session_usage_manual_sync" : "session_completed",
     entity_type: "sessions",
     entity_id: sessionId,
     new_data: {
@@ -180,6 +180,12 @@ async function removeNonBillableSessionCharges({
 
 function isUniqueViolation(error: { code?: string; message?: string }) {
   return error.code === "23505" || /duplicate key value violates unique constraint/i.test(error.message ?? "");
+}
+
+function sessionUsageDescription(source: "whatsapp_import" | "session_completed" | "manual") {
+  if (source === "whatsapp_import") return "WhatsApp session import";
+  if (source === "manual") return "Manual attendance update";
+  return "Session completed";
 }
 
 function currentDateString() {

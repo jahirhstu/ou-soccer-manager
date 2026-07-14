@@ -150,7 +150,17 @@ export async function upsertAttendance(formData: FormData) {
     .from("attendance")
     .upsert({ ...parsed, program_id: programId, created_by: profile.id }, { onConflict: "session_id,player_id" });
   if (error) throw new Error(error.message);
+  await applySessionUsage({
+    supabase,
+    sessionId: parsed.session_id,
+    actorId: profile.id,
+    source: "manual"
+  });
   revalidatePath("/attendance");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports/payments");
+  revalidatePath("/public/report");
+  revalidatePath(`/sessions/${parsed.session_id}`);
 }
 
 export async function updateSessionPrice(formData: FormData) {
