@@ -145,10 +145,10 @@ export async function upsertAttendance(formData: FormData) {
   const profile = await requirePermission("manage_attendance");
   const parsed = attendanceSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const programId = parsed.program_id ?? (await getProgramIdForSession(supabase, parsed.session_id));
+  const { program_id: _programId, ...attendancePayload } = parsed;
   const { error } = await supabase
     .from("attendance")
-    .upsert({ ...parsed, program_id: programId, created_by: profile.id }, { onConflict: "session_id,player_id" });
+    .upsert({ ...attendancePayload, created_by: profile.id }, { onConflict: "session_id,player_id" });
   if (error) throw new Error(error.message);
   await applySessionUsage({
     supabase,
