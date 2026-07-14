@@ -1,3 +1,5 @@
+"use client";
+
 import { Calendar, DollarSign } from "lucide-react";
 import type { Player, Playground, Program, Season, Session } from "@/lib/types";
 
