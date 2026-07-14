@@ -76,6 +76,8 @@ export function PlayerSelect({
   players,
   name = "player_id",
   defaultValue,
+  value,
+  onChange,
   required = true,
   includeIgnore = false,
   emptyLabel = "Select player"
@@ -83,12 +85,15 @@ export function PlayerSelect({
   players: Player[];
   name?: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
   required?: boolean;
   includeIgnore?: boolean;
   emptyLabel?: string;
 }) {
+  const controlProps = value === undefined ? { defaultValue } : { value };
   return (
-    <select className="input" defaultValue={defaultValue} name={name} required={required}>
+    <select className="input" name={name} onChange={(event) => onChange?.(event.target.value)} required={required} {...controlProps}>
       <option value="">{emptyLabel}</option>
       {includeIgnore ? <option value="__ignore__">Ignore this parsed name</option> : null}
       {players.map((player) => <option key={player.id} value={player.id}>{player.display_name}</option>)}

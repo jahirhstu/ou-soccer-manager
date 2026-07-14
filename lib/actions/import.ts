@@ -20,6 +20,7 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData) {
     ensureMatchTeamsAreParsedTeams(parsed);
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
+    ensureRawTextWaitlistAttendance(parsed);
     sanitizeParsedNames(parsed);
     applyDropoutAttendanceOverrides(parsed);
     return { parsed };
@@ -62,6 +63,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     ensureMatchTeamsAreParsedTeams(parsed);
     ensureTeamPlayersAreParsedPlayers(parsed);
     ensureTeamPlayersAreAttendance(parsed);
+    ensureRawTextWaitlistAttendance(parsed);
     sanitizeParsedNames(parsed);
     applyDropoutAttendanceOverrides(parsed);
 
@@ -1114,6 +1116,61 @@ function ensureParsedPlayersAreAttendance(parsed: any, hasTargetSession = false)
     parsed.attendance.push({ playerName, status: "confirmed", confidence: player.confidence ?? "medium" });
     existing.add(key);
   }
+}
+
+function ensureRawTextWaitlistAttendance(parsed: any) {
+  if (!parsed.rawText) return;
+  const waitlistedNames = extractWaitlistRosterNames(String(parsed.rawText));
+  if (!waitlistedNames.length) return;
+
+  const existingPlayers = new Set((parsed.players ?? []).map((player: any) => normalizeNameKey(player.name)));
+  const attendanceByPlayer = new Map((parsed.attendance ?? []).map((row: any) => [normalizeNameKey(row.playerName), row]));
+  for (const playerName of waitlistedNames) {
+    const key = normalizeNameKey(playerName);
+    if (!key) continue;
+    if (!existingPlayers.has(key)) {
+      parsed.players ??= [];
+      parsed.players.push({ name: playerName, confidence: "medium" });
+      existingPlayers.add(key);
+    }
+    attendanceByPlayer.set(key, {
+      ...(attendanceByPlayer.get(key) ?? {}),
+      playerName,
+      status: "waitlisted",
+      confidence: "high"
+    });
+  }
+  parsed.attendance = Array.from(attendanceByPlayer.values());
+}
+
+function extractWaitlistRosterNames(rawText: string) {
+  const names: string[] = [];
+  let inWaitlist = false;
+  for (const rawLine of rawText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^(?:wait\s*list|waitlist|waiting list)\s*:?\s*$/i.test(line)) {
+      inWaitlist = true;
+      continue;
+    }
+    if (/^(?:head\s*count|headcount|confirmed|confirmed players|players|address|location|venue|interac|payment)\s*:?\s*/i.test(line)) {
+      inWaitlist = false;
+      continue;
+    }
+    if (!inWaitlist) continue;
+    const match = line.match(/^\s*\d{1,3}[.)]?\s*[^\p{L}\p{N}]*(.+)$/u);
+    if (!match) continue;
+    const rawName = match[1]
+      .replace(/\([^)]*\)/g, " ")
+      .replace(/\[[^\]]*]/g, " ")
+      .replace(/\s*[-–].*$/u, " ")
+      .replace(/[^\p{L}\p{M}\s.'-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const playerName = cleanImportedPlayerName(rawName);
+    if (playerName) names.push(playerName);
+  }
+  return names;
 }
 
 function ensureMatchTeamsAreParsedTeams(parsed: any) {

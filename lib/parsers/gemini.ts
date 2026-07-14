@@ -75,6 +75,7 @@ Rules:
 - For numbered roster rows, extract the player name before dash/bracket and parse payment info beside that name.
 - Parenthesized words like "(Sent)", "(Pending)", "(Dropped)", "(Replaced)", or "(Balance will remain)" are status/payment notes, not part of the player name.
 - In roster/headcount rows, "(Pending)" usually means payment pending, not waitlisted. Keep attendance confirmed unless the row explicitly says waitlist/waitlisted.
+- Numbered names under a "Waitlist", "Wait list", or "Waiting list" section must be players and attendance with status "waitlisted", not confirmed.
 - For season_signup, put roster names in players, but do not create attendance unless one specific session is clearly described.
 - For session_update, attendance applies to the selected session.
 - Full-season paid amount means sessionsCovered equals totalSessions when known.

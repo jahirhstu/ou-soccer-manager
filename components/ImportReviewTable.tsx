@@ -101,6 +101,7 @@ export function ImportReviewTable({
   const defaultSessionId = matchedSession?.id ?? (shouldOfferSessionCreate && parsed?.importType === "session_update" ? "__create__" : "");
   const [selectedSeasonId, setSelectedSeasonId] = useState(defaultSeasonId);
   const [selectedSessionId, setSelectedSessionId] = useState(defaultSessionId);
+  const [matchSelections, setMatchSelections] = useState<Record<string, string>>({});
   const selectedSeason = seasons.find((season) => season.id === selectedSeasonId);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
   const selectedPlayground = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
@@ -126,6 +127,14 @@ export function ImportReviewTable({
   useEffect(() => {
     setSelectedSeasonId(defaultSeasonId);
     setSelectedSessionId(defaultSessionId);
+    if (parsed) {
+      setMatchSelections(Object.fromEntries(
+        parsed.players.map((player) => [
+          player.name,
+          getDefaultMatchValue(player.name, players, playersByName, aliasesByName)
+        ])
+      ));
+    }
   }, [defaultSeasonId, defaultSessionId, parsed?.rawText]);
 
   return (
@@ -225,6 +234,7 @@ export function ImportReviewTable({
             playerReports={playerReports}
             players={players}
             playersByName={playersByName}
+            matchSelections={matchSelections}
             seasonId={selectedSeasonId === "__create__" ? undefined : selectedSeasonId}
             selectedSeason={selectedSeason}
             selectedSession={selectedSession}
@@ -341,12 +351,13 @@ export function ImportReviewTable({
                     <p className="text-xs text-emerald-700">Exact player name match found.</p>
                   )}
                   <PlayerSelect
-                    defaultValue={matchedPlayerId}
                     emptyLabel="Create new player if not matched"
                     includeIgnore
                     name={`match_${player.name}`}
+                    onChange={(value) => setMatchSelections((current) => ({ ...current, [player.name]: value }))}
                     players={players}
                     required={false}
+                    value={matchSelections[player.name] ?? matchedPlayerId ?? ""}
                   />
                   {!exactPlayerId ? (
                     <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
@@ -571,6 +582,7 @@ function ParserSummary({ parsed }: { parsed: ParsedWhatsAppImport }) {
 function ImpactPreview({
   aliasesByName,
   ledgerEntries,
+  matchSelections,
   parsed,
   playerReports,
   players,
@@ -583,6 +595,7 @@ function ImpactPreview({
 }: {
   aliasesByName: Map<string, PlayerAlias>;
   ledgerEntries: LedgerEntryRow[];
+  matchSelections: Record<string, string>;
   parsed: ParsedWhatsAppImport;
   playerReports: PlayerReportRow[];
   players: Player[];
@@ -596,6 +609,7 @@ function ImpactPreview({
   const rows = buildImpactRows({
     aliasesByName,
     ledgerEntries,
+    matchSelections,
     parsed,
     playerReports,
     players,
@@ -613,7 +627,7 @@ function ImpactPreview({
       <div className="border-t border-line p-4">
         <h2 className="text-sm font-semibold">Estimated payment impact</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Based on the selected season/session and current default name matches. Review this before confirming import.
+          Based on the selected season/session and current name match selections. Review this before confirming import.
         </p>
       </div>
       {rows.length ? (
@@ -635,6 +649,7 @@ function ImpactPreview({
                 <tr key={row.name}>
                   <td className="px-4 py-3 font-medium text-ink">
                     {row.name}
+                    {row.createsNew ? <span className="ml-2 rounded bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">New player</span> : null}
                     {!row.matched ? <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Unmatched</span> : null}
                   </td>
                   <td className="px-4 py-3">{signedMoney(row.currentBalance)}</td>
@@ -666,6 +681,7 @@ function ImpactPreview({
 function buildImpactRows({
   aliasesByName,
   ledgerEntries,
+  matchSelections,
   parsed,
   playerReports,
   players,
@@ -678,6 +694,7 @@ function buildImpactRows({
 }: {
   aliasesByName: Map<string, PlayerAlias>;
   ledgerEntries: LedgerEntryRow[];
+  matchSelections: Record<string, string>;
   parsed: ParsedWhatsAppImport;
   playerReports: PlayerReportRow[];
   players: Player[];
@@ -700,13 +717,16 @@ function buildImpactRows({
 
   return Array.from(names)
     .map((name) => {
-      const playerId = getDefaultMatchedPlayerId(name, players, playersByName, aliasesByName);
+      const match = resolvePreviewMatch(name, matchSelections, players, playersByName, aliasesByName);
+      if (match.ignored) return null;
+      const playerId = match.playerId;
       const currentBalance = playerId ? getCurrentBalance(playerReports, playerId, seasonId) : 0;
       const paymentAdded = estimatePaymentAdded({
         ledgerEntries,
         parsed,
         playerId,
         playerName: name,
+        createsNewPlayer: match.createsNew,
         seasonId,
         sessionId: selectedSession?.id,
         sessionPrice
@@ -715,13 +735,11 @@ function buildImpactRows({
         parsed,
         playerId,
         playerName: name,
-        players,
-        playersByName,
-        aliasesByName,
         selectedSession,
         sessionAttendance,
         sessionCharges,
-        sessionPrice
+        sessionPrice,
+        createsNewPlayer: match.createsNew
       });
       const afterBalance = currentBalance + paymentAdded - sessionCharge;
       return {
@@ -730,8 +748,9 @@ function buildImpactRows({
         paymentAdded,
         sessionCharge,
         afterBalance,
-        matched: Boolean(playerId),
-        changeStatus: impactChangeStatus({ matched: Boolean(playerId), paymentAdded, sessionCharge })
+        matched: Boolean(playerId) || match.createsNew,
+        createsNew: match.createsNew,
+        changeStatus: impactChangeStatus({ matched: Boolean(playerId) || match.createsNew, paymentAdded, sessionCharge })
       };
     })
     .filter(Boolean) as Array<{
@@ -741,6 +760,7 @@ function buildImpactRows({
       sessionCharge: number;
       afterBalance: number;
       matched: boolean;
+      createsNew: boolean;
       changeStatus: string;
     }>;
 }
@@ -750,6 +770,7 @@ function estimatePaymentAdded({
   parsed,
   playerId,
   playerName,
+  createsNewPlayer,
   seasonId,
   sessionId,
   sessionPrice
@@ -758,12 +779,13 @@ function estimatePaymentAdded({
   parsed: ParsedWhatsAppImport;
   playerId?: string;
   playerName: string;
+  createsNewPlayer: boolean;
   seasonId?: string;
   sessionId?: string;
   sessionPrice: number;
 }) {
   const payment = parsed.payments.find((row) => normalizeName(row.playerName) === normalizeName(playerName));
-  if (!payment || !playerId) return 0;
+  if (!payment || (!playerId && !createsNewPlayer)) return 0;
   const amount = Number(payment.amount ?? 0);
   const explicitAmount = amount > 0 && payment.amountSource === "player_line";
   const note = String(payment.note ?? "");
@@ -775,7 +797,7 @@ function estimatePaymentAdded({
     (/\bsent\b/i.test(note) || (payment.amountSource === "inferred_session_price" && Number(payment.sessionsCovered ?? 0) > 0));
   if (!explicitAmount && !sentWithoutAmount) return 0;
 
-  if (sessionId && seasonId) {
+  if (playerId && sessionId && seasonId) {
     const existing = ledgerEntries.some((entry) => entry.player_id === playerId && entry.session_id === sessionId && entry.season_id === seasonId && entry.type === "payment_received");
     if (existing && !explicitAmount) return 0;
     const sessionsCovered = Number(payment.sessionsCovered ?? 0);
@@ -791,7 +813,7 @@ function estimatePaymentAdded({
     if (explicitAmount && sameExplicitPayment) return 0;
   }
 
-  if (sentWithoutAmount && sessionId && seasonId && sessionPrice > 0) {
+  if (playerId && sentWithoutAmount && sessionId && seasonId && sessionPrice > 0) {
     const creditBeforeSession = getCreditBeforeSession(ledgerEntries, playerId, seasonId, sessionId);
     if (creditBeforeSession >= sessionPrice) return 0;
   }
@@ -800,33 +822,28 @@ function estimatePaymentAdded({
 }
 
 function estimateSessionCharge({
-  aliasesByName,
   parsed,
   playerId,
   playerName,
-  players,
-  playersByName,
   selectedSession,
   sessionAttendance,
   sessionCharges,
-  sessionPrice
+  sessionPrice,
+  createsNewPlayer
 }: {
-  aliasesByName: Map<string, PlayerAlias>;
   parsed: ParsedWhatsAppImport;
   playerId?: string;
   playerName: string;
-  players: Player[];
-  playersByName: Map<string, string>;
   selectedSession?: SessionWithPlayground;
   sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
   sessionPrice: number;
+  createsNewPlayer: boolean;
 }) {
-  if (!playerId || !selectedSession || !sessionPrice) return 0;
+  if ((!playerId && !createsNewPlayer) || !selectedSession || !sessionPrice) return 0;
   const attendance = getImportAttendanceForPlayer(parsed.attendance, playerName);
   if (!attendance) return 0;
-  const matchedPlayerId = getDefaultMatchedPlayerId(attendance.playerName, players, playersByName, aliasesByName);
-  if (matchedPlayerId !== playerId) return 0;
+  if (createsNewPlayer) return ["confirmed", "played", "replacement"].includes(attendance.status) ? sessionPrice : 0;
   const existingCharge = sessionCharges.find((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
   const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
   const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
@@ -861,6 +878,28 @@ function getDefaultMatchedPlayerId(
   aliasesByName: Map<string, PlayerAlias>
 ) {
   return playersByName.get(normalizeName(name)) ?? getPlayerSuggestion(name, players, playersByName, aliasesByName)?.playerId;
+}
+
+function getDefaultMatchValue(
+  name: string,
+  players: Player[],
+  playersByName: Map<string, string>,
+  aliasesByName: Map<string, PlayerAlias>
+) {
+  return getDefaultMatchedPlayerId(name, players, playersByName, aliasesByName) ?? "";
+}
+
+function resolvePreviewMatch(
+  name: string,
+  matchSelections: Record<string, string>,
+  players: Player[],
+  playersByName: Map<string, string>,
+  aliasesByName: Map<string, PlayerAlias>
+) {
+  const selected = matchSelections[name] ?? getDefaultMatchValue(name, players, playersByName, aliasesByName);
+  if (selected === "__ignore__") return { ignored: true, createsNew: false, playerId: undefined };
+  if (!selected) return { ignored: false, createsNew: true, playerId: undefined };
+  return { ignored: false, createsNew: false, playerId: selected };
 }
 
 function getCurrentBalance(playerReports: PlayerReportRow[], playerId: string, seasonId?: string) {
