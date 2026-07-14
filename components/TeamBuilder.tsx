@@ -122,7 +122,7 @@ export function TeamBuilder({
   const liveChannelRef = useRef<any>(null);
   const liveClientId = useRef(`team-builder-${Math.random().toString(36).slice(2)}`);
   const applyingRemoteUpdate = useRef(false);
-  const players = data.players ?? EMPTY_PLAYERS;
+  const players = (data.players ?? EMPTY_PLAYERS).filter(isDraftablePlayer);
   const existingTeams = data.teams ?? EMPTY_TEAMS;
   const existingDraft = data.draft ?? null;
   const savedPlayersPerTeam = Number(data.settings?.playersPerTeam ?? 0);
@@ -1569,6 +1569,10 @@ function availableTeamPlayerIds(playerIds: string[] | undefined, availablePlayer
     seen.add(playerId);
     return true;
   });
+}
+
+function isDraftablePlayer(player: TeamBuilderPlayer) {
+  return player.status !== "waitlisted";
 }
 
 function orderedTeamsForToss(teams: DraftTeam[], tossOrderKeys: string[] | null) {
