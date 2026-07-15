@@ -1,15 +1,17 @@
 import { useCallback, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { LoadingView } from "../components/LoadingView";
 import { supabase } from "../lib/supabase";
 import type { RootStackParamList } from "../navigation/types";
 import { colors } from "../theme";
+import { useAuth } from "../auth/AuthProvider";
 
 type Detail = { session: any; attendance: any[]; teams: any[]; matches: any[]; goals: any[] };
 
-export function SessionDetailScreen({ route }: NativeStackScreenProps<RootStackParamList, "SessionDetail">) {
+export function SessionDetailScreen({ route, navigation }: NativeStackScreenProps<RootStackParamList, "SessionDetail">) {
+  const { profile } = useAuth();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,6 +37,7 @@ export function SessionDetailScreen({ route }: NativeStackScreenProps<RootStackP
   const { session } = detail;
   return <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl onRefresh={() => void load(true)} refreshing={refreshing} tintColor={colors.pitch} />}>
     <View style={styles.hero}><Text style={styles.title}>{session.name ?? session.session_date}</Text><Text style={styles.meta}>{session.session_date} · {relationName(session.playgrounds) ?? session.location ?? "No field"}</Text><Text style={styles.status}>{session.status}</Text></View>
+    {profile?.role === "admin" || profile?.role === "captain" ? <View style={styles.actions}><Pressable onPress={() => navigation.navigate("Fixture", { sessionId: route.params.sessionId })} style={styles.action}><Text style={styles.actionText}>Fixture</Text></Pressable></View> : null}
     <Section title="Game scores" empty="No games generated.">{detail.matches.map((match) => <Row key={match.id} title={`Game ${match.match_number}`} value={`${relationName(match.team_a) ?? "-"} ${match.team_a_score ?? 0}–${match.team_b_score ?? 0} ${relationName(match.team_b) ?? "-"}`} />)}</Section>
     <Section title="Teams" empty="No teams created.">{detail.teams.map((team) => <Row key={team.id} title={team.name} value={(team.session_team_players ?? []).map((item: any) => relationName(item.players)).filter(Boolean).join(", ") || "No players"} />)}</Section>
     <Section title="Goals & assists" empty="No goals recorded.">{detail.goals.map((goal, index) => <Row key={index} title={`${relationName(goal.scorer) ?? "Unknown"} × ${goal.goal_count ?? 1}`} value={relationName(goal.assist) ? `Assist: ${relationName(goal.assist)}` : "Unassisted"} />)}</Section>
@@ -47,5 +50,5 @@ function Row({ title, value }: { title: string; value: string }) { return <View 
 function relationName(value: any) { const row = Array.isArray(value) ? value[0] : value; return row?.display_name ?? row?.name ?? null; }
 const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40, backgroundColor: colors.background }, hero: { padding: 18, borderRadius: 16, backgroundColor: colors.pitch }, title: { color: "white", fontSize: 23, fontWeight: "900" }, meta: { marginTop: 7, color: "#D1FAE5" }, status: { alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 9, paddingVertical: 5, overflow: "hidden", borderRadius: 999, color: colors.pitch, backgroundColor: "white", fontWeight: "900", textTransform: "uppercase", fontSize: 10 },
-  section: { marginTop: 18, padding: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface }, sectionTitle: { marginBottom: 10, color: colors.ink, fontSize: 18, fontWeight: "900" }, row: { paddingVertical: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }, rowTitle: { color: colors.ink, fontWeight: "800" }, rowValue: { marginTop: 4, color: colors.muted, lineHeight: 19 }, empty: { color: colors.muted }
+  actions: { marginTop: 12, flexDirection: "row", gap: 8 }, action: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.pitchSoft }, actionText: { color: colors.pitch, fontWeight: "900" }, section: { marginTop: 18, padding: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface }, sectionTitle: { marginBottom: 10, color: colors.ink, fontSize: 18, fontWeight: "900" }, row: { paddingVertical: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }, rowTitle: { color: colors.ink, fontWeight: "800" }, rowValue: { marginTop: 4, color: colors.muted, lineHeight: 19 }, empty: { color: colors.muted }
 });
