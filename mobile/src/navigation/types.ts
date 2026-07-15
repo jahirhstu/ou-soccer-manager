@@ -16,6 +16,10 @@ export type RootStackParamList = {
   Performance: undefined;
   Leagues: undefined;
   LeagueDetail: { leagueId: string };
+  WhatsAppImport: undefined;
+  Reminders: undefined;
+  Waiver: undefined;
+  MyStatus: undefined;
   Feature: { featureKey: FeatureKey };
   CreateRecord: { featureKey: "programs" | "seasons" | "sessions" | "players" | "payments" | "expenses" };
 };

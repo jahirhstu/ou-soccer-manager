@@ -56,6 +56,9 @@ export function HomeScreen() {
             else if (item.key === "settings") navigation.navigate("Settings");
             else if (item.key === "performance") navigation.navigate("Performance");
             else if (item.key === "leagues") navigation.navigate("Leagues");
+            else if (item.key === "whatsapp") navigation.navigate("WhatsAppImport");
+            else if (item.key === "reminders") navigation.navigate("Reminders");
+            else if (item.key === "myStatus") navigation.navigate("MyStatus");
             else navigation.navigate("Feature", { featureKey: item.key });
           }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
             <View style={styles.cardText}>

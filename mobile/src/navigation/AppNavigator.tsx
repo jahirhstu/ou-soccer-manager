@@ -17,6 +17,10 @@ import { PerformanceScreen } from "../screens/PerformanceScreen";
 import { VoiceScoresScreen } from "../screens/VoiceScoresScreen";
 import { LeaguesScreen } from "../screens/LeaguesScreen";
 import { LeagueDetailScreen } from "../screens/LeagueDetailScreen";
+import { WhatsAppImportScreen } from "../screens/WhatsAppImportScreen";
+import { RemindersScreen } from "../screens/RemindersScreen";
+import { WaiverScreen } from "../screens/WaiverScreen";
+import { MyStatusScreen } from "../screens/MyStatusScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -42,6 +46,10 @@ export function AppNavigator() {
         <Stack.Screen component={PerformanceScreen} name="Performance" />
         <Stack.Screen component={LeaguesScreen} name="Leagues" />
         <Stack.Screen component={LeagueDetailScreen} name="LeagueDetail" options={{ title: "League" }} />
+        <Stack.Screen component={WhatsAppImportScreen} name="WhatsAppImport" options={{ title: "WhatsApp import" }} />
+        <Stack.Screen component={RemindersScreen} name="Reminders" />
+        <Stack.Screen component={WaiverScreen} name="Waiver" options={{ title: "Record waiver" }} />
+        <Stack.Screen component={MyStatusScreen} name="MyStatus" options={{ title: "Payment status" }} />
         <Stack.Screen component={AttendanceScreen} name="Attendance" />
         <Stack.Screen component={NotificationsScreen} name="Notifications" />
         <Stack.Screen component={UsersScreen} name="Users" />

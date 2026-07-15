@@ -8,9 +8,11 @@ import { createSupabaseServerClient, getCurrentProfile } from "../supabase/serve
 import { normalizePlayerName } from "../utils";
 import { applySessionUsage } from "./session-usage";
 
-export async function parseWhatsAppAction(_: unknown, formData: FormData) {
+type MobileImportContext = { profile: any; supabase: any };
+
+export async function parseWhatsAppAction(_: unknown, formData: FormData, mobileContext?: MobileImportContext) {
   try {
-    const profile = await getCurrentProfile();
+    const profile = mobileContext?.profile ?? await getCurrentProfile();
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
     const rawText = String(formData.get("rawText") ?? "");
     const parsed = await whatsappParser.parse(rawText);
@@ -29,9 +31,9 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData) {
   }
 }
 
-export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
+export async function confirmWhatsAppImport(_: unknown, formData: FormData, mobileContext?: MobileImportContext) {
   try {
-    const profile = await getCurrentProfile();
+    const profile = mobileContext?.profile ?? await getCurrentProfile();
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
     const input = whatsappInputSchema.parse({
       rawText: formData.get("rawText"),
@@ -67,7 +69,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     sanitizeParsedNames(parsed);
     applyDropoutAttendanceOverrides(parsed);
 
-    const supabase = await createSupabaseServerClient();
+    const supabase = mobileContext?.supabase ?? await createSupabaseServerClient();
     const targetSeasonId = await resolveTargetSeasonId({
       supabase,
       requestedSeasonId: input.seasonId,

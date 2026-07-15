@@ -5,7 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const requestSchema = z.object({
   organizationId: z.string().uuid(),
-  action: z.enum(["create_program", "create_season", "create_session", "create_player", "create_payment", "create_expense", "update_user", "update_password", "cleanup"]),
+  action: z.enum(["create_program", "create_season", "create_session", "create_player", "update_player", "create_payment", "create_expense", "apply_waiver", "update_user", "update_password", "cleanup"]),
   data: z.record(z.string(), z.unknown())
 });
 
@@ -39,6 +39,40 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
       await audit(supabase, actor, "player_created", "players", data.id, parsed);
       return Response.json({ ok: true, id: data.id });
+    }
+
+    if (input.action === "update_player") {
+      const parsed = z.object({ playerId: z.string().uuid(), values: playerSchema }).parse(input.data);
+      const { data: oldPlayer, error: oldError } = await supabase.from("players").select("*").eq("id", parsed.playerId).eq("organization_id", actor.organizationId).single();
+      if (oldError) throw new Error(oldError.message);
+      const { error } = await supabase.from("players").update(parsed.values).eq("id", parsed.playerId).eq("organization_id", actor.organizationId);
+      if (error) throw new Error(error.message);
+      await supabase.from("audit_logs").insert({ organization_id: actor.organizationId, actor_id: actor.profileId, action: "player_updated", entity_type: "players", entity_id: parsed.playerId, old_data: oldPlayer, new_data: parsed.values });
+      return Response.json({ ok: true });
+    }
+
+    if (input.action === "apply_waiver") {
+      const parsed = z.object({ sessionId: z.string().uuid(), playerId: z.string().uuid(), waiverAmount: z.number().nonnegative(), waiverReason: z.string().trim() }).parse(input.data);
+      if (parsed.waiverAmount > 0 && !parsed.waiverReason) throw new Error("Waiver reason is required.");
+      const { data: session, error: sessionError } = await supabase.from("sessions").select("id,season_id,program_id,price_per_session,seasons(price_per_session)").eq("id", parsed.sessionId).eq("organization_id", actor.organizationId).single();
+      if (sessionError) throw new Error(sessionError.message);
+      const { data: attendance, error: attendanceError } = await supabase.from("attendance").select("status").eq("session_id", parsed.sessionId).eq("player_id", parsed.playerId).maybeSingle();
+      if (attendanceError) throw new Error(attendanceError.message);
+      if (!attendance || !["confirmed", "played", "replacement"].includes(attendance.status)) throw new Error("Waivers can only be applied to confirmed, played, or replacement attendance.");
+      const { data: existing, error: existingError } = await supabase.from("session_player_charges").select("id,amount,original_amount,waiver_amount,ledger_entry_id").eq("session_id", parsed.sessionId).eq("player_id", parsed.playerId).maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+      const seasonRelation = Array.isArray(session.seasons) ? session.seasons[0] : session.seasons;
+      const originalAmount = Number(existing?.original_amount ?? existing?.amount ?? session.price_per_session ?? seasonRelation?.price_per_session ?? 0);
+      if (parsed.waiverAmount > originalAmount) throw new Error("Waiver amount cannot exceed the original session fee.");
+      const netAmount = Number((originalAmount - parsed.waiverAmount).toFixed(2));
+      const values = { amount: netAmount, original_amount: originalAmount, waiver_amount: parsed.waiverAmount, waiver_reason: parsed.waiverAmount > 0 ? parsed.waiverReason : null, waived_by: parsed.waiverAmount > 0 ? actor.profileId : null, waived_at: parsed.waiverAmount > 0 ? new Date().toISOString() : null };
+      let chargeId = existing?.id; let ledgerEntryId = existing?.ledger_entry_id;
+      if (existing) { const { error } = await supabase.from("session_player_charges").update(values).eq("id", existing.id); if (error) throw new Error(error.message); }
+      else { const { data: inserted, error } = await supabase.from("session_player_charges").insert({ organization_id: actor.organizationId, session_id: parsed.sessionId, season_id: session.season_id, program_id: session.program_id, player_id: parsed.playerId, sessions_count: 1, source: "manual", created_by: actor.profileId, ...values }).select("id,ledger_entry_id").single(); if (error) throw new Error(error.message); chargeId = inserted.id; ledgerEntryId = inserted.ledger_entry_id; }
+      if (ledgerEntryId) { const { error } = await supabase.from("ledger_entries").update({ amount: netAmount, description: parsed.waiverAmount > 0 ? `Session fee after waiver. Waived $${parsed.waiverAmount.toFixed(2)}: ${parsed.waiverReason}` : "Session fee waiver removed." }).eq("id", ledgerEntryId); if (error) throw new Error(error.message); }
+      if (parsed.waiverAmount > 0) { const { error } = await supabase.from("ledger_entries").insert({ organization_id: actor.organizationId, program_id: session.program_id, season_id: session.season_id, session_id: parsed.sessionId, player_id: parsed.playerId, type: "fee_waived", amount: parsed.waiverAmount, sessions_count: 0, description: parsed.waiverReason, created_by: actor.profileId }); if (error) throw new Error(error.message); }
+      await supabase.from("audit_logs").insert({ organization_id: actor.organizationId, actor_id: actor.profileId, action: parsed.waiverAmount > 0 ? "session_fee_waived" : "session_fee_waiver_removed", entity_type: "session_player_charges", entity_id: chargeId, old_data: existing, new_data: values });
+      return Response.json({ ok: true, netAmount });
     }
 
     if (input.action === "create_session") {
