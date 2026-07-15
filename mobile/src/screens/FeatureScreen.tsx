@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthProvider";
 import { LoadingView } from "../components/LoadingView";
-import { features, type FeatureKey } from "../features";
+import { canWriteFeature, features, type FeatureKey } from "../features";
 import { supabase } from "../lib/supabase";
 import type { RootStackParamList } from "../navigation/types";
 import { colors } from "../theme";
@@ -42,11 +42,13 @@ export function FeatureScreen({ route, navigation }: NativeStackScreenProps<Root
     data={visibleRows}
     keyExtractor={(item) => item.id}
     refreshControl={<RefreshControl onRefresh={() => void load(true)} refreshing={refreshing} tintColor={colors.pitch} />}
-    ListHeaderComponent={<View><Text style={styles.heading}>{feature?.title}</Text><Text style={styles.intro}>{feature?.description}</Text><TextInput onChangeText={setSearch} placeholder="Search" placeholderTextColor={colors.muted} style={styles.search} value={search} />{error ? <Text style={styles.error}>{error}</Text> : null}</View>}
+    ListHeaderComponent={<View><Text style={styles.heading}>{feature?.title}</Text><Text style={styles.intro}>{feature?.description}</Text>{profile && canCreate(route.params.featureKey) && canWriteFeature(profile.role, route.params.featureKey) ? <Pressable onPress={() => navigation.navigate("CreateRecord", { featureKey: route.params.featureKey as any })} style={styles.create}><Text style={styles.createText}>Add {feature?.title.toLowerCase()}</Text></Pressable> : null}<TextInput onChangeText={setSearch} placeholder="Search" placeholderTextColor={colors.muted} style={styles.search} value={search} />{error ? <Text style={styles.error}>{error}</Text> : null}</View>}
     ListEmptyComponent={<Text style={styles.empty}>{error ? "Data could not be loaded." : "No records found."}</Text>}
     renderItem={({ item }) => <View style={styles.card}><Text style={styles.title}>{item.title}</Text>{item.subtitle ? <Text style={styles.subtitle}>{item.subtitle}</Text> : null}{item.detail ? <Text style={styles.detail}>{item.detail}</Text> : null}</View>}
   />;
 }
+
+function canCreate(key: FeatureKey): key is "programs" | "seasons" | "players" | "payments" | "expenses" { return ["programs", "seasons", "players", "payments", "expenses"].includes(key); }
 
 async function loadFeature(key: FeatureKey, organizationId: string, programId: string | null): Promise<DisplayRow[]> {
   const config = queryConfig(key);
@@ -76,7 +78,7 @@ function queryConfig(key: FeatureKey): QueryConfig | null {
     users: cfg("organization_members", "id,role,player_id,profiles(display_name,email)", "created_at", true, (r) => [relation(r.profiles) ?? "User", title(r.role), relationValue(r.profiles, "email") ?? "No email"]),
     payments: cfg("payments", "id,amount,payment_date,payment_method,players(display_name),seasons(name)", "payment_date", true, (r) => [relation(r.players) ?? "Player", `$${number(r.amount)} · ${r.payment_date}`, `${r.payment_method ?? "Payment"} · ${relation(r.seasons) ?? "Season"}`], true),
     reminders: cfg("player_season_payment_summary", "*", "player_name", false, (r) => [r.player_name ?? "Player", `$${number(r.balance_amount ?? r.credit_amount)} balance`, `${r.remaining_sessions ?? 0} sessions remaining`]),
-    notifications: cfg("notifications", "id,type,title,message,read_at,created_at", "created_at", true, (r) => [r.title ?? title(r.type), r.message ?? "Notification", r.read_at ? "Read" : "Unread"]),
+    notifications: cfg("notifications", "id,notification_type,amount,message,read_at,created_at,player:players(display_name),season:seasons(name)", "created_at", true, (r) => [r.message ?? title(r.notification_type), `${relation(r.player) ?? "Player"} · $${number(r.amount)}`, `${relation(r.season) ?? "Season"} · ${r.read_at ? "Read" : "Unread"}`]),
     expenses: cfg("club_expenses", "id,expense_date,category,amount,vendor,notes", "expense_date", true, (r) => [title(r.category), `$${number(r.amount)} · ${r.expense_date}`, [r.vendor, r.notes].filter(Boolean).join(" · ")], true),
     paymentReport: cfg("player_season_payment_summary", "*", "player_name", false, (r) => [r.player_name ?? "Player", `Paid $${number(r.total_paid_amount)} · Used $${number(r.estimated_used_amount)}`, `Balance $${number(r.balance_amount)} · ${r.remaining_sessions ?? 0} sessions`]),
     myStatus: cfg("player_season_payment_summary", "*", "player_name", false, (r) => [r.player_name ?? "Player", `${r.season_name ?? "Season"} · Balance $${number(r.balance_amount)}`, `${r.remaining_sessions ?? 0} sessions remaining`]),
@@ -96,5 +98,5 @@ function number(value: any) { const parsed = Number(value ?? 0); return Number.i
 function title(value: any) { return String(value ?? "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 40, backgroundColor: colors.background }, heading: { color: colors.ink, fontSize: 26, fontWeight: "900" }, intro: { marginTop: 6, color: colors.muted }, search: { minHeight: 48, marginTop: 16, marginBottom: 14, paddingHorizontal: 14, color: colors.ink, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface }, error: { marginBottom: 12, color: colors.danger }, card: { marginBottom: 10, padding: 15, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface }, title: { color: colors.ink, fontSize: 16, fontWeight: "900" }, subtitle: { marginTop: 5, color: colors.muted, lineHeight: 19 }, detail: { marginTop: 5, color: colors.pitch, fontSize: 12, fontWeight: "700" }, empty: { padding: 30, color: colors.muted, textAlign: "center" }
+  content: { padding: 16, paddingBottom: 40, backgroundColor: colors.background }, heading: { color: colors.ink, fontSize: 26, fontWeight: "900" }, intro: { marginTop: 6, color: colors.muted }, create: { alignSelf: "flex-start", marginTop: 14, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.pitch }, createText: { color: "white", fontWeight: "900" }, search: { minHeight: 48, marginTop: 16, marginBottom: 14, paddingHorizontal: 14, color: colors.ink, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface }, error: { marginBottom: 12, color: colors.danger }, card: { marginBottom: 10, padding: 15, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface }, title: { color: colors.ink, fontSize: 16, fontWeight: "900" }, subtitle: { marginTop: 5, color: colors.muted, lineHeight: 19 }, detail: { marginTop: 5, color: colors.pitch, fontSize: 12, fontWeight: "700" }, empty: { padding: 30, color: colors.muted, textAlign: "center" }
 });

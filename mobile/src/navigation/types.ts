@@ -6,4 +6,5 @@ export type RootStackParamList = {
   SessionDetail: { sessionId: string };
   Attendance: undefined;
   Feature: { featureKey: FeatureKey };
+  CreateRecord: { featureKey: "programs" | "seasons" | "sessions" | "players" | "payments" | "expenses" };
 };

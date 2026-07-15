@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -17,6 +17,9 @@ export function SessionsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    navigation.setOptions(profile?.role === "admin" ? { headerRight: () => <Pressable onPress={() => navigation.navigate("CreateRecord", { featureKey: "sessions" })}><Text style={styles.add}>Add</Text></Pressable> } : { headerRight: undefined });
+  }, [navigation, profile?.role]);
 
   const load = useCallback(async (refresh = false) => {
     if (!profile) return;
@@ -55,4 +58,5 @@ const styles = StyleSheet.create({
   status: { overflow: "hidden", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   scheduled: { color: "#1D4ED8", backgroundColor: "#DBEAFE" }, completed: { color: colors.pitch, backgroundColor: colors.pitchSoft }, cancelled: { color: colors.danger, backgroundColor: "#FFE4E6" },
   empty: { padding: 30, color: colors.muted, textAlign: "center" }, pressed: { opacity: 0.7 }
+  ,add: { color: colors.pitch, fontWeight: "900" }
 });
