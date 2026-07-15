@@ -31,6 +31,22 @@ Use `pnpm ios` or `pnpm android` when a simulator/emulator is available.
 - Supabase row-level security remains the security boundary for every query and mutation.
 - A hidden or disabled mobile control is usability behavior, not authorization by itself.
 
-## Current migration stage
+## Implemented native workflows
 
-The authentication and role-aware application shell are implemented. Feature entries mirror the existing web navigation and are ready to be replaced incrementally with native screens and Supabase-backed queries/mutations.
+The mobile client includes the web application's role-aware feature set: organization/program switching, sessions, attendance, teams, fixtures, scores, goals and assists, voice scoring, lineups, performance ratings, leagues, programs, seasons, players, users, payments, expenses, fee waivers, payment notifications and reminders, WhatsApp import, settings, and reporting views.
+
+Admin-only mutations are sent to authenticated mobile API routes in the existing Next.js application. Those routes validate the bearer token, active organization membership, effective role, and organization ownership of referenced records before writing. Direct reads continue to use Supabase row-level security.
+
+## Test locally
+
+Run the Next.js application so secured mobile API routes are available, then set `EXPO_PUBLIC_WEB_URL` to a URL reachable from the simulator/device. Use `http://10.0.2.2:3000` for a typical Android emulator; iOS Simulator can normally use `http://localhost:3000`. A physical device needs the computer's LAN URL or a deployed HTTPS URL.
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm ios
+# or
+pnpm android
+```
+
+Test with admin, captain, and player accounts. The home screen and write controls change for each effective organization role. Production bundles can be checked with `expo export --platform ios` and `expo export --platform android`.

@@ -4,15 +4,16 @@ import { useAuth } from "../auth/AuthProvider";
 import { colors } from "../theme";
 
 export function LoginScreen() {
-  const { signIn, error } = useAuth();
+  const { signIn, signUp, error } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login"); const [displayName, setDisplayName] = useState(""); const [organizationSlug, setOrganizationSlug] = useState("");
 
   async function submit() {
-    if (!email.trim() || !password) return;
+    if (!email.trim() || !password || (mode === "signup" && !displayName.trim())) return;
     setSubmitting(true);
-    try { await signIn(email, password); } catch { /* AuthProvider displays the error. */ }
+    try { if (mode === "login") await signIn(email.includes("@") ? email : `${email}@ou.soccer`, password); else await signUp(displayName, email.replace(/@ou\.soccer$/i, ""), password, organizationSlug); } catch { /* AuthProvider displays the error. */ }
     finally { setSubmitting(false); }
   }
 
@@ -20,16 +21,18 @@ export function LoginScreen() {
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.page}>
       <View style={styles.logo}><Text style={styles.logoText}>OU</Text></View>
       <Text style={styles.title}>Soccer Manager</Text>
-      <Text style={styles.subtitle}>Sign in with the same account you use on the web.</Text>
+      <Text style={styles.subtitle}>{mode === "login" ? "Sign in with the same account you use on the web." : "Create an OU Soccer player account."}</Text>
       <View style={styles.card}>
-        <Text style={styles.label}>Email</Text>
+        {mode === "signup" ? <><Text style={styles.label}>Display name</Text><TextInput onChangeText={setDisplayName} style={styles.input} value={displayName} /><Text style={styles.label}>Club slug</Text><TextInput autoCapitalize="none" onChangeText={setOrganizationSlug} placeholder="your-club" style={styles.input} value={organizationSlug} /></> : null}
+        <Text style={styles.label}>{mode === "login" ? "Email or one-word name" : "One-word name"}</Text>
         <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" onChangeText={setEmail} style={styles.input} value={email} />
         <Text style={styles.label}>Password</Text>
         <TextInput autoCapitalize="none" onChangeText={setPassword} secureTextEntry style={styles.input} value={password} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable disabled={submitting || !email.trim() || !password} onPress={submit} style={({ pressed }) => [styles.button, pressed && styles.pressed, (submitting || !email.trim() || !password) && styles.disabled]}>
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
+          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{mode === "login" ? "Sign in" : "Sign up"}</Text>}
         </Pressable>
+        <Pressable onPress={() => setMode((current) => current === "login" ? "signup" : "login")} style={styles.switch}><Text style={styles.switchText}>{mode === "login" ? "Create an account" : "Log in instead"}</Text></Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -49,4 +52,5 @@ const styles = StyleSheet.create({
   buttonText: { color: "white", fontSize: 16, fontWeight: "800" },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.45 }
+  ,switch: { marginTop: 16, alignItems: "center" }, switchText: { color: colors.pitch, fontWeight: "800" }
 });

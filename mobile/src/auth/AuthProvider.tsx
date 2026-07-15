@@ -16,6 +16,7 @@ type AuthContextValue = {
   activeProgram: MobileProgram | null;
   error: string | null;
   signIn(email: string, password: string): Promise<void>;
+  signUp(displayName: string, emailName: string, password: string, organizationSlug: string): Promise<void>;
   signOut(): Promise<void>;
   selectOrganization(organizationId: string): Promise<void>;
   selectProgram(programId: string | null): Promise<void>;
@@ -154,6 +155,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setError(signInError.message);
         throw signInError;
       }
+    },
+    async signUp(displayName, emailName, password, organizationSlug) {
+      setError(null);
+      const name = emailName.trim().toLowerCase(); const slug = organizationSlug.trim().toLowerCase();
+      if (!/^[a-z0-9._-]+$/.test(name)) throw new Error("Enter a valid one-word name.");
+      const { data, error: signUpError } = await supabase.auth.signUp({ email: `${name}@ou.soccer`, password, options: { data: { display_name: displayName.trim(), organization_slug: slug || undefined } } });
+      if (signUpError) { setError(signUpError.message); throw signUpError; }
+      if (slug && data.session) { const { error: membershipError } = await supabase.rpc("ensure_membership_for_slug", { p_role: "player", p_slug: slug }); if (membershipError) { setError(membershipError.message); throw membershipError; } }
     },
     async signOut() {
       setError(null);

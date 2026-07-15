@@ -20,6 +20,7 @@ export type RootStackParamList = {
   Reminders: undefined;
   Waiver: undefined;
   MyStatus: undefined;
+  PlayerEdit: { playerId: string };
   Feature: { featureKey: FeatureKey };
   CreateRecord: { featureKey: "programs" | "seasons" | "sessions" | "players" | "payments" | "expenses" };
 };
