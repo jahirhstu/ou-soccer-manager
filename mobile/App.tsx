@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
+import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
 
 function AppContent() {
@@ -11,7 +12,7 @@ function AppContent() {
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.pitch} size="large" /></View>;
   if (!session) return <LoginScreen />;
   if (!profile) return <View style={styles.center}><Text style={styles.error}>{error ?? "Your account is not connected to an organization."}</Text></View>;
-  return <HomeScreen />;
+  return <AppNavigator />;
 }
 
 export default function App() {

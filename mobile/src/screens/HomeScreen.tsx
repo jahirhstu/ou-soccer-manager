@@ -1,14 +1,18 @@
 import { useState } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthProvider";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { canWriteFeature, type Feature, visibleFeatures } from "../features";
 import { colors } from "../theme";
+import type { RootStackParamList } from "../navigation/types";
 
 export function HomeScreen() {
   const { profile, activeProgram, signOut } = useAuth();
   const [group, setGroup] = useState<Feature["group"] | null>(null);
   const [workspaceVisible, setWorkspaceVisible] = useState(false);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   if (!profile) return null;
   const available = visibleFeatures(profile.role);
   const data = group ? available.filter((feature) => feature.group === group) : available;
@@ -44,7 +48,11 @@ export function HomeScreen() {
       renderItem={({ item }) => {
         const writable = canWriteFeature(profile.role, item.key);
         return (
-          <Pressable onPress={() => Alert.alert(item.title, "The access foundation is ready. This feature's native screen is next in the migration sequence.")} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
+          <Pressable onPress={() => {
+            if (item.key === "sessions") navigation.navigate("Sessions");
+            else if (item.key === "attendance") navigation.navigate("Attendance");
+            else navigation.navigate("Feature", { featureKey: item.key });
+          }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
             <View style={styles.cardText}>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardDescription}>{item.description}</Text>
