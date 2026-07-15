@@ -52,7 +52,7 @@ function canCreate(key: FeatureKey): key is "programs" | "seasons" | "players" |
 
 async function loadFeature(key: FeatureKey, organizationId: string, programId: string | null): Promise<DisplayRow[]> {
   const config = queryConfig(key);
-  if (!config) return [{ id: key, title: "Native workflow in progress", subtitle: "This operation requires its secured server mutation screen." , search: "native workflow" }];
+  if (!config) throw new Error(`No native data source is configured for ${key}.`);
   let query: any = supabase.from(config.table).select(config.select);
   if (!summaryViews.has(config.table)) query = query.eq("organization_id", organizationId);
   if (programId && config.programScoped) query = query.eq("program_id", programId);
