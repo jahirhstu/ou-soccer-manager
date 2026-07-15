@@ -51,6 +51,7 @@ export function HomeScreen() {
           <Pressable onPress={() => {
             if (item.key === "sessions") navigation.navigate("Sessions");
             else if (item.key === "attendance") navigation.navigate("Attendance");
+            else if (item.key === "notifications") navigation.navigate("Notifications");
             else navigation.navigate("Feature", { featureKey: item.key });
           }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
             <View style={styles.cardText}>
