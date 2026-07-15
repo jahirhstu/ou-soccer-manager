@@ -6,6 +6,7 @@ export type RootStackParamList = {
   SessionDetail: { sessionId: string };
   Fixture: { sessionId: string };
   Scores: { sessionId: string };
+  VoiceScores: { sessionId: string };
   Teams: { sessionId: string };
   Lineups: { sessionId: string };
   Attendance: undefined;

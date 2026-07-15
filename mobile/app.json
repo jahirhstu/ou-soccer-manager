@@ -12,6 +12,14 @@
     "android": {
       "package": "com.ousoccer.manager",
       "predictiveBackGestureEnabled": false
-    }
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow OU Soccer Manager to record voice scoring commands."
+        }
+      ]
+    ]
   }
 }

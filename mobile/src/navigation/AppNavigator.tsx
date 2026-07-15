@@ -14,6 +14,7 @@ import { ScoresScreen } from "../screens/ScoresScreen";
 import { TeamsScreen } from "../screens/TeamsScreen";
 import { LineupsScreen } from "../screens/LineupsScreen";
 import { PerformanceScreen } from "../screens/PerformanceScreen";
+import { VoiceScoresScreen } from "../screens/VoiceScoresScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -33,6 +34,7 @@ export function AppNavigator() {
         <Stack.Screen component={SessionDetailScreen} name="SessionDetail" options={{ title: "Session" }} />
         <Stack.Screen component={FixtureScreen} name="Fixture" />
         <Stack.Screen component={ScoresScreen} name="Scores" />
+        <Stack.Screen component={VoiceScoresScreen} name="VoiceScores" options={{ title: "Voice scoring" }} />
         <Stack.Screen component={TeamsScreen} name="Teams" />
         <Stack.Screen component={LineupsScreen} name="Lineups" />
         <Stack.Screen component={PerformanceScreen} name="Performance" />
