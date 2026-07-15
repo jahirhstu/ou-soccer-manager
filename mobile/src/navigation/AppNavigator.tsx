@@ -10,6 +10,8 @@ import { NotificationsScreen } from "../screens/NotificationsScreen";
 import { UsersScreen } from "../screens/UsersScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { FixtureScreen } from "../screens/FixtureScreen";
+import { ScoresScreen } from "../screens/ScoresScreen";
+import { TeamsScreen } from "../screens/TeamsScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -28,6 +30,8 @@ export function AppNavigator() {
         <Stack.Screen component={SessionsScreen} name="Sessions" />
         <Stack.Screen component={SessionDetailScreen} name="SessionDetail" options={{ title: "Session" }} />
         <Stack.Screen component={FixtureScreen} name="Fixture" />
+        <Stack.Screen component={ScoresScreen} name="Scores" />
+        <Stack.Screen component={TeamsScreen} name="Teams" />
         <Stack.Screen component={AttendanceScreen} name="Attendance" />
         <Stack.Screen component={NotificationsScreen} name="Notifications" />
         <Stack.Screen component={UsersScreen} name="Users" />
