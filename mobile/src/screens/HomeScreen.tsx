@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthProvider";
+import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { canWriteFeature, type Feature, visibleFeatures } from "../features";
 import { colors } from "../theme";
 
 export function HomeScreen() {
-  const { profile, signOut } = useAuth();
+  const { profile, activeProgram, signOut } = useAuth();
   const [group, setGroup] = useState<Feature["group"] | null>(null);
+  const [workspaceVisible, setWorkspaceVisible] = useState(false);
   if (!profile) return null;
   const available = visibleFeatures(profile.role);
   const data = group ? available.filter((feature) => feature.group === group) : available;
@@ -18,14 +20,16 @@ export function HomeScreen() {
       keyExtractor={(item) => item.key}
       ListHeaderComponent={
         <View>
+          <WorkspaceSwitcher onClose={() => setWorkspaceVisible(false)} visible={workspaceVisible} />
           <View style={styles.header}>
             <View style={styles.logo}><Text style={styles.logoText}>OU</Text></View>
             <View style={styles.identity}>
               <Text numberOfLines={1} style={styles.name}>{profile.displayName}</Text>
-              <Text numberOfLines={1} style={styles.organization}>{profile.organizationName} · {profile.role}</Text>
+              <Text numberOfLines={1} style={styles.organization}>{profile.organizationName} · {activeProgram?.name ?? "No program"} · {profile.role}</Text>
             </View>
-            <Pressable onPress={() => void signOut()}><Text style={styles.signOut}>Sign out</Text></Pressable>
+            <Pressable onPress={() => setWorkspaceVisible(true)}><Text style={styles.signOut}>Switch</Text></Pressable>
           </View>
+          <Pressable onPress={() => void signOut()} style={styles.signOutButton}><Text style={styles.signOut}>Sign out</Text></Pressable>
           <Text style={styles.heading}>Your workspace</Text>
           <Text style={styles.intro}>The options below match your web access. Database policies enforce the same permissions.</Text>
           <View style={styles.filters}>
@@ -62,6 +66,7 @@ const styles = StyleSheet.create({
   name: { color: colors.ink, fontSize: 16, fontWeight: "800" },
   organization: { marginTop: 3, color: colors.muted, fontSize: 12, textTransform: "capitalize" },
   signOut: { color: colors.pitch, fontWeight: "700" },
+  signOutButton: { alignSelf: "flex-end", marginTop: -18, marginBottom: 16 },
   heading: { color: colors.ink, fontSize: 26, fontWeight: "900" },
   intro: { marginTop: 7, marginBottom: 18, color: colors.muted, lineHeight: 21 },
   filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },

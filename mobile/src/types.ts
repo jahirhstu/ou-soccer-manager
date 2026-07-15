@@ -10,3 +10,18 @@ export type MobileProfile = {
   organizationName: string;
   organizationSlug: string;
 };
+
+export type MobileOrganization = {
+  id: string;
+  name: string;
+  slug: string;
+  role: UserRole;
+  playerId: string | null;
+};
+
+export type MobileProgram = {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+};
