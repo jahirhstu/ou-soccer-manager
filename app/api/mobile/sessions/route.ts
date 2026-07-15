@@ -5,7 +5,7 @@ import { authenticateMobileRequest, mobileApiErrorResponse, requireMobileRole } 
 const inputSchema = z.object({
   organizationId: z.string().uuid(),
   sessionId: z.string().uuid(),
-  action: z.enum(["generate_fixture", "save_scores", "save_teams", "complete", "update_price"]),
+  action: z.enum(["generate_fixture", "save_scores", "save_teams", "save_lineup", "complete", "update_price"]),
   data: z.record(z.string(), z.unknown()).default({})
 });
 
@@ -25,6 +25,16 @@ export async function POST(request: Request) {
       requireMobileRole(actor, ["admin"]);
       const { price } = z.object({ price: z.number().nonnegative().nullable() }).parse(input.data);
       const { error } = await supabase.from("sessions").update({ price_per_session: price }).eq("id", input.sessionId).eq("organization_id", actor.organizationId);
+      if (error) throw new Error(error.message);
+      return Response.json({ ok: true });
+    }
+    if (input.action === "save_lineup") {
+      if (!actor.playerId) throw new Error("Your account must be linked to a player profile before saving a lineup.");
+      const parsed = z.object({ sessionTeamId: z.string().uuid(), playerCount: z.number().int().min(1).max(11), formation: z.string().max(30), positions: z.array(z.record(z.string(), z.unknown())) }).parse(input.data);
+      const { data: assignment, error: assignmentError } = await supabase.from("session_team_players").select("id").eq("session_id", input.sessionId).eq("session_team_id", parsed.sessionTeamId).eq("player_id", actor.playerId).maybeSingle();
+      if (assignmentError) throw new Error(assignmentError.message);
+      if (!assignment) throw new Error("Only players assigned to this team can save its lineup.");
+      const { error } = await supabase.from("session_team_lineups").upsert({ organization_id: actor.organizationId, session_id: input.sessionId, session_team_id: parsed.sessionTeamId, player_count: parsed.playerCount, formation: parsed.formation, positions: parsed.positions, created_by: actor.profileId }, { onConflict: "session_team_id" });
       if (error) throw new Error(error.message);
       return Response.json({ ok: true });
     }
