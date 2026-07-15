@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "OU Soccer Manager",
+    "slug": "ou-soccer-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ousoccer.manager"
+    },
+    "android": {
+      "package": "com.ousoccer.manager",
+      "predictiveBackGestureEnabled": false
+    }
+  }
+}
