@@ -13,6 +13,7 @@ import { FixtureScreen } from "../screens/FixtureScreen";
 import { ScoresScreen } from "../screens/ScoresScreen";
 import { TeamsScreen } from "../screens/TeamsScreen";
 import { LineupsScreen } from "../screens/LineupsScreen";
+import { PerformanceScreen } from "../screens/PerformanceScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -34,6 +35,7 @@ export function AppNavigator() {
         <Stack.Screen component={ScoresScreen} name="Scores" />
         <Stack.Screen component={TeamsScreen} name="Teams" />
         <Stack.Screen component={LineupsScreen} name="Lineups" />
+        <Stack.Screen component={PerformanceScreen} name="Performance" />
         <Stack.Screen component={AttendanceScreen} name="Attendance" />
         <Stack.Screen component={NotificationsScreen} name="Notifications" />
         <Stack.Screen component={UsersScreen} name="Users" />

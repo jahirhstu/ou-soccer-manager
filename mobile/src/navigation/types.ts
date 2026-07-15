@@ -12,6 +12,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   Users: undefined;
   Settings: undefined;
+  Performance: undefined;
   Feature: { featureKey: FeatureKey };
   CreateRecord: { featureKey: "programs" | "seasons" | "sessions" | "players" | "payments" | "expenses" };
 };
