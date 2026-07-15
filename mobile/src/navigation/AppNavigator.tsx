@@ -7,6 +7,8 @@ import { AttendanceScreen } from "../screens/AttendanceScreen";
 import { FeatureScreen } from "../screens/FeatureScreen";
 import { CreateRecordScreen } from "../screens/CreateRecordScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
+import { UsersScreen } from "../screens/UsersScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -26,6 +28,8 @@ export function AppNavigator() {
         <Stack.Screen component={SessionDetailScreen} name="SessionDetail" options={{ title: "Session" }} />
         <Stack.Screen component={AttendanceScreen} name="Attendance" />
         <Stack.Screen component={NotificationsScreen} name="Notifications" />
+        <Stack.Screen component={UsersScreen} name="Users" />
+        <Stack.Screen component={SettingsScreen} name="Settings" />
         <Stack.Screen component={FeatureScreen} name="Feature" options={({ route }) => ({ title: route.params.featureKey })} />
         <Stack.Screen component={CreateRecordScreen} name="CreateRecord" options={{ title: "New record" }} />
       </Stack.Navigator>

@@ -52,6 +52,8 @@ export function HomeScreen() {
             if (item.key === "sessions") navigation.navigate("Sessions");
             else if (item.key === "attendance") navigation.navigate("Attendance");
             else if (item.key === "notifications") navigation.navigate("Notifications");
+            else if (item.key === "users") navigation.navigate("Users");
+            else if (item.key === "settings") navigation.navigate("Settings");
             else navigation.navigate("Feature", { featureKey: item.key });
           }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
             <View style={styles.cardText}>
