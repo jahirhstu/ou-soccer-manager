@@ -14,6 +14,8 @@ export type RootStackParamList = {
   Users: undefined;
   Settings: undefined;
   Performance: undefined;
+  Leagues: undefined;
+  LeagueDetail: { leagueId: string };
   Feature: { featureKey: FeatureKey };
   CreateRecord: { featureKey: "programs" | "seasons" | "sessions" | "players" | "payments" | "expenses" };
 };

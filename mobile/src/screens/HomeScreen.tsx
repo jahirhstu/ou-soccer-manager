@@ -55,6 +55,7 @@ export function HomeScreen() {
             else if (item.key === "users") navigation.navigate("Users");
             else if (item.key === "settings") navigation.navigate("Settings");
             else if (item.key === "performance") navigation.navigate("Performance");
+            else if (item.key === "leagues") navigation.navigate("Leagues");
             else navigation.navigate("Feature", { featureKey: item.key });
           }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
             <View style={styles.cardText}>

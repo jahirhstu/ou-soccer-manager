@@ -3,7 +3,7 @@ import { authenticateMobileRequest, mobileApiErrorResponse, requireMobileRole } 
 
 export async function POST(request: Request) {
   try {
-    const form = await request.formData();
+    const form = await request.formData() as any;
     const organizationId = String(form.get("organizationId") ?? "");
     const sessionId = String(form.get("sessionId") ?? "");
     const action = String(form.get("action") ?? "");

@@ -15,6 +15,8 @@ import { TeamsScreen } from "../screens/TeamsScreen";
 import { LineupsScreen } from "../screens/LineupsScreen";
 import { PerformanceScreen } from "../screens/PerformanceScreen";
 import { VoiceScoresScreen } from "../screens/VoiceScoresScreen";
+import { LeaguesScreen } from "../screens/LeaguesScreen";
+import { LeagueDetailScreen } from "../screens/LeagueDetailScreen";
 import { colors } from "../theme";
 import type { RootStackParamList } from "./types";
 
@@ -38,6 +40,8 @@ export function AppNavigator() {
         <Stack.Screen component={TeamsScreen} name="Teams" />
         <Stack.Screen component={LineupsScreen} name="Lineups" />
         <Stack.Screen component={PerformanceScreen} name="Performance" />
+        <Stack.Screen component={LeaguesScreen} name="Leagues" />
+        <Stack.Screen component={LeagueDetailScreen} name="LeagueDetail" options={{ title: "League" }} />
         <Stack.Screen component={AttendanceScreen} name="Attendance" />
         <Stack.Screen component={NotificationsScreen} name="Notifications" />
         <Stack.Screen component={UsersScreen} name="Users" />
