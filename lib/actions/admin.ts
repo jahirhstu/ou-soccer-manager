@@ -166,6 +166,18 @@ export async function updatePublicReportSettings(formData: FormData) {
   revalidatePath("/public/report");
 }
 
+export async function setOrganizationDefaultProgram(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!hasPermission(profile?.role, "manage_all") || !profile?.organization_id) throw new Error("Unauthorized");
+  const programId = String(formData.get("program_id") ?? "");
+  if (!programId) throw new Error("Program is required.");
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("set_organization_default_program", { p_program_id: programId });
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+
 export async function setProgramModule(formData: FormData) {
   const profile = await getCurrentProfile();
   if (!hasPermission(profile?.role, "manage_all") || !profile?.organization_id) throw new Error("Unauthorized");

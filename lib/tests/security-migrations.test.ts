@@ -25,4 +25,15 @@ describe("tenant security migrations", () => {
     expect(onboarding).toContain("values (v_organization_id, new.id, 'player', 'pending')");
     expect(onboarding).toContain("create or replace function public.accept_invitation");
   });
+
+  it("stores default routing context in the database with scoped setters", () => {
+    const defaults = migration("073_database_context_defaults.sql");
+    expect(defaults).toContain("organizations_single_default_idx");
+    expect(defaults).toContain("programs_single_default_per_organization_idx");
+    expect(defaults).toContain("create or replace function public.resolve_default_route_context");
+    expect(defaults).toContain("create or replace function public.set_my_default_context");
+    expect(defaults).toContain("Active organization membership required");
+    expect(defaults).toContain("Only the platform owner can set the public default context");
+    expect(defaults).toContain("revoke all on function public.set_platform_default_context(uuid, uuid) from public, anon");
+  });
 });

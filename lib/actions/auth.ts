@@ -61,6 +61,33 @@ export async function logoutAction(): Promise<void> {
   redirect("/login");
 }
 
+export async function setDefaultContextAction(formData: FormData): Promise<void> {
+  const organizationId = String(formData.get("organization_id") ?? "");
+  const programId = String(formData.get("program_id") ?? "") || null;
+  if (!organizationId) throw new Error("Organization is required.");
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("set_my_default_context", {
+    p_organization_id: organizationId,
+    p_program_id: programId
+  });
+  if (error) throw new Error(error.message);
+  const [{ data: organization }, { data: program }] = await Promise.all([
+    supabase.from("organizations").select("slug").eq("id", organizationId).single(),
+    programId ? supabase.from("programs").select("slug").eq("id", programId).eq("organization_id", organizationId).single() : Promise.resolve({ data: null })
+  ]);
+  if (!organization?.slug) throw new Error("Default organization was not found.");
+  const cookieStore = await cookies();
+  cookieStore.set("active_organization_slug", organization.slug, { path: "/", sameSite: "lax" });
+  if (program?.slug) {
+    cookieStore.set("active_program_slug", program.slug, { path: "/", sameSite: "lax" });
+    cookieStore.set("active_program_organization_slug", organization.slug, { path: "/", sameSite: "lax" });
+  } else {
+    cookieStore.delete("active_program_slug");
+    cookieStore.delete("active_program_organization_slug");
+  }
+  redirect(tenantPath("/dashboard", organization.slug, program?.slug));
+}
+
 function buildEmail(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return email;
@@ -75,6 +102,11 @@ function safeNextPath(value: string) {
 async function redirectForMemberships(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>): Promise<never> {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) redirect("/login");
+  const { data: preferredContextData } = await supabase.rpc("get_my_default_context").maybeSingle();
+  const preferredContext = preferredContextData as { organization_slug?: string | null; program_slug?: string | null } | null;
+  if (preferredContext?.organization_slug) {
+    redirect(tenantPath("/dashboard", preferredContext.organization_slug, preferredContext.program_slug));
+  }
   const { data: memberships } = await supabase
     .from("organization_members")
     .select("organization_id,role,organizations!inner(slug)")

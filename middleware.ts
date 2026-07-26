@@ -34,6 +34,11 @@ type RouteContext = {
   program_id: string | null;
 };
 
+type DefaultRouteContext = {
+  organization_slug: string;
+  program_slug: string | null;
+};
+
 export async function middleware(request: NextRequest) {
   const tenantSlug = getTenantSlugFromPathname(request.nextUrl.pathname);
   const programSlug = tenantSlug ? getProgramSlugFromPathname(request.nextUrl.pathname) : "";
@@ -46,12 +51,6 @@ export async function middleware(request: NextRequest) {
   if (tenantSlug) requestHeaders.set("x-tenant-slug", tenantSlug);
   if (programSlug) requestHeaders.set("x-program-slug", programSlug);
   if (activeProgramSlug) requestHeaders.set("x-active-program-slug", activeProgramSlug);
-
-  if (!tenantSlug && cookieTenantSlug && pathname !== "/setup" && !globalContextRoutes.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = tenantPath(pathname === "/" ? "/public/report" : pathname, cookieTenantSlug);
-    return NextResponse.redirect(redirectUrl);
-  }
 
   if (!hasSupabaseEnv()) {
     if (pathname === "/setup") return createTenantResponse(request, pathname, tenantSlug, programSlug, requestHeaders);
@@ -78,6 +77,42 @@ export async function middleware(request: NextRequest) {
       }
     }
   );
+  const { data } = await supabase.auth.getUser();
+  const isPublicPath = pathname === "/" || publicRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const isGlobalContextPath = globalContextRoutes.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+
+  const shouldResolveDefault =
+    (!tenantSlug && !isGlobalContextPath && pathname !== "/setup" && !pathname.startsWith("/api/")) ||
+    (tenantSlug && !programSlug && !isGlobalContextPath && pathname !== "/setup" && !pathname.startsWith("/api/"));
+  if (shouldResolveDefault) {
+    let defaultContext: DefaultRouteContext | null = null;
+    if (data.user) {
+      const { data: userDefault } = await supabase.rpc("get_my_default_context").maybeSingle();
+      const typedUserDefault = userDefault as DefaultRouteContext | null;
+      if (!tenantSlug || typedUserDefault?.organization_slug === tenantSlug) defaultContext = typedUserDefault;
+    }
+    if (!defaultContext && (isPublicPath || Boolean(data.user))) {
+      const { data: publicDefault } = await supabase
+        .rpc("resolve_default_route_context", { p_organization_slug: tenantSlug || null })
+        .maybeSingle();
+      defaultContext = publicDefault as DefaultRouteContext | null;
+    }
+    if (defaultContext?.organization_slug) {
+      const targetPath = pathname === "/" ? "/public/report" : pathname;
+      const target = tenantPath(targetPath, defaultContext.organization_slug, defaultContext.program_slug);
+      if (target !== request.nextUrl.pathname) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = target;
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+  }
+
+  if (!tenantSlug && cookieTenantSlug && pathname !== "/setup" && !isGlobalContextPath && !pathname.startsWith("/api/")) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = tenantPath(pathname === "/" ? "/public/report" : pathname, cookieTenantSlug, cookieProgramTenantSlug === cookieTenantSlug ? cookieProgramSlug : "");
+    return NextResponse.redirect(redirectUrl);
+  }
 
   let organizationId: string | null = null;
   let programId: string | null = null;
@@ -119,7 +154,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(tenantPath(pathname, tenantSlug, activeProgramSlug), request.url));
   }
 
-  const { data } = await supabase.auth.getUser();
   const isPublic =
     publicRoutes.includes(pathname) ||
     publicRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

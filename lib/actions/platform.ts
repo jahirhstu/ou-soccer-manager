@@ -47,6 +47,27 @@ export async function setOrganizationTemplateAction(formData: FormData) {
   revalidatePath("/platform/organizations");
 }
 
+export async function setPlatformDefaultContextAction(formData: FormData) {
+  const supabase = await createSupabaseServerClient();
+  const programId = String(formData.get("program_id") ?? "");
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) throw new Error("Unauthorized");
+  const { data: program, error: programError } = await supabase
+    .from("programs")
+    .select("organization_id")
+    .eq("id", programId)
+    .eq("status", "active")
+    .single();
+  if (programError || !program) throw new Error(programError?.message ?? "Program not found.");
+  const { error } = await supabase.rpc("set_platform_default_context", {
+    p_organization_id: program.organization_id,
+    p_program_id: programId
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/platform/organizations");
+  revalidatePath("/");
+}
+
 export async function assignPlatformSuperadminAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const { data: auth } = await supabase.auth.getUser();
