@@ -24,13 +24,20 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
     const unpairedDropoutIndexes: number[] = [];
     let pendingMatchNumber: number | undefined;
     let date: string | undefined;
+    let rosterSection: "confirmed" | "waitlisted" | null = null;
     const seasonInfo = extractSeasonInfo(lines);
     const isSeasonSignup = Boolean(seasonInfo.totalSessions || seasonInfo.fullSeasonCost || seasonInfo.endDate);
 
     for (const line of lines) {
       date ||= parseSessionDate(line) ?? seasonInfo.startDate;
 
-      const rosterRow = parseNumberedRosterRow(line, seasonInfo);
+      const nextRosterSection = detectRosterSection(line);
+      if (nextRosterSection !== undefined) {
+        rosterSection = nextRosterSection;
+        continue;
+      }
+
+      const rosterRow = parseNumberedRosterRow(line, seasonInfo, rosterSection);
       if (rosterRow) {
         players.set(rosterRow.player.name, rosterRow.player);
         if (!isSeasonSignup) {
@@ -279,7 +286,7 @@ function extractSeasonInfo(lines: string[]): SeasonInfo {
   return info;
 }
 
-function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo) {
+function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo, rosterSection: "confirmed" | "waitlisted" | null = null) {
   const cleaned = line.replace(/[\u2007\u2060\u034f]/g, " ").replace(/\u2060/g, " ").trim();
   const match = cleaned.match(/^\s*\d{1,3}[.)]?\s*[^\p{L}\p{N}$]*(.+)$/u);
   if (!match) return null;
@@ -305,7 +312,7 @@ function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo) {
 
   return {
     player: { name, confidence: "high" as const },
-    attendanceStatus: rosterAttendanceStatus(body),
+    attendanceStatus: rosterAttendanceStatus(body, rosterSection),
     note,
     payment: amount || sentWithoutAmount
       ? {
@@ -323,10 +330,18 @@ function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo) {
   };
 }
 
-function rosterAttendanceStatus(body: string): ParsedWhatsAppImport["attendance"][number]["status"] {
+function detectRosterSection(line: string): "confirmed" | "waitlisted" | null | undefined {
+  if (/^(?:wait\s*list|waitlist|waiting list)\s*:?\s*$/i.test(line)) return "waitlisted";
+  if (/^(?:head\s*count|headcount|confirmed|confirmed players|players)\s*:?\s*$/i.test(line)) return "confirmed";
+  if (/^(?:address|location|venue|interac|payment)\s*:?\s*/i.test(line)) return null;
+  return undefined;
+}
+
+function rosterAttendanceStatus(body: string, rosterSection: "confirmed" | "waitlisted" | null = null): ParsedWhatsAppImport["attendance"][number]["status"] {
   if (/\b(?:dropped|drop|out|balance will remain)\b/i.test(body)) return "dropped";
   if (/\b(?:replaced|replacement)\b/i.test(body)) return "replacement";
   if (/\bwaitlist(?:ed)?\b/i.test(body)) return "waitlisted";
+  if (rosterSection === "waitlisted") return "waitlisted";
   return "confirmed";
 }
 

@@ -87,6 +87,29 @@ describe("RuleBasedWhatsAppParser", () => {
     ]);
   });
 
+  it("marks numbered players under a waitlist section as waitlisted", async () => {
+    const parser = new RuleBasedWhatsAppParser();
+    const result = await parser.parse(`
+      Date: Wednesday, July 15th
+      Headcount:
+      1. Rocky
+      2. Jahir
+
+      Waitlist
+      1. Rimon (GK)
+      2. Romi ( available after 9:30 pm )
+    `);
+
+    expect(result.attendance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerName: "Rocky", status: "confirmed" }),
+        expect.objectContaining({ playerName: "Jahir", status: "confirmed" }),
+        expect.objectContaining({ playerName: "Rimon", status: "waitlisted" }),
+        expect.objectContaining({ playerName: "Romi", status: "waitlisted" })
+      ])
+    );
+  });
+
   it("pairs a replaced player with the previous dropped roster player", async () => {
     const parser = new RuleBasedWhatsAppParser();
     const result = await parser.parse(`

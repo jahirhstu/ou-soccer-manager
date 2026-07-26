@@ -4,28 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { toast } from "sonner";
 import { Check, Mic, Plus, Save, Trash2, X } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
-import { parseVoiceScoringCommand } from "@/lib/actions/voice-scoring";
+import { parseVoiceScoringCommand, transcribeVoiceScoringAudio } from "@/lib/actions/voice-scoring";
 
 type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
-type VoiceRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onend: (() => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
-  onresult: ((event: VoiceRecognitionEvent) => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-type VoiceRecognitionConstructor = new () => VoiceRecognition;
-type VoiceRecognitionEvent = {
-  resultIndex: number;
-  results: ArrayLike<{
-    0: { transcript: string };
-    isFinal: boolean;
-  }>;
-};
+type AudioContextConstructor = new () => AudioContext;
 type ParsedVoiceScoringGoal = {
   assistName?: string;
   confidence?: "low" | "medium" | "high";
@@ -106,18 +89,20 @@ export function MiniGameScoresForm({
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveMessage, setSaveMessage] = useState("All changes saved.");
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioSamplesRef = useRef<Float32Array[]>([]);
+  const audioSampleRateRef = useRef(44100);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
-  const recognitionRef = useRef<VoiceRecognition | null>(null);
   const saveSequenceRef = useRef(0);
-  const voiceBaseTranscriptRef = useRef("");
-  const voiceInterimTranscriptRef = useRef("");
-  const voiceParsedOnStopRef = useRef(false);
-  const voiceShouldListenRef = useRef(false);
   const [voiceCommand, setVoiceCommand] = useState("");
-  const [voiceListening, setVoiceListening] = useState(false);
   const [voiceParsePending, setVoiceParsePending] = useState(false);
+  const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceResult, setVoiceResult] = useState<VoiceScoringResult | null>(null);
+  const [voiceTranscribePending, setVoiceTranscribePending] = useState(false);
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -244,8 +229,7 @@ export function MiniGameScoresForm({
 
   useEffect(() => {
     return () => {
-      voiceShouldListenRef.current = false;
-      recognitionRef.current?.stop();
+      cleanupVoiceRecording();
     };
   }, []);
 
@@ -264,7 +248,9 @@ export function MiniGameScoresForm({
   }
 
   function deleteGoal(game: MatchInput, goalKey: string) {
-    if (!window.confirm("Delete this goal? This change will be saved automatically.")) return;
+    const goal = game.goals.find((item) => item.key === goalKey);
+    const hasSelectedPlayer = Boolean(goal?.scorerId || goal?.assistPlayerId);
+    if (hasSelectedPlayer && !window.confirm("Delete this goal? This change will be saved automatically.")) return;
     updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goalKey) });
   }
 
@@ -293,86 +279,94 @@ export function MiniGameScoresForm({
     }
   }
 
-  function startVoiceScoring() {
-    const Recognition = getSpeechRecognition();
-    if (!Recognition) {
-      toast.error("Voice scoring is not supported in this browser.");
+  async function startVoiceScoring() {
+    const AudioContextConstructor = getAudioContextConstructor();
+    if (!navigator.mediaDevices?.getUserMedia || !AudioContextConstructor) {
+      toast.error("Audio recording is not supported in this browser.");
       return;
     }
-    recognitionRef.current?.stop();
-    voiceBaseTranscriptRef.current = voiceCommand.trim();
-    voiceInterimTranscriptRef.current = "";
-    voiceParsedOnStopRef.current = false;
-    voiceShouldListenRef.current = true;
-    setVoiceListening(true);
-    setVoiceResult(null);
-    startRecognitionLoop(Recognition);
-  }
-
-  function startRecognitionLoop(Recognition: VoiceRecognitionConstructor) {
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event) => {
-      let interimTranscript = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        const transcript = result[0]?.transcript?.trim() ?? "";
-        if (!transcript) continue;
-        if (result.isFinal) {
-          voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, transcript);
-        } else {
-          interimTranscript = joinTranscript(interimTranscript, transcript);
-        }
-      }
-      voiceInterimTranscriptRef.current = interimTranscript;
-      setVoiceCommand(joinTranscript(voiceBaseTranscriptRef.current, interimTranscript));
-    };
-    recognition.onerror = (event) => {
-      if (event.error === "no-speech" && voiceShouldListenRef.current) return;
-      voiceShouldListenRef.current = false;
-      setVoiceListening(false);
-      const message = event.error ? `Voice scoring failed: ${event.error}` : "Voice scoring failed.";
-      toast.error(message);
-      setVoiceResult({ error: message });
-    };
-    recognition.onend = () => {
-      const displayedTranscript = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
-      voiceInterimTranscriptRef.current = "";
-      if (voiceShouldListenRef.current) {
-        window.setTimeout(() => {
-          if (voiceShouldListenRef.current) startRecognitionLoop(Recognition);
-        }, 150);
-        return;
-      }
-      const finalTranscript = displayedTranscript.trim();
-      setVoiceListening(false);
-      if (finalTranscript && !voiceParsedOnStopRef.current) void parseVoiceCommand(finalTranscript);
-    };
-
     try {
-      recognition.start();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioContext = new AudioContextConstructor();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      audioSamplesRef.current = [];
+      audioSampleRateRef.current = audioContext.sampleRate;
+      audioContextRef.current = audioContext;
+      audioProcessorRef.current = processor;
+      audioSourceRef.current = source;
+      audioStreamRef.current = stream;
+      setVoiceRecording(true);
+      setVoiceResult(null);
+
+      processor.onaudioprocess = (event) => {
+        audioSamplesRef.current.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      if (audioContext.state === "suspended") await audioContext.resume();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not start voice scoring.";
-      voiceShouldListenRef.current = false;
-      setVoiceListening(false);
+      cleanupVoiceRecording();
+      const message = error instanceof Error ? error.message : "Could not start audio recording.";
       setVoiceResult({ error: message });
       toast.error(message);
     }
   }
 
   function stopVoiceScoring() {
-    voiceShouldListenRef.current = false;
-    voiceBaseTranscriptRef.current = joinTranscript(voiceBaseTranscriptRef.current, voiceInterimTranscriptRef.current);
-    voiceInterimTranscriptRef.current = "";
-    voiceParsedOnStopRef.current = true;
-    setVoiceCommand(voiceBaseTranscriptRef.current);
-    recognitionRef.current?.stop();
-    setVoiceListening(false);
-    if (voiceBaseTranscriptRef.current.trim()) void parseVoiceCommand(voiceBaseTranscriptRef.current);
+    const audioBlob = finishVoiceRecording();
+    if (!audioBlob.size) {
+      toast.error("No audio was recorded.");
+      return;
+    }
+    void transcribeAndParseRecording(audioBlob);
+  }
+
+  function finishVoiceRecording() {
+    const samples = audioSamplesRef.current;
+    const sampleRate = audioSampleRateRef.current;
+    cleanupVoiceRecording();
+    setVoiceRecording(false);
+    audioSamplesRef.current = [];
+    if (!samples.length) return new Blob([], { type: "audio/wav" });
+    return encodeWav(samples, sampleRate);
+  }
+
+  function cleanupVoiceRecording() {
+    audioProcessorRef.current?.disconnect();
+    audioSourceRef.current?.disconnect();
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+    audioProcessorRef.current = null;
+    audioSourceRef.current = null;
+    audioStreamRef.current = null;
+  }
+
+  async function transcribeAndParseRecording(audioBlob: Blob) {
+    setVoiceTranscribePending(true);
+    setVoiceResult(null);
+    const formData = new FormData();
+    const audioType = audioBlob.type || "audio/wav";
+    formData.set("audio", new File([audioBlob], `voice-scoring-${Date.now()}.${audioFileExtension(audioType)}`, { type: audioType }));
+    formData.set("contextText", voiceTranscriptionContext(resolvedGames, teams, playersByTeam));
+    try {
+      const result = await transcribeVoiceScoringAudio(formData);
+      if (result.error || !result.transcript) {
+        const message = result.error ?? "Could not transcribe audio.";
+        setVoiceResult({ error: message });
+        toast.error(message);
+        return;
+      }
+      setVoiceCommand(result.transcript);
+      await parseVoiceCommand(result.transcript);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not transcribe audio.";
+      setVoiceResult({ error: message });
+      toast.error(message);
+    } finally {
+      setVoiceTranscribePending(false);
+    }
   }
 
   function applyVoiceGoals() {
@@ -446,12 +440,13 @@ export function MiniGameScoresForm({
                 <p className="text-xs text-slate-500">Record or type multiple scoring commands, then review before adding.</p>
               </div>
               <button
-                className={`btn-secondary min-h-9 px-3 text-xs ${voiceListening ? "border-emerald-300 bg-emerald-50 text-emerald-800" : ""}`}
-                onClick={() => voiceListening ? stopVoiceScoring() : startVoiceScoring()}
+                className={`btn-secondary min-h-9 px-3 text-xs ${voiceRecording ? "border-emerald-300 bg-emerald-50 text-emerald-800" : ""}`}
+                disabled={voiceParsePending || voiceTranscribePending}
+                onClick={() => voiceRecording ? stopVoiceScoring() : void startVoiceScoring()}
                 type="button"
               >
                 <Mic className="h-3.5 w-3.5" />
-                {voiceListening ? "Stop" : "Record"}
+                {voiceRecording ? "Stop" : voiceTranscribePending ? "Transcribing..." : "Record"}
               </button>
             </div>
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
@@ -465,12 +460,10 @@ export function MiniGameScoresForm({
                 value={voiceCommand}
               />
               <div className="flex flex-wrap gap-2 md:justify-end">
-                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={voiceParsePending || !voiceCommand.trim()} onClick={() => void parseVoiceCommand()} type="button">
+                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={voiceParsePending || voiceTranscribePending || !voiceCommand.trim()} onClick={() => void parseVoiceCommand()} type="button">
                   {voiceParsePending ? "Parsing..." : "Parse"}
                 </button>
                 <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => {
-                  voiceBaseTranscriptRef.current = "";
-                  voiceInterimTranscriptRef.current = "";
                   setVoiceCommand("");
                   setVoiceResult(null);
                 }} type="button">
@@ -489,7 +482,7 @@ export function MiniGameScoresForm({
               }`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-semibold">
-                    {voiceResult.error ? "Could not parse command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
+                    {voiceResult.error ? "Could not process voice command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
                   </div>
                   {voiceResult.parser ? (
                     <div className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold">
@@ -815,38 +808,73 @@ function minutesBetween(start?: string | null, end?: string | null) {
   return Math.max(0, endMinutes - startMinutes);
 }
 
-function getSpeechRecognition(): VoiceRecognitionConstructor | null {
+function getAudioContextConstructor(): AudioContextConstructor | null {
   if (typeof window === "undefined") return null;
-  const speechWindow = window as Window & {
-    SpeechRecognition?: VoiceRecognitionConstructor;
-    webkitSpeechRecognition?: VoiceRecognitionConstructor;
-  };
-  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+  const audioWindow = window as Window & { webkitAudioContext?: AudioContextConstructor };
+  return window.AudioContext ?? audioWindow.webkitAudioContext ?? null;
 }
 
-function joinTranscript(base: string, next: string) {
-  const cleanBase = base.trim();
-  const cleanNext = next.trim();
-  if (!cleanBase) return cleanNext;
-  if (!cleanNext) return cleanBase;
+function audioFileExtension(mimeType: string) {
+  if (mimeType.includes("wav")) return "wav";
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+  return "webm";
+}
 
-  const normalizedBase = normalizeVoiceText(cleanBase);
-  const normalizedNext = normalizeVoiceText(cleanNext);
-  if (normalizedBase === normalizedNext || normalizedBase.endsWith(normalizedNext)) return cleanBase;
-  if (normalizedNext.startsWith(normalizedBase)) return cleanNext;
+function encodeWav(chunks: Float32Array[], sampleRate: number) {
+  const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const buffer = new ArrayBuffer(44 + sampleCount * 2);
+  const view = new DataView(buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + sampleCount * 2, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, sampleCount * 2, true);
 
-  const baseWords = cleanBase.split(/\s+/);
-  const nextWords = cleanNext.split(/\s+/);
-  const normalizedBaseWords = normalizedBase.split(/\s+/);
-  const normalizedNextWords = normalizedNext.split(/\s+/);
-  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedNextWords.length);
-  for (let size = maxOverlap; size > 0; size -= 1) {
-    const baseTail = normalizedBaseWords.slice(-size).join(" ");
-    const nextHead = normalizedNextWords.slice(0, size).join(" ");
-    if (baseTail === nextHead) return [...baseWords, ...nextWords.slice(size)].join(" ").trim();
+  let offset = 44;
+  for (const chunk of chunks) {
+    for (const sample of chunk) {
+      const clamped = Math.max(-1, Math.min(1, sample));
+      view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+      offset += 2;
+    }
   }
+  return new Blob([buffer], { type: "audio/wav" });
+}
 
-  return `${cleanBase} ${cleanNext}`.trim();
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+}
+
+function voiceTranscriptionContext(
+  games: MatchInput[],
+  teams: TeamOption[],
+  playersByTeam: Map<string, Array<{ id: string; name: string }>>
+) {
+  const matchLines = games
+    .filter((game) => game.teamAId && game.teamBId)
+    .map((game) => {
+      const players = uniquePlayers([
+        ...playersForTeam(playersByTeam, game.teamAId),
+        ...playersForTeam(playersByTeam, game.teamBId)
+      ]).map((player) => player.name);
+      return `Game ${game.matchNumber}: ${teamDisplayName(teams, game, "a")} vs ${teamDisplayName(teams, game, "b")}. Players: ${players.join(", ")}.`;
+    });
+  return [
+    "Transcribe a soccer scoring command. Preserve player names and game numbers.",
+    "Common phrases: goal by, assist by, own goal by, game one, game two, G1, G2.",
+    ...matchLines
+  ].join("\n");
 }
 
 function buildVoicePreviewGoals(

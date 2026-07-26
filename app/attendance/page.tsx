@@ -20,7 +20,6 @@ export default async function AttendancePage({
   let attendanceQuery = supabase.from("attendance").select("*,players(display_name),sessions(session_date)").order("created_at", { ascending: false }).limit(100);
   if (program?.id) {
     sessionsQuery = sessionsQuery.eq("program_id", program.id);
-    attendanceQuery = attendanceQuery.eq("program_id", program.id);
   }
   const [{ data: players }, { data: sessions }, { data: attendance }] = await Promise.all([
     supabase.from("players").select("*").order("display_name"),
