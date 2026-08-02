@@ -20,56 +20,58 @@ const accounts = [
   { key: "outsider", name: "Test Outsider", organizationRole: null, programRole: null, status: "active" }
 ] as const;
 
-for (const account of accounts) {
-  const email = `${prefix}+${account.key}@${domain}`;
-  const userId = await ensureAuthUser(email, account.name);
-  await must(supabase.from("profiles").upsert({
-    id: userId,
-    email,
-    display_name: account.name,
-    role: "player"
-  }, { onConflict: "id" }), `profile ${email}`);
+async function main() {
+  for (const account of accounts) {
+    const email = `${prefix}+${account.key}@${domain}`;
+    const userId = await ensureAuthUser(email, account.name);
+    await must(supabase.from("profiles").upsert({
+      id: userId,
+      email,
+      display_name: account.name,
+      role: "player"
+    }, { onConflict: "id" }), `profile ${email}`);
 
-  if (account.key === "platform-superadmin") {
-    await must(supabase.from("platform_accounts").upsert({
-      profile_id: userId,
-      role: "platform_superadmin"
-    }), `platform account ${email}`);
-    await must(supabase.from("platform_admin_organization_access").upsert({
-      profile_id: userId,
-      organization_id: organizationId
-    }), `platform access ${email}`);
+    if (account.key === "platform-superadmin") {
+      await must(supabase.from("platform_accounts").upsert({
+        profile_id: userId,
+        role: "platform_superadmin"
+      }), `platform account ${email}`);
+      await must(supabase.from("platform_admin_organization_access").upsert({
+        profile_id: userId,
+        organization_id: organizationId
+      }), `platform access ${email}`);
+    }
+
+    if (account.organizationRole) {
+      await must(supabase.from("organization_members").upsert({
+        organization_id: organizationId,
+        profile_id: userId,
+        role: account.organizationRole,
+        status: account.status
+      }, { onConflict: "organization_id,profile_id" }), `organization membership ${email}`);
+    }
+
+    if (account.programRole) {
+      const { data: existing } = await supabase
+        .from("program_members")
+        .select("id")
+        .eq("program_id", programId)
+        .eq("profile_id", userId)
+        .maybeSingle();
+      const operation = existing
+        ? supabase.from("program_members").update({ role: account.programRole, status: account.status }).eq("id", existing.id)
+        : supabase.from("program_members").insert({
+            organization_id: organizationId,
+            program_id: programId,
+            profile_id: userId,
+            role: account.programRole,
+            status: account.status
+          });
+      await must(operation, `program membership ${email}`);
+    }
+
+    console.log(`${account.key.padEnd(22)} ${email}`);
   }
-
-  if (account.organizationRole) {
-    await must(supabase.from("organization_members").upsert({
-      organization_id: organizationId,
-      profile_id: userId,
-      role: account.organizationRole,
-      status: account.status
-    }, { onConflict: "organization_id,profile_id" }), `organization membership ${email}`);
-  }
-
-  if (account.programRole) {
-    const { data: existing } = await supabase
-      .from("program_members")
-      .select("id")
-      .eq("program_id", programId)
-      .eq("profile_id", userId)
-      .maybeSingle();
-    const operation = existing
-      ? supabase.from("program_members").update({ role: account.programRole, status: account.status }).eq("id", existing.id)
-      : supabase.from("program_members").insert({
-          organization_id: organizationId,
-          program_id: programId,
-          profile_id: userId,
-          role: account.programRole,
-          status: account.status
-        });
-    await must(operation, `program membership ${email}`);
-  }
-
-  console.log(`${account.key.padEnd(22)} ${email}`);
 }
 
 async function ensureAuthUser(email: string, displayName: string) {
@@ -105,3 +107,8 @@ function required(name: string) {
   if (!value) throw new Error(`${name} is required.`);
   return value;
 }
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});
