@@ -1,13 +1,13 @@
 import { AppShell } from "../(shell)";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { cleanupClubData, setOrganizationDefaultProgram, updatePublicReportSettings } from "@/lib/actions/admin";
-import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { hasOrganizationAdminAuthority } from "@/lib/organization-access";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ cleanup?: string }> }) {
   const [{ cleanup }, profile] = await Promise.all([searchParams, getCurrentProfile()]);
-  const isAdmin = hasPermission(profile?.role, "manage_all");
   const supabase = await createSupabaseServerClient();
+  const isAdmin = await hasOrganizationAdminAuthority(supabase, profile?.organization_id);
   const [{ data: organization }, { data: organizationSettings }, { data: programs }] = profile?.organization_id ? await Promise.all([
     supabase.from("organizations").select("public_reports_enabled").eq("id", profile.organization_id).maybeSingle(),
     supabase.from("organization_settings").select("public_balances_enabled,public_payments_enabled").eq("organization_id", profile.organization_id).maybeSingle(),

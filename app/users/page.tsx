@@ -3,13 +3,21 @@ import { DataTable } from "@/components/DataTable";
 import { UserPasswordForm } from "@/components/UserPasswordForm";
 import { UserUpdateForm } from "@/components/UserUpdateForm";
 import { InvitationForm } from "@/components/InvitationForm";
-import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { hasOrganizationAdminAuthority } from "@/lib/organization-access";
 
 export default async function UsersPage() {
   const supabase = await createSupabaseServerClient();
   const profile = await getCurrentProfile();
-  const isAdmin = hasPermission(profile?.role, "manage_all");
+  const isAdmin = await hasOrganizationAdminAuthority(supabase, profile?.organization_id);
+  const { data: actorMembership } = profile?.organization_id ? await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", profile.organization_id)
+    .eq("profile_id", profile.id)
+    .eq("status", "active")
+    .maybeSingle() : { data: null };
+  const canManageOwners = actorMembership?.role === "owner";
 
   if (!isAdmin || !profile?.organization_id) {
     return (
@@ -57,7 +65,7 @@ export default async function UsersPage() {
           {
             header: "Role",
             cell: (row) => (
-              <UserUpdateForm memberId={row.id} playerId={row.player_id} players={players ?? []} role={row.role} status={row.status} />
+              <UserUpdateForm canManageOwners={canManageOwners} memberId={row.id} playerId={row.player_id} players={players ?? []} role={row.role} status={row.status} />
             )
           },
           {

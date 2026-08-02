@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
+import { requireOrganizationAdminAuthority } from "../organization-access";
 
 export async function submitPaymentSentNotification(_: unknown, formData: FormData) {
   try {
@@ -32,12 +32,13 @@ export async function submitPaymentSentNotification(_: unknown, formData: FormDa
 
 export async function markNotificationRead(formData: FormData) {
   const profile = await getCurrentProfile();
-  if (!hasPermission(profile?.role, "manage_all")) throw new Error("Only admins can update notifications.");
+  if (!profile?.organization_id) throw new Error("Only organization admins can update notifications.");
 
   const notificationId = String(formData.get("notificationId") ?? "");
   if (!notificationId) throw new Error("Notification is required.");
 
   const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
   const { data, error } = await supabase.rpc("accept_notification", {
     p_notification_id: notificationId
   });

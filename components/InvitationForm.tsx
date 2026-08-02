@@ -6,7 +6,7 @@ import { createInvitationAction } from "@/lib/actions/invitations";
 
 type ProgramOption = { id: string; name: string };
 
-export function InvitationForm({ programs }: { programs: ProgramOption[] }) {
+export function InvitationForm({ programs, programManagerMode = false }: { programs: ProgramOption[]; programManagerMode?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [invitePath, setInvitePath] = useState("");
 
@@ -25,16 +25,16 @@ export function InvitationForm({ programs }: { programs: ProgramOption[] }) {
       <input className="input" name="email" placeholder="Invited email (optional)" type="email" />
       <select className="input" name="organization_role" defaultValue="player">
         <option value="player">Organization member</option>
-        <option value="admin">Organization admin</option>
-        <option value="">No organization role change</option>
+        {!programManagerMode ? <option value="admin">Organization admin</option> : null}
+        {!programManagerMode ? <option value="">No organization role change</option> : null}
       </select>
       <select className="input" name="program_id" defaultValue="">
         <option value="">No specific program</option>
         {programs.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
       </select>
       <select className="input" name="program_role" defaultValue="">
-        <option value="">No program role</option>
-        <option value="manager">Program manager</option>
+        {!programManagerMode ? <option value="">No program role</option> : null}
+        {!programManagerMode ? <option value="manager">Program manager</option> : null}
         <option value="captain">Captain</option>
         <option value="member">Player/member</option>
       </select>

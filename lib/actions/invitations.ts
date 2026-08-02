@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { tenantPath } from "../tenant";
+import { hasOrganizationAdminAuthority } from "../organization-access";
 
 export async function acceptInvitationAction(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
@@ -25,16 +26,24 @@ export async function acceptInvitationAction(formData: FormData): Promise<void> 
 
 export async function createInvitationAction(formData: FormData) {
   const profile = await getCurrentProfile();
-  if (profile?.role !== "admin" || !profile.organization_id) throw new Error("Unauthorized");
+  if (!profile?.organization_id) throw new Error("Unauthorized");
+  const supabase = await createSupabaseServerClient();
   const programId = optionalUuid(formData.get("program_id"));
   const organizationRole = optionalValue(formData.get("organization_role"), ["admin", "player"]);
   const programRole = optionalValue(formData.get("program_role"), ["manager", "captain", "member"]);
   if (!organizationRole && !programRole) throw new Error("An invitation role is required.");
+  const organizationAdmin = await hasOrganizationAdminAuthority(supabase, profile.organization_id);
+  if (!organizationAdmin) {
+    if (!programId || organizationRole !== "player" || !programRole || !["captain", "member"].includes(programRole)) {
+      throw new Error("Program Managers can invite only Captains and Members to their assigned program.");
+    }
+    const { data: role, error: roleError } = await supabase.rpc("program_role", { p_program_id: programId });
+    if (roleError || role !== "manager") throw new Error("Program Manager access is required.");
+  }
   const token = randomBytes(32).toString("base64url");
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const expiresInHours = Math.min(168, Math.max(1, Number(formData.get("expires_in_hours") ?? 24)));
   const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
-  const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("invitations").insert({
     token_hash: tokenHash,
     organization_id: profile.organization_id,

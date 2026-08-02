@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:db": "supabase test db",
+    "test:auth-users": "tsx scripts/create-authorization-test-users.ts",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {

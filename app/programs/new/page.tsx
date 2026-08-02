@@ -1,10 +1,13 @@
 import { AppShell } from "../../(shell)";
 import { saveProgram } from "@/lib/actions/crud";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { hasOrganizationAdminAuthority } from "@/lib/organization-access";
+import { redirect } from "next/navigation";
 
 export default async function NewProgramPage() {
   const profile = await getCurrentProfile();
   const supabase = await createSupabaseServerClient();
+  if (!(await hasOrganizationAdminAuthority(supabase, profile?.organization_id))) redirect("/programs");
   const { data } = await supabase
     .from("organization_enabled_programs")
     .select("program_template_id,program_templates!inner(name)")

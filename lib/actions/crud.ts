@@ -7,6 +7,7 @@ import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "../supabase/server";
 import { applySessionUsage } from "./session-usage";
 import { requireEnabledProgramModule } from "../program-access";
+import { requireOrganizationAdminAuthority } from "../organization-access";
 
 async function requirePermission(permission: Parameters<typeof hasPermission>[1]) {
   const profile = await getCurrentProfile();
@@ -19,9 +20,10 @@ export async function saveProgram(formData: FormData) {
   if (!profile?.organization_id) throw new Error("No organization found for this account.");
   const parsed = programSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
   const { data: enabledTemplate, error: templateError } = await supabase
     .from("organization_enabled_programs")
-    .select("program_template_id,program_templates!inner(key,category,default_modules)")
+    .select("program_template_id,program_templates!inner(key,category,program_template_modules(module_key,default_enabled))")
     .eq("organization_id", profile.organization_id)
     .eq("program_template_id", parsed.program_template_id)
     .eq("enabled", true)
@@ -52,11 +54,11 @@ export async function saveProgram(formData: FormData) {
       status: "active"
     });
     if (membershipError) throw new Error(membershipError.message);
-    const modules = (template.default_modules ?? []).map((moduleKey: string) => ({
+    const modules = (template.program_template_modules ?? []).map((module: { module_key: string; default_enabled: boolean }) => ({
       organization_id: profile.organization_id,
       program_id: data.id,
-      module_key: moduleKey,
-      enabled: true
+      module_key: module.module_key,
+      enabled: module.default_enabled
     }));
     if (modules.length) {
       const { error: moduleError } = await supabase.from("program_modules").insert(modules);

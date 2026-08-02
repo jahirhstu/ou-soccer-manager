@@ -35,6 +35,7 @@ type NavItem = {
   roles: UserRole[];
   moduleKey?: string;
   scope?: "organization" | "program";
+  requiresOrganizationAdmin?: boolean;
 };
 
 const navSections: Array<{ label: string; items: NavItem[] }> = [
@@ -56,14 +57,14 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { href: "/seasons", label: "Seasons", subLabel: "Session groups", icon: Trophy, roles: ["admin"] },
       { href: "/players", label: "Players", subLabel: "Profiles and status", icon: Users, roles: ["admin"] },
-      { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"], scope: "organization" },
-      { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"], moduleKey: "payments" },
-      { href: "/payments/reminders", label: "Reminders", subLabel: "WhatsApp drafts", icon: MessageSquareText, roles: ["admin"], moduleKey: "payments" },
-      { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"] },
-      { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"], moduleKey: "expenses" },
-      { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"], moduleKey: "whatsapp_import" },
-      { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"] },
-      { href: "/settings", label: "Settings", subLabel: "Roles and cleanup", icon: Settings, roles: ["admin"], scope: "organization" }
+      { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"], scope: "organization", requiresOrganizationAdmin: true },
+      { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"], moduleKey: "payments", requiresOrganizationAdmin: true },
+      { href: "/payments/reminders", label: "Reminders", subLabel: "WhatsApp drafts", icon: MessageSquareText, roles: ["admin"], moduleKey: "payments", requiresOrganizationAdmin: true },
+      { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"], requiresOrganizationAdmin: true },
+      { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"], moduleKey: "expenses", requiresOrganizationAdmin: true },
+      { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"], moduleKey: "whatsapp_import", requiresOrganizationAdmin: true },
+      { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"], requiresOrganizationAdmin: true },
+      { href: "/settings", label: "Settings", subLabel: "Roles and cleanup", icon: Settings, roles: ["admin"], scope: "organization", requiresOrganizationAdmin: true }
     ]
   },
   {
@@ -84,6 +85,7 @@ export function AppNav({
   tenantSlug,
   programSlug,
   enabledModules,
+  organizationAdmin = false,
   variant = "app"
 }: {
   unreadNotificationCount?: number;
@@ -91,6 +93,7 @@ export function AppNav({
   tenantSlug?: string | null;
   programSlug?: string | null;
   enabledModules?: string[] | null;
+  organizationAdmin?: boolean;
   variant?: NavVariant;
 }) {
   const pathname = usePathname();
@@ -98,7 +101,7 @@ export function AppNav({
   const sections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => isVisible(item, role, variant, enabledModules))
+      items: section.items.filter((item) => isVisible(item, role, variant, enabledModules, organizationAdmin))
     }))
     .filter((section) => section.items.length > 0);
 
@@ -143,9 +146,10 @@ export function AppNav({
   );
 }
 
-function isVisible(item: NavItem, role: UserRole | undefined, variant: NavVariant, enabledModules?: string[] | null) {
+function isVisible(item: NavItem, role: UserRole | undefined, variant: NavVariant, enabledModules?: string[] | null, organizationAdmin = false) {
   if (variant === "public") return item.roles.includes("player") && (!item.moduleKey || !enabledModules || enabledModules.includes(item.moduleKey));
   if (!role || !item.roles.includes(role)) return false;
+  if (item.requiresOrganizationAdmin && !organizationAdmin) return false;
   if (item.moduleKey && enabledModules && !enabledModules.includes(item.moduleKey)) return false;
   if ((role === "admin" || role === "captain") && item.href.startsWith("/public/") && item.href !== "/public/report") return false;
   return true;

@@ -36,4 +36,22 @@ describe("tenant security migrations", () => {
     expect(defaults).toContain("Only the platform owner can set the public default context");
     expect(defaults).toContain("revoke all on function public.set_platform_default_context(uuid, uuid) from public, anon");
   });
+
+  it("onboards organizations atomically with normalized template modules", () => {
+    const onboarding = migration("074_organization_onboarding.sql");
+    expect(onboarding).toContain("create table if not exists public.module_catalog");
+    expect(onboarding).toContain("create table if not exists public.program_template_modules");
+    expect(onboarding).toContain("create or replace function public.create_organization_onboarding");
+    expect(onboarding).toContain("v_platform_role not in ('platform_owner', 'platform_superadmin')");
+    expect(onboarding).toContain("'organization.onboarded'");
+    expect(onboarding).toContain("'owner', 'manager'");
+    expect(onboarding).toContain("Required program modules cannot be disabled");
+    expect(onboarding).toContain("revoke all on function public.create_organization_onboarding");
+  });
+
+  it("reserves global template creation for the platform owner", () => {
+    const onboarding = migration("074_organization_onboarding.sql");
+    expect(onboarding).toContain("create or replace function public.create_program_template");
+    expect(onboarding).toContain("if public.platform_role() <> 'platform_owner'");
+  });
 });

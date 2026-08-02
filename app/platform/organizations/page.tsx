@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { assignPlatformSuperadminAction, createOrganizationAction, setOrganizationTemplateAction, setPlatformDefaultContextAction } from "@/lib/actions/platform";
+import { assignPlatformSuperadminAction, setOrganizationTemplateAction, setPlatformDefaultContextAction } from "@/lib/actions/platform";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function PlatformOrganizationsPage() {
@@ -19,13 +20,10 @@ export default async function PlatformOrganizationsPage() {
   return (
     <main className="mx-auto grid max-w-5xl gap-6 px-4 py-10">
       <h1 className="text-3xl font-semibold tracking-tight">Platform organizations</h1>
-      {account.role === "platform_owner" ? (
-        <form action={createOrganizationAction} className="panel grid gap-3 p-5 sm:grid-cols-[1fr_1fr_auto]">
-          <input className="input" name="name" placeholder="Organization name" required />
-          <input className="input" name="slug" placeholder="organization-slug" required />
-          <button className="btn-primary">Create organization</button>
-        </form>
-      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Link className="btn-primary" href="/platform/organizations/new">Onboard organization</Link>
+        {account.role === "platform_owner" ? <Link className="btn-secondary" href="/platform/program-templates">Program templates</Link> : null}
+      </div>
       {account.role === "platform_owner" ? (
         <form action={setPlatformDefaultContextAction} className="panel grid gap-3 p-5 sm:grid-cols-[1fr_auto]">
           <div>
@@ -50,7 +48,7 @@ export default async function PlatformOrganizationsPage() {
       <div className="grid gap-4">
         {(organizations ?? []).map((organization) => (
           <section className="panel grid gap-3 p-5" key={organization.id}>
-            <div><h2 className="font-semibold">{organization.name}{organization.is_default ? " · Public default" : ""}</h2><p className="text-sm text-slate-500">/{organization.slug}</p></div>
+            <div><h2 className="font-semibold"><Link className="hover:underline" href={`/platform/organizations/${organization.id}`}>{organization.name}</Link>{organization.is_default ? " · Public default" : ""}</h2><p className="text-sm text-slate-500">/{organization.slug}</p></div>
             <div className="flex flex-wrap gap-2">
               {(templates ?? []).map((template) => {
                 const active = (enabled ?? []).some((item) => item.organization_id === organization.id && item.program_template_id === template.id && item.enabled);
