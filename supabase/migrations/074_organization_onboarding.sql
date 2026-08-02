@@ -207,7 +207,7 @@ begin
   if v_profile_id is null then raise exception 'Authentication required'; end if;
   select lower(email) into v_email from public.profiles where id = v_profile_id;
   select * into invitation from public.invitations
-  where token_hash = encode(digest(p_token, 'sha256'), 'hex')
+  where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex')
   for update;
   if not found or invitation.status <> 'active' or invitation.expires_at <= now()
      or invitation.used_count >= invitation.max_uses then

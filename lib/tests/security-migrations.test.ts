@@ -54,4 +54,10 @@ describe("tenant security migrations", () => {
     expect(onboarding).toContain("create or replace function public.create_program_template");
     expect(onboarding).toContain("if public.platform_role() <> 'platform_owner'");
   });
+
+  it("schema-qualifies the pgcrypto invitation digest", () => {
+    const fix = migration("075_fix_invitation_digest_schema.sql");
+    expect(fix).toContain("extensions.digest(p_token, 'sha256')");
+    expect(fix).toContain("grant execute on function public.accept_invitation(text) to authenticated");
+  });
 });
