@@ -48,7 +48,7 @@ type PublicPlayerStreakRow = {
   session_names: string[] | null;
 };
 
-type PublicLatestWinningStreakRow = Omit<PublicPlayerStreakRow, "streak_type">;
+type PublicWinningStreakRow = Omit<PublicPlayerStreakRow, "streak_type">;
 
 type PaymentNotificationKey = {
   player_id: string;
@@ -68,14 +68,14 @@ export default async function PublicPlayerReportPage({
   const [
     { data, error },
     { data: highlightsData, error: highlightsError },
-    { data: streaksData, error: streaksError },
+    { data: longestWinningStreakData, error: longestWinningStreakError },
     { data: latestWinningStreakData, error: latestWinningStreakError },
     { data: notificationKeys },
     profile
   ] = await Promise.all([
     supabase.rpc("public_player_report"),
     supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
-    supabase.rpc("public_player_session_streaks", { p_season_id: filters.season || null }),
+    supabase.rpc("public_longest_winning_streaks", { p_season_id: filters.season || null }),
     supabase.rpc("public_latest_winning_streaks", { p_season_id: filters.season || null }),
     supabase.rpc("public_payment_notification_keys"),
     getCurrentProfile()
@@ -91,9 +91,10 @@ export default async function PublicPlayerReportPage({
   const topScorer = highlights.get("top_scorer");
   const topAssist = highlights.get("top_assist");
   const latestWinner = highlights.get("latest_winner");
-  const streakRows = (streaksData ?? []) as PublicPlayerStreakRow[];
-  const topWinningStreak = streakRows.find((row) => row.streak_type === "winning");
-  const latestWinningStreakRows = (latestWinningStreakData ?? []) as PublicLatestWinningStreakRow[];
+  const longestWinningStreakRows = (longestWinningStreakData ?? []) as PublicWinningStreakRow[];
+  const longestWinningStreak = longestWinningStreakRows[0];
+  const longestWinningStreakSeasons = [...new Set(longestWinningStreakRows.map((row) => row.season_name ?? "Season"))].join(", ");
+  const latestWinningStreakRows = (latestWinningStreakData ?? []) as PublicWinningStreakRow[];
   const latestWinningStreak = latestWinningStreakRows[0];
   const notifiedBalances = new Set(((notificationKeys ?? []) as PaymentNotificationKey[]).map(notificationKey));
 
@@ -129,9 +130,10 @@ export default async function PublicPlayerReportPage({
               />
               <SummaryCard
                 icon={<Flame className="h-5 w-5 text-amber-600" />}
-                label="Longest winning streak"
-                subLabel={streaksError ? "Run latest migration" : topWinningStreak ? `${numberValue(topWinningStreak.streak_count)} sessions | ${topWinningStreak.season_name ?? "Season"}` : "No streaks yet"}
-                value={topWinningStreak?.player_name ?? "-"}
+                label={longestWinningStreakRows.length > 1 ? "Joint longest winning streak" : "Longest winning streak"}
+                subLabel={longestWinningStreakError ? "Run latest migration" : longestWinningStreak ? `${numberValue(longestWinningStreak.streak_count)} sessions | ${longestWinningStreakSeasons}` : "No streaks yet"}
+                value={longestWinningStreakRows.length ? longestWinningStreakRows.map((row) => row.player_name ?? "-").join(", ") : "-"}
+                wrapValue
               />
               <SummaryCard
                 icon={<Flame className="h-5 w-5 text-pitch" />}
