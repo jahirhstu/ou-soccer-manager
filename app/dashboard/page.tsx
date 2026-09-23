@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, type LucideIcon } from "lucide-react";
+import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, WalletCards, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppShell } from "../(shell)";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 
 type DashboardSummaryRow = {
   season_id: string;
@@ -24,7 +24,8 @@ type DashboardExpenseRow = {
 
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
-  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }] = await Promise.all([
+  const program = await getCurrentProgram();
+  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }, { data: totalPlayerCredit }] = await Promise.all([
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
@@ -33,7 +34,8 @@ export default async function DashboardPage() {
     supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
     supabase.rpc("public_player_report"),
     supabase.from("payments").select("season_id,session_id,amount").gt("amount", 0),
-    supabase.from("club_expenses").select("season_id,amount")
+    supabase.from("club_expenses").select("season_id,amount"),
+    supabase.rpc("admin_total_player_credit_remaining", { p_program_id: program?.id ?? null })
   ]);
   const activeSeason = seasons?.[0];
   const summaryRows = (summaries ?? []) as DashboardSummaryRow[];
@@ -77,6 +79,13 @@ export default async function DashboardPage() {
           <Metric icon={CreditCard} label="Total collected" value={money(totalCollected)} />
           <Metric icon={ReceiptText} label="Total expenses" value={money(totalExpenses)} />
           <Metric icon={CircleDollarSign} label="Club balance" value={money(clubBalance)} />
+          <Metric
+            icon={WalletCards}
+            label="Total Player Credit Remaining"
+            supportingText="Unused player funds currently held by the club"
+            tooltip="The sum of all positive player balances. Amounts owed by players do not reduce this total."
+            value={money(totalPlayerCredit)}
+          />
           <Metric icon={TrendingDown} label="Total charged(used)" value={money(totalUsed)} />
           <Metric icon={CircleDollarSign} label="Total owing" value={money(totalOwing)} />
         </div>
@@ -119,9 +128,21 @@ export default async function DashboardPage() {
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string | number }) {
+function Metric({
+  icon: Icon,
+  label,
+  supportingText,
+  tooltip,
+  value
+}: {
+  icon: LucideIcon;
+  label: string;
+  supportingText?: string;
+  tooltip?: string;
+  value: string | number;
+}) {
   return (
-    <div className="panel p-4">
+    <div className="panel p-4" title={tooltip}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-slate-500">{label}</div>
         <span className="grid h-9 w-9 place-items-center rounded-md bg-emerald-50 text-pitch ring-1 ring-emerald-100">
@@ -129,6 +150,7 @@ function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string;
         </span>
       </div>
       <div className="mt-3 break-words text-2xl font-semibold tracking-tight text-ink">{value}</div>
+      {supportingText ? <p className="mt-1 text-xs leading-5 text-slate-500">{supportingText}</p> : null}
     </div>
   );
 }
