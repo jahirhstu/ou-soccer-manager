@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeDollarSign, MessageSquareText, Plus } from "lucide-react";
+import { ArrowRightLeft, BadgeDollarSign, MessageSquareText, Plus, Undo2 } from "lucide-react";
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { PaymentFlashToast } from "@/components/PaymentFlashToast";
@@ -17,7 +17,7 @@ type PaymentHistoryRow = {
   amount: number;
   sessionsCovered: number | string | null;
   method: string;
-  kind: "Payment" | "Waiver";
+  kind: "Payment" | "Waiver" | "Refund" | "Transfer in" | "Transfer out";
   note?: string | null;
 };
 
@@ -35,10 +35,22 @@ export default async function PaymentsPage({
     .select("*,players(display_name),programs(name),seasons(name),sessions(session_date,name)")
     .gt("waiver_amount", 0)
     .order("waived_at", { ascending: false });
+  let refundQuery = supabase
+    .from("ledger_entries")
+    .select("*,players(display_name),programs(name),seasons(name)")
+    .eq("type", "refund_paid")
+    .order("created_at", { ascending: false });
+  let transferQuery = supabase.from("ledger_entries")
+    .select("*,players(display_name),programs(name),seasons(name)")
+    .in("type", ["credit_transferred_in", "credit_transferred_out"])
+    .not("transfer_id", "is", null)
+    .order("created_at", { ascending: false });
   if (program?.id) query = query.eq("program_id", program.id);
   if (program?.id) waiverQuery = waiverQuery.eq("program_id", program.id);
-  const [{ data }, { data: waivers }] = await Promise.all([query, waiverQuery]);
-  const rows = sortRows([...paymentRows(data ?? []), ...waiverRows(waivers ?? [])], sortKey(filters.sort));
+  if (program?.id) refundQuery = refundQuery.eq("program_id", program.id);
+  if (program?.id) transferQuery = transferQuery.eq("program_id", program.id);
+  const [{ data }, { data: waivers }, { data: refunds }, { data: transfers }] = await Promise.all([query, waiverQuery, refundQuery, transferQuery]);
+  const rows = sortRows([...paymentRows(data ?? []), ...waiverRows(waivers ?? []), ...refundRows(refunds ?? []), ...transferRows(transfers ?? [])], sortKey(filters.sort));
   return (
     <AppShell>
       <PaymentFlashToast success={filters.success} />
@@ -47,6 +59,8 @@ export default async function PaymentsPage({
         <div className="flex flex-wrap gap-2">
           <Link className="btn-secondary" href="/payments/reminders"><MessageSquareText className="h-4 w-4" /> WhatsApp reminders</Link>
           <Link className="btn-secondary" href="/payments/waiver"><BadgeDollarSign className="h-4 w-4" /> Record waiver</Link>
+          <Link className="btn-secondary" href="/payments/refund"><Undo2 className="h-4 w-4" /> Record refund</Link>
+          <Link className="btn-secondary" href="/payments/carry-forward"><ArrowRightLeft className="h-4 w-4" /> Carry forward</Link>
           <Link className="btn-primary" href="/payments/new"><Plus className="h-4 w-4" /> Record payment</Link>
         </div>
       </div>
@@ -57,7 +71,7 @@ export default async function PaymentsPage({
         { header: "Season", cell: (row) => row.seasonName },
         { header: "Session", cell: (row) => row.sessionLabel },
         { header: "Date", cell: (row) => row.date },
-        { header: "Amount", cell: (row) => row.kind === "Waiver" ? `${money(row.amount)} waived` : money(row.amount) },
+        { header: "Amount", cell: (row) => row.kind === "Waiver" ? `${money(row.amount)} waived` : row.kind === "Refund" ? `${money(row.amount)} refunded` : row.kind.startsWith("Transfer") ? `${money(row.amount)} ${row.kind === "Transfer in" ? "in" : "out"}` : money(row.amount) },
         { header: "Paid sessions", cell: (row) => row.sessionsCovered ?? "-" },
         { header: "Method", cell: (row) => row.method },
         { header: "Note", cell: (row) => row.note ?? "-" }
@@ -112,6 +126,36 @@ function waiverRows(rows: any[]): PaymentHistoryRow[] {
     method: "Waiver",
     kind: "Waiver",
     note: row.waiver_reason
+  }));
+}
+
+function refundRows(rows: any[]): PaymentHistoryRow[] {
+  return rows.map((row) => ({
+    playerName: row.players?.display_name ?? "-",
+    programName: row.programs?.name ?? "-",
+    seasonName: row.seasons?.name ?? "-",
+    sessionLabel: "Season refund",
+    date: row.refund_date ?? String(row.created_at ?? "").slice(0, 10),
+    amount: Number(row.amount ?? 0),
+    sessionsCovered: "-",
+    method: row.refund_method ?? "-",
+    kind: "Refund",
+    note: row.refund_reference
+  }));
+}
+
+function transferRows(rows: any[]): PaymentHistoryRow[] {
+  return rows.map((row) => ({
+    playerName: row.players?.display_name ?? "-",
+    programName: row.programs?.name ?? "-",
+    seasonName: row.seasons?.name ?? "-",
+    sessionLabel: "Season credit",
+    date: row.transfer_date ?? String(row.created_at ?? "").slice(0, 10),
+    amount: Number(row.amount ?? 0),
+    sessionsCovered: "-",
+    method: "Credit transfer",
+    kind: row.type === "credit_transferred_in" ? "Transfer in" : "Transfer out",
+    note: [row.description, row.transfer_note].filter(Boolean).join(" - ")
   }));
 }
 

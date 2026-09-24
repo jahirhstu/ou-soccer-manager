@@ -21,11 +21,15 @@ type DashboardExpenseRow = {
   amount: number | string | null;
   season_id: string | null;
 };
+type DashboardRefundRow = {
+  amount: number | string | null;
+  season_id: string;
+};
 
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
   const program = await getCurrentProgram();
-  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }, { data: totalPlayerCredit }] = await Promise.all([
+  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }, { data: refunds }, { data: totalPlayerCredit }] = await Promise.all([
     supabase.from("seasons").select("*").eq("status", "active").limit(1),
     supabase.from("players").select("*").eq("status", "active"),
     supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
@@ -35,6 +39,7 @@ export default async function DashboardPage() {
     supabase.rpc("public_player_report"),
     supabase.from("payments").select("season_id,session_id,amount").gt("amount", 0),
     supabase.from("club_expenses").select("season_id,amount"),
+    supabase.from("ledger_entries").select("season_id,amount").eq("type", "refund_paid"),
     supabase.rpc("admin_total_player_credit_remaining", { p_program_id: program?.id ?? null })
   ]);
   const activeSeason = seasons?.[0];
@@ -42,6 +47,7 @@ export default async function DashboardPage() {
   const activeSummaries = activeSeason ? summaryRows.filter((row) => row.season_id === activeSeason.id) : summaryRows;
   const paymentRows = (financePayments ?? []) as DashboardPaymentRow[];
   const expenseRows = (expenses ?? []) as DashboardExpenseRow[];
+  const refundRows = (refunds ?? []) as DashboardRefundRow[];
   const activePayments = activeSeason ? paymentRows.filter((row) => row.season_id === activeSeason.id) : paymentRows;
   const activeExpenses = activeSeason ? expenseRows.filter((row) => row.season_id === activeSeason.id || row.season_id == null) : expenseRows;
   const collectedFromReport = sumMoney(activeSummaries.map((row) => row.total_paid_amount));
@@ -54,7 +60,8 @@ export default async function DashboardPage() {
   const totalUsed = sumMoney(activeSummaries.map((row) => row.estimated_used_amount));
   const totalOwing = sumMoney(activeSummaries.map((row) => row.owes_money));
   const totalExpenses = sumMoney(activeExpenses.map((row) => row.amount));
-  const clubBalance = totalCollected - totalExpenses;
+  const totalRefunded = sumMoney(refundRows.filter((row) => !activeSeason || row.season_id === activeSeason.id).map((row) => row.amount));
+  const clubBalance = totalCollected - totalExpenses - totalRefunded;
 
   return (
     <AppShell>
@@ -78,6 +85,7 @@ export default async function DashboardPage() {
           <Metric icon={CreditCard} label="Drop-in collected" value={money(dropInCollected)} />
           <Metric icon={CreditCard} label="Total collected" value={money(totalCollected)} />
           <Metric icon={ReceiptText} label="Total expenses" value={money(totalExpenses)} />
+          <Metric icon={ReceiptText} label="Total refunded" value={money(totalRefunded)} />
           <Metric icon={CircleDollarSign} label="Club balance" value={money(clubBalance)} />
           <Metric
             icon={WalletCards}

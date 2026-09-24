@@ -15,6 +15,8 @@ export function PaymentFlashToast({ success }: { success?: string }) {
     shownRef.current = true;
     if (success === "payment_saved") toast.success("Payment recorded.");
     if (success === "waiver_saved") toast.success("Waiver recorded.");
+    if (success === "refund_saved") toast.success("Refund recorded.");
+    if (success === "transfer_saved") toast.success("Credit carried forward.");
     const nextParams = new URLSearchParams(searchParams.toString());
     nextParams.delete("success");
     const query = nextParams.toString();

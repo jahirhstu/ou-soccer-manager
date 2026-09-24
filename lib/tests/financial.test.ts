@@ -40,5 +40,15 @@ describe("total player credit remaining", () => {
       adjustments: [{ type: "credit_added", amount: "0.01" }]
     })).toBe(2526);
   });
-});
 
+  it("keeps a refundable season separate from another season the same player owes", () => {
+    expect(totalPlayerCreditRemainingCents([
+      { payments: ["25.00"] },
+      { payments: ["5.00"], charges: ["20.00"] }
+    ])).toBe(2500);
+    expect(totalPlayerCreditRemainingCents([
+      { payments: ["25.00"], adjustments: [{ type: "refund_paid", amount: "25.00" }] },
+      { payments: ["5.00"], charges: ["20.00"] }
+    ])).toBe(0);
+  });
+});
