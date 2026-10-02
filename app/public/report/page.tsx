@@ -6,6 +6,7 @@ import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { cn, money } from "@/lib/utils";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 type PublicPlayerReportRow = {
   player_id: string;
@@ -65,6 +66,15 @@ export default async function PublicPlayerReportPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
+  const [tenantSlug, programSlug] = await Promise.all([getRequestTenantSlug(), getRequestProgramSlug()]);
+  const { data: reportSeasons, error: seasonError } = await supabase.rpc("public_report_season", {
+    p_organization_slug: tenantSlug || "ou-soccer",
+    p_program_slug: programSlug || null
+  });
+  if (seasonError) throw new Error(seasonError.message);
+  const reportSeason = reportSeasons?.[0];
+  const seasonId = reportSeason?.season_id;
+  const emptyResult = Promise.resolve({ data: [], error: null });
   const [
     { data, error },
     { data: highlightsData, error: highlightsError },
@@ -73,20 +83,19 @@ export default async function PublicPlayerReportPage({
     { data: notificationKeys },
     profile
   ] = await Promise.all([
-    supabase.rpc("public_player_report"),
-    supabase.rpc("public_dashboard_highlights", { p_season_id: filters.season || null }),
-    supabase.rpc("public_longest_winning_streaks", { p_season_id: filters.season || null }),
-    supabase.rpc("public_latest_winning_streaks", { p_season_id: filters.season || null }),
-    supabase.rpc("public_payment_notification_keys"),
+    seasonId ? supabase.rpc("public_player_report") : emptyResult,
+    seasonId ? supabase.rpc("public_dashboard_highlights", { p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("public_longest_winning_streaks", { p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("public_latest_winning_streaks", { p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("public_payment_notification_keys") : emptyResult,
     getCurrentProfile()
   ]);
   const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
     if (filters.q && !String(row.player_name ?? "").toLowerCase().includes(filters.q.toLowerCase())) return false;
-    if (filters.season && row.season_id !== filters.season) return false;
+    if (row.season_id !== seasonId) return false;
     return true;
   }), sortKey(filters.sort));
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
-  const seasons = uniqueSeasons((data ?? []) as PublicPlayerReportRow[]);
   const highlights = ((highlightsData ?? []) as PublicHighlightRow[]).reduce((map, row) => map.set(row.metric, row), new Map<PublicHighlightRow["metric"], PublicHighlightRow>());
   const topScorer = highlights.get("top_scorer");
   const topAssist = highlights.get("top_assist");
@@ -96,18 +105,19 @@ export default async function PublicPlayerReportPage({
   const longestWinningStreakSeasons = [...new Set(longestWinningStreakRows.map((row) => row.season_name ?? "Season"))].join(", ");
   const latestWinningStreakRows = (latestWinningStreakData ?? []) as PublicWinningStreakRow[];
   const latestWinningStreak = latestWinningStreakRows[0];
-  const notifiedBalances = new Set(((notificationKeys ?? []) as PaymentNotificationKey[]).map(notificationKey));
+  const notifiedBalances = new Set(((notificationKeys ?? []) as PaymentNotificationKey[]).filter((row) => row.season_id === seasonId).map(notificationKey));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
         <header className="panel overflow-hidden">
           <div className="grid gap-4 bg-white p-4 sm:p-5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Report Gallery
               </span>
+              <span className="max-w-full break-words text-sm text-slate-600">{reportSeason?.season_name ?? "No seasons configured"}</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <SummaryCard
@@ -146,19 +156,14 @@ export default async function PublicPlayerReportPage({
           </div>
         </header>
 
-        <form className="panel grid gap-3 p-4 sm:grid-cols-[1fr_220px_auto]">
+        <form className="panel grid gap-3 p-4 sm:grid-cols-[1fr_auto]">
           <label className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input className="input w-full pl-9" defaultValue={filters.q ?? ""} name="q" placeholder="Search player" />
           </label>
-          <select className="input" defaultValue={filters.season ?? ""} name="season">
-            <option value="">All seasons</option>
-            {seasons.map((season) => (
-              <option key={season.id} value={season.id}>{season.name}</option>
-            ))}
-          </select>
           <button className="btn-primary">Filter</button>
         </form>
+        {!seasonId ? <p className="text-sm text-slate-600">No seasons configured.</p> : null}
 
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -305,14 +310,6 @@ function toneClasses(tone: "credit" | "owes" | "neutral") {
   if (tone === "credit") return { soft: "border-emerald-200 bg-emerald-50", text: "text-emerald-700" };
   if (tone === "owes") return { soft: "border-rose-200 bg-rose-50", text: "text-rose-700" };
   return { soft: "border-line bg-white", text: "text-slate-800" };
-}
-
-function uniqueSeasons(rows: PublicPlayerReportRow[]) {
-  const seasons = new Map<string, string>();
-  for (const row of rows) {
-    if (row.season_id) seasons.set(row.season_id, row.season_name ?? "Season");
-  }
-  return Array.from(seasons.entries()).map(([id, name]) => ({ id, name }));
 }
 
 function notificationKey(row: PaymentNotificationKey) {
