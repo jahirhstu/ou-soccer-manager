@@ -2,7 +2,7 @@ type CreditActivity = {
   payments?: Array<number | string | null | undefined>;
   charges?: Array<number | string | null | undefined>;
   adjustments?: Array<{
-    type: "credit_added" | "credit_transferred_in" | "credit_transferred_out" | "refund_paid" | "manual_adjustment";
+    type: "credit_added" | "credit_transferred_in" | "credit_transferred_out" | "debt_transferred_out" | "debt_transferred_in" | "refund_paid" | "manual_adjustment";
     amount: number | string | null | undefined;
   }>;
 };
@@ -12,8 +12,8 @@ export function availableCreditCents(activity: CreditActivity): number {
   const charges = sumCents(activity.charges ?? []);
   const adjustments = (activity.adjustments ?? []).reduce((total, entry) => {
     const amount = moneyToCents(entry.amount);
-    if (entry.type === "credit_added" || entry.type === "credit_transferred_in") return total + amount;
-    if (entry.type === "credit_transferred_out" || entry.type === "refund_paid") return total - amount;
+    if (entry.type === "credit_added" || entry.type === "credit_transferred_in" || entry.type === "debt_transferred_out") return total + amount;
+    if (entry.type === "credit_transferred_out" || entry.type === "refund_paid" || entry.type === "debt_transferred_in") return total - amount;
     return total + amount;
   }, 0);
   return Math.max(payments - charges + adjustments, 0);

@@ -60,7 +60,9 @@ where type in (
   'manual_adjustment',
   'credit_added',
   'credit_transferred_in',
-  'credit_transferred_out'
+  'credit_transferred_out',
+  'debt_transferred_in',
+  'debt_transferred_out'
 )
 order by created_at desc;
 

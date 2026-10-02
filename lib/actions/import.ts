@@ -700,11 +700,11 @@ async function getCreditBeforeSession(
     const amount = Number(entry.amount ?? 0);
     const current = creditByPlayer.get(entry.player_id) ?? 0;
 
-    if (["payment_received", "credit_added", "credit_transferred_in"].includes(entry.type)) {
+    if (["payment_received", "credit_added", "credit_transferred_in", "debt_transferred_out"].includes(entry.type)) {
       creditByPlayer.set(entry.player_id, current + amount);
     }
 
-    if (["session_used", "credit_transferred_out", "refund_paid"].includes(entry.type)) {
+    if (["session_used", "credit_transferred_out", "refund_paid", "debt_transferred_in"].includes(entry.type)) {
       creditByPlayer.set(entry.player_id, current - amount);
     }
   }

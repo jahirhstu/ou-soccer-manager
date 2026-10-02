@@ -1,6 +1,7 @@
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { money } from "@/lib/utils";
+import { balanceTransferLabel, balanceTransferTypes } from "@/lib/transfers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import Link from "next/link";
@@ -33,15 +34,15 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="page-title">{player?.display_name ?? "Player"}</h1>
             <div className="flex flex-wrap gap-2">
+              {hasPermission(profile?.role, "manage_finance") && (summary ?? []).some((row) => Number(row.credit_amount ?? 0) > 0 || Number(row.owes_money ?? 0) > 0) ? (
+                <Link className="btn-secondary" href={`/payments/carry-forward?player=${id}&season=${(summary ?? []).find((row) => Number(row.credit_amount ?? 0) > 0 || Number(row.owes_money ?? 0) > 0)?.season_id}`}>
+                  <ArrowRightLeft className="h-4 w-4" /> Carry forward balance
+                </Link>
+              ) : null}
               {hasPermission(profile?.role, "manage_finance") && (summary ?? []).some((row) => Number(row.credit_amount ?? 0) > 0) ? (
-                <>
-                  <Link className="btn-secondary" href={`/payments/carry-forward?player=${id}&season=${(summary ?? []).find((row) => Number(row.credit_amount ?? 0) > 0)?.season_id}`}>
-                    <ArrowRightLeft className="h-4 w-4" /> Carry forward
-                  </Link>
                   <Link className="btn-secondary" href={`/payments/refund?player=${id}&season=${(summary ?? []).find((row) => Number(row.credit_amount ?? 0) > 0)?.season_id}`}>
                     <Undo2 className="h-4 w-4" /> Record refund
                   </Link>
-                </>
               ) : null}
               <Link className="btn-secondary" href={`/players/${id}/edit`}>
                 <Pencil className="h-4 w-4" /> Edit player
@@ -64,12 +65,13 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
             { header: "Remaining", cell: (row) => row.remaining_sessions ?? 0 },
             { header: "Waived", cell: (row) => money(row.waived_amount) },
             { header: "Credit", cell: (row) => money(row.credit_amount) },
+            { header: "Owing", cell: (row) => money(row.owes_money) },
             { header: "Refunded", cell: (row) => money(row.refund_paid_amount) }
           ]} />
         </section>
         <section className="grid gap-3">
           <h2 className="section-title">Payment history</h2>
-          <DataTable rows={paymentHistoryRows(payments ?? [], waivers ?? [], (ledger ?? []).filter((row) => row.type === "refund_paid"), (ledger ?? []).filter((row) => row.transfer_id && ["credit_transferred_in", "credit_transferred_out"].includes(row.type)))} columns={[
+          <DataTable rows={paymentHistoryRows(payments ?? [], waivers ?? [], (ledger ?? []).filter((row) => row.type === "refund_paid"), (ledger ?? []).filter((row) => row.transfer_id && balanceTransferTypes.includes(row.type)))} columns={[
             { header: "Type", cell: (row) => row.type },
             { header: "Season", cell: (row) => row.season },
             { header: "Session", cell: (row) => row.session },
@@ -138,9 +140,9 @@ function paymentHistoryRows(payments: any[], waivers: any[], refunds: any[], tra
       note: row.refund_reference ?? `${row.refund_method ?? "Refund"}`
     })),
     ...transfers.map((row) => ({
-      type: row.type === "credit_transferred_in" ? "Transfer in" : "Transfer out",
+      type: balanceTransferLabel(row.type),
       season: row.seasons?.name ?? "-",
-      session: "Season credit",
+      session: "Season balance",
       date: row.transfer_date ?? String(row.created_at ?? "").slice(0, 10),
       amount: Number(row.amount ?? 0),
       sessions: "-",

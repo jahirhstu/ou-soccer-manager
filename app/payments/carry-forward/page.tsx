@@ -11,7 +11,7 @@ export default async function CarryForwardPage({ searchParams }: { searchParams:
   if (!hasPermission(profile?.role, "manage_finance")) redirect("/public/report");
   const program = await getCurrentProgram();
   const supabase = await createSupabaseServerClient();
-  let seasonsQuery = supabase.from("seasons").select("id,name,program_id");
+  let seasonsQuery = supabase.from("seasons").select("id,name,program_id").eq("organization_id", profile.organization_id);
   if (program?.id) seasonsQuery = seasonsQuery.eq("program_id", program.id);
   const [{ data: seasons, error: seasonsError }, { data: balances, error: balancesError }] = await Promise.all([
     seasonsQuery.order("name"),
@@ -21,7 +21,7 @@ export default async function CarryForwardPage({ searchParams }: { searchParams:
   const seasonById = new Map((seasons ?? []).map((season) => [season.id, season]));
   const options = (balances ?? []).filter((row) => {
     const source = seasonById.get(row.season_id);
-    return Number(row.credit_amount ?? 0) > 0 && source?.program_id &&
+    return (Number(row.credit_amount ?? 0) > 0 || Number(row.owes_money ?? 0) > 0) && source?.program_id &&
       (seasons ?? []).some((season) => season.program_id === source.program_id && season.id !== source.id);
   })
     .map((row) => ({
@@ -30,7 +30,8 @@ export default async function CarryForwardPage({ searchParams }: { searchParams:
       seasonId: row.season_id,
       seasonName: seasonById.get(row.season_id)!.name,
       programId: seasonById.get(row.season_id)!.program_id,
-      credit: String(row.credit_amount)
+      credit: String(row.credit_amount ?? 0),
+      owes: String(row.owes_money ?? 0)
     }));
   const dateParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit"

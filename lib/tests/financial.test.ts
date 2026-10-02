@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { availableCreditCents, totalPlayerCreditRemainingCents } from "../financial";
 
 describe("total player credit remaining", () => {
+  it("debt transfers consume destination credit and clear the source debt", () => {
+    expect(availableCreditCents({ payments: ["10.00"], adjustments: [{ type: "debt_transferred_in", amount: "24.00" }] })).toBe(0);
+    expect(availableCreditCents({ charges: ["24.00"], adjustments: [{ type: "debt_transferred_out", amount: "24.00" }] })).toBe(0);
+    expect(availableCreditCents({ payments: ["25.00"], adjustments: [{ type: "debt_transferred_in", amount: "12.00" }] })).toBe(1300);
+  });
   it("sums positive balances without subtracting players who owe", () => {
     expect(totalPlayerCreditRemainingCents([
       { payments: ["25.00"] },

@@ -20,21 +20,24 @@ export default async function PaymentReportPage({
     filters.sessionId
       ? supabase.from("attendance").select("player_id").eq("session_id", filters.sessionId)
       : Promise.resolve({ data: null }),
-    supabase.from("player_season_transfer_summary").select("player_id,season_id,transfer_in_amount,transfer_out_amount")
+    supabase.from("player_season_transfer_summary").select("player_id,season_id,transfer_in_amount,transfer_out_amount,debt_transfer_in_amount,debt_transfer_out_amount")
   ]);
   const transferByPlayerSeason = new Map((transfers ?? []).map((row) => [`${row.player_id}:${row.season_id}`, row]));
   const attendedPlayerIds = new Set((sessionAttendance ?? []).map((row) => row.player_id));
-  const filteredRows = sortRows((data ?? []).filter((row) => {
+  const rowsWithTransfers = (data ?? []).map((row) => ({ ...row,
+    transfer_in_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.transfer_in_amount ?? 0,
+    transfer_out_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.transfer_out_amount ?? 0,
+    debt_transfer_in_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.debt_transfer_in_amount ?? 0,
+    debt_transfer_out_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.debt_transfer_out_amount ?? 0
+  }));
+  const filteredRows = sortRows(rowsWithTransfers.filter((row) => {
     if (filters.player && !String(row.player_name ?? "").toLowerCase().includes(filters.player.toLowerCase())) return false;
     if (filters.sessionId && !attendedPlayerIds.has(row.player_id)) return false;
     if (filters.status && filters.status !== "all" && paymentStatus(row) !== filters.status) return false;
     return true;
-  }).map((row) => ({ ...row,
-    transfer_in_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.transfer_in_amount ?? 0,
-    transfer_out_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.transfer_out_amount ?? 0
-  })), sortKey(filters.sort));
+  }), sortKey(filters.sort));
   const csv = [
-    "Player,Season,Amount paid,Paid sessions,Billable sessions,Remaining sessions,Used,Waived,Refunded,Transfer in,Transfer out,Credit,Refund due,Owes",
+    "Player,Season,Amount paid,Paid sessions,Billable sessions,Remaining sessions,Used,Waived,Refunded,Credit transfer in,Credit transfer out,Owing transfer in,Owing transfer out,Credit,Refund due,Owes",
     ...filteredRows.map((row) =>
       [
         row.player_name,
@@ -48,6 +51,8 @@ export default async function PaymentReportPage({
         row.refund_paid_amount,
         row.transfer_in_amount,
         row.transfer_out_amount,
+        row.debt_transfer_in_amount,
+        row.debt_transfer_out_amount,
         row.credit_amount,
         row.refund_due_amount,
         row.owes_money
@@ -98,8 +103,10 @@ export default async function PaymentReportPage({
         { header: "Used", cell: (row) => money(row.estimated_used_amount) },
         { header: "Waived", cell: (row) => money(row.waived_amount) },
         { header: "Refunded", cell: (row) => money(row.refund_paid_amount) },
-        { header: "Transfer in", cell: (row) => money(row.transfer_in_amount) },
-        { header: "Transfer out", cell: (row) => money(row.transfer_out_amount) },
+        { header: "Credit transfer in", cell: (row) => money(row.transfer_in_amount) },
+        { header: "Credit transfer out", cell: (row) => money(row.transfer_out_amount) },
+        { header: "Owing transfer in", cell: (row) => money(row.debt_transfer_in_amount) },
+        { header: "Owing transfer out", cell: (row) => money(row.debt_transfer_out_amount) },
         { header: "Credit", cell: (row) => <MoneyPill amount={row.credit_amount} tone={Number(row.credit_amount ?? 0) > 0 ? "credit" : "neutral"} /> },
         { header: "Refund due", cell: (row) => money(row.refund_due_amount) },
         { header: "Owes", cell: (row) => <MoneyPill amount={row.owes_money} tone={Number(row.owes_money ?? 0) > 0 ? "owes" : "neutral"} /> }
@@ -111,6 +118,7 @@ export default async function PaymentReportPage({
 function paymentStatus(row: any) {
   if (Number(row.owes_money ?? 0) > 0) return "owes";
   if (Number(row.credit_amount ?? 0) > 0) return "credit";
+  if ([row.transfer_in_amount, row.transfer_out_amount, row.debt_transfer_in_amount, row.debt_transfer_out_amount].some((amount) => Number(amount ?? 0) > 0)) return "settled";
   if (Number(row.total_paid_amount ?? 0) === 0) return "no_payment";
   return "settled";
 }

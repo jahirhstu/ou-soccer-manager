@@ -913,8 +913,8 @@ function getCreditBeforeSession(ledgerEntries: LedgerEntryRow[], playerId: strin
     .filter((entry) => entry.player_id === playerId && entry.season_id === seasonId && entry.session_id !== sessionId)
     .reduce((total, entry) => {
       const amount = Number(entry.amount ?? 0);
-      if (["payment_received", "credit_added", "credit_transferred_in"].includes(entry.type)) return total + amount;
-      if (["session_used", "credit_transferred_out", "refund_paid"].includes(entry.type)) return total - amount;
+      if (["payment_received", "credit_added", "credit_transferred_in", "debt_transferred_out"].includes(entry.type)) return total + amount;
+      if (["session_used", "credit_transferred_out", "refund_paid", "debt_transferred_in"].includes(entry.type)) return total - amount;
       return total;
     }, 0);
 }
