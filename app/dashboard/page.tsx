@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, WalletCards, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DashboardSeasonSelect } from "@/components/DashboardSeasonSelect";
+import { ClubBalanceTransferForm } from "@/components/ClubBalanceTransferForm";
+import { PaymentFlashToast } from "@/components/PaymentFlashToast";
+import { reverseClubBalanceTransfer } from "@/lib/actions/club-transfers";
 import { resolveDashboardSeason } from "@/lib/dashboard-seasons";
 import { AppShell } from "../(shell)";
 import { money } from "@/lib/utils";
@@ -14,7 +18,7 @@ type DashboardSummaryRow = {
   estimated_used_amount: number | string | null;
   owes_money: number | string | null;
 };
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ season?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ season?: string; success?: string }> }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
   const [program, profile] = await Promise.all([getCurrentProgram(), getCurrentProfile()]);
@@ -37,12 +41,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     supabase.rpc("public_player_report"),
     supabase.rpc("admin_dashboard_season_finance", { p_season_id: activeSeason.id }),
     supabase.from("sessions").select("id", { count: "exact", head: true }).eq("season_id", activeSeason.id),
-    supabase.from("sessions").select("session_date").eq("season_id", activeSeason.id).eq("status", "scheduled").gte("session_date", today).order("session_date").limit(1)
+    supabase.from("sessions").select("session_date").eq("season_id", activeSeason.id).eq("status", "scheduled").gte("session_date", today).order("session_date").limit(1),
+    supabase.rpc("admin_club_transfer_summary", { p_season_id: activeSeason.id }),
+    supabase.from("club_balance_transfers").select("*").eq("organization_id", profile.organization_id)
+      .or(`source_season_id.eq.${activeSeason.id},destination_season_id.eq.${activeSeason.id}`)
+      .order("created_at", { ascending: false }),
+    activeSeason.program_id
+      ? supabase.from("club_expenses").select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id).eq("program_id", activeSeason.program_id).is("season_id", null)
+      : supabase.from("club_expenses").select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id).is("program_id", null).is("season_id", null)
   ]);
   for (const result of results) if (result.error) throw new Error(result.error.message);
-  const [{ data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financeRows }, { count: sessionCount }, { data: upcoming }] = results;
+  const [{ data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financeRows }, { count: sessionCount }, { data: upcoming }, { data: transferSummaries }, { data: transferHistory }, { count: unassignedExpenses }] = results;
   const finance = financeRows?.[0];
   if (!finance) throw new Error("Season financial summary is unavailable.");
+  const transferSummary = transferSummaries?.[0];
+  if (!transferSummary) throw new Error("Club transfer summary is unavailable.");
+  const destinations = (seasons ?? []).filter((season) => activeSeason.program_id && season.program_id === activeSeason.program_id
+    && activeSeason.start_date && season.start_date && season.start_date > activeSeason.start_date);
+  const seasonNames = new Map((seasons ?? []).map((season) => [season.id, season.name]));
+  const reversedIds = new Set((transferHistory ?? []).map((row) => row.reverses_transfer_id).filter(Boolean));
   const summaryRows = (summaries ?? []) as DashboardSummaryRow[];
   const activeSummaries = activeSeason ? summaryRows.filter((row) => row.season_id === activeSeason.id) : summaryRows;
   const totalUsed = sumMoney(activeSummaries.map((row) => row.estimated_used_amount));
@@ -50,6 +69,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <AppShell>
+      <PaymentFlashToast success={filters.success} />
       <div className="grid gap-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -85,6 +105,39 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <Metric icon={TrendingDown} label="Net session charges" value={money(totalUsed)} />
           <Metric icon={CircleDollarSign} label="Total owing" value={money(totalOwing)} />
         </div>
+        <section className="grid gap-3">
+          <h2 className="section-title">Club balance carry-forward</h2>
+          <div className="grid gap-3 border-y border-line py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <div><span className="text-slate-500">Season result before transfers</span><div className="font-semibold text-ink">{money(transferSummary.season_result)}</div></div>
+            <div><span className="text-slate-500">Carried in</span><div className="font-semibold text-ink">{money(transferSummary.carried_in)}</div></div>
+            <div><span className="text-slate-500">Carried out</span><div className="font-semibold text-ink">{money(transferSummary.carried_out)}</div></div>
+            <div><span className="text-slate-500">Balance remaining</span><div className="font-semibold text-ink">{money(transferSummary.balance_remaining)}</div></div>
+          </div>
+          {unassignedExpenses ? <p className="text-sm text-amber-800">
+            {unassignedExpenses} unassigned expense{unassignedExpenses === 1 ? "" : "s"} must be <Link className="underline" href="/expenses">assigned to a season</Link> before a transfer.
+          </p> : null}
+          <ClubBalanceTransferForm key={activeSeason.id} source={activeSeason} destinations={destinations}
+            balance={transferSummary.balance_remaining} today={today} submissionId={randomUUID()}
+            unassignedExpenses={unassignedExpenses ?? 0} />
+          <h3 className="section-title">Transfer history</h3>
+          <DataTable rows={transferHistory ?? []} columns={[
+            { header: "Date", cell: (row) => row.transfer_date },
+            { header: "From", cell: (row) => seasonNames.get(row.source_season_id) ?? "-" },
+            { header: "To", cell: (row) => seasonNames.get(row.destination_season_id) ?? "-" },
+            { header: "Amount", cell: (row) => money(row.amount) },
+            { header: "Status", cell: (row) => row.reverses_transfer_id ? "Reversal" : reversedIds.has(row.id) ? "Reversed" : "Recorded" },
+            { header: "Note", cell: (row) => row.note ?? "-" },
+            { header: "Action", cell: (row) => !row.reverses_transfer_id && !reversedIds.has(row.id) ? (
+              <form action={reverseClubBalanceTransfer} className="flex items-center gap-2">
+                <input type="hidden" name="transfer_id" value={row.id} />
+                <input type="hidden" name="season_id" value={activeSeason.id} />
+                <input type="hidden" name="submission_id" value={randomUUID()} />
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" name="confirmed" value="yes" required /> Confirm</label>
+                <button className="btn-secondary" type="submit">Reverse</button>
+              </form>
+            ) : "-" }
+          ]} />
+        </section>
         <section className="grid gap-3">
           <h2 className="section-title">Recent sessions</h2>
           <DataTable compact rows={sessions ?? []} columns={[

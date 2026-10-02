@@ -11,12 +11,18 @@ export function PaymentFlashToast({ success }: { success?: string }) {
   const shownRef = useRef(false);
 
   useEffect(() => {
-    if (!success || shownRef.current) return;
+    if (!success) {
+      shownRef.current = false;
+      return;
+    }
+    if (shownRef.current) return;
     shownRef.current = true;
     if (success === "payment_saved") toast.success("Payment recorded.");
     if (success === "waiver_saved") toast.success("Waiver recorded.");
     if (success === "refund_saved") toast.success("Refund recorded.");
     if (success === "transfer_saved") toast.success("Balance carried forward.");
+    if (success === "club_transfer_saved") toast.success("Club balance carried forward.");
+    if (success === "club_transfer_reversed") toast.success("Club balance transfer reversed.");
     const nextParams = new URLSearchParams(searchParams.toString());
     nextParams.delete("success");
     const query = nextParams.toString();

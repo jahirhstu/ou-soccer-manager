@@ -67,7 +67,7 @@ export const paymentSchema = z.object({
 
 export const expenseSchema = z.object({
   program_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
-  season_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
+  season_id: z.string().uuid(),
   session_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   expense_date: z.string().min(8),
   category: z.enum(["dome_rent", "food", "jersey", "equipment", "other"]),

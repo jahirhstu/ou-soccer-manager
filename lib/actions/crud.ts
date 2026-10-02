@@ -126,7 +126,16 @@ export async function saveExpense(formData: FormData) {
   const profile = await requirePermission("manage_finance");
   const parsed = expenseSchema.parse(formDataToObject(formData));
   const supabase = await createSupabaseServerClient();
-  const programId = parsed.program_id ?? (await getProgramIdForExpense(supabase, parsed.season_id, parsed.session_id, profile.organization_id));
+  const { data: season, error: seasonError } = await supabase.from("seasons")
+    .select("id,organization_id,program_id").eq("id", parsed.season_id).single();
+  if (seasonError || season?.organization_id !== profile.organization_id) throw new Error("Choose a season in your organization.");
+  if (parsed.program_id && parsed.program_id !== season.program_id) throw new Error("Program must match the season.");
+  if (parsed.session_id) {
+    const { data: session, error: sessionError } = await supabase.from("sessions")
+      .select("season_id").eq("id", parsed.session_id).single();
+    if (sessionError || session?.season_id !== season.id) throw new Error("Session must belong to the selected season.");
+  }
+  const programId = season.program_id;
   const { data, error } = await supabase.from("club_expenses").insert({ ...parsed, program_id: programId, created_by: profile.id }).select("id").single();
   if (error) throw new Error(error.message);
   await supabase.from("audit_logs").insert({
@@ -136,6 +145,21 @@ export async function saveExpense(formData: FormData) {
     entity_id: data?.id,
     new_data: parsed
   });
+  revalidatePath("/expenses");
+  revalidatePath("/dashboard");
+  redirect("/expenses");
+}
+
+export async function assignExpenseSeason(formData: FormData) {
+  const profile = await requirePermission("manage_finance");
+  const expenseId = String(formData.get("expense_id") ?? "");
+  const seasonId = String(formData.get("season_id") ?? "");
+  if (!profile.organization_id || !expenseId || !seasonId) throw new Error("Choose an expense and season.");
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("assign_club_expense_season", {
+    p_expense_id: expenseId, p_season_id: seasonId
+  });
+  if (error) throw new Error(error.message);
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
   redirect("/expenses");
@@ -383,22 +407,6 @@ async function getProgramIdForPayment(
   return getProgramIdForSeason(supabase, seasonId);
 }
 
-async function getProgramIdForExpense(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  seasonId: string | undefined,
-  sessionId: string | undefined,
-  organizationId?: string | null
-) {
-  if (sessionId) {
-    const sessionProgramId = await getProgramIdForSession(supabase, sessionId);
-    if (sessionProgramId) return sessionProgramId;
-  }
-  if (seasonId) {
-    const seasonProgramId = await getProgramIdForSeason(supabase, seasonId);
-    if (seasonProgramId) return seasonProgramId;
-  }
-  return getDefaultProgramId(supabase, organizationId);
-}
 
 async function getDefaultProgramId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
