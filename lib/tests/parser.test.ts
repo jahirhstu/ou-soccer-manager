@@ -8,7 +8,7 @@ describe("RuleBasedWhatsAppParser", () => {
       Game 2026-05-21
       Ahmed paid $45 for 3 sessions e-transfer
       Omar out, Leo takes spot
-      Score 8-6
+      Game 1: Team A 8 - 6 Team B
       Ahmed 2 goals
       Goal: Marco assist John
     `);
@@ -16,7 +16,7 @@ describe("RuleBasedWhatsAppParser", () => {
     expect(result.session?.date).toBe("2026-05-21");
     expect(result.payments[0].amount).toBe(45);
     expect(result.dropouts.length).toBeGreaterThan(0);
-    expect(result.score?.teamAScore).toBe(8);
+    expect(result.matches[0].teamAScore).toBe(8);
     expect(result.goals).toHaveLength(2);
   });
 

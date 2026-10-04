@@ -1,10 +1,14 @@
+import type { ParsedWhatsAppImport } from "./types";
+
 type ImportedPayment = {
   amount?: number | string | null;
   amountSource?: "player_line" | "inferred_session_price" | "general_context" | null;
   note?: string | null;
 };
 
-export function normalizeImportedPaymentAmountSource(payment: ImportedPayment) {
+export function normalizeImportedPaymentAmountSource(
+  payment: ImportedPayment
+): ParsedWhatsAppImport["payments"][number]["amountSource"] {
   const amount = Number(payment.amount ?? 0);
   const note = String(payment.note ?? "");
   const positiveAmount = Number.isFinite(amount) && amount > 0;
