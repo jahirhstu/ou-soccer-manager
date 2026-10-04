@@ -1,5 +1,6 @@
 import type { ParsedWhatsAppImport } from "../types";
 import { parseSessionDate } from "../utils";
+import { normalizeImportedPaymentAmountSource } from "../import-payment-source";
 
 export function parserInstructions() {
   const currentYear = new Date().getFullYear();
@@ -93,7 +94,7 @@ function normalizePayments(payments: ParsedWhatsAppImport["payments"]) {
   return payments.map((payment) => ({
     ...payment,
     playerName: cleanImportedName(payment.playerName),
-    amountSource: normalizeAmountSource(payment),
+    amountSource: normalizeImportedPaymentAmountSource(payment),
     paymentMethod: payment.paymentMethod || "e-transfer"
   }));
 }
@@ -123,18 +124,6 @@ function cleanImportedName(name: string | null | undefined) {
     .replace(/[^\p{L}\p{M}\s.'-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function normalizeAmountSource(payment: ParsedWhatsAppImport["payments"][number]) {
-  if (payment.amount && payment.note && playerLineHasPaymentAmount(payment.note)) return "player_line";
-  if (/\bsent\b/i.test(payment.note ?? "")) return "inferred_session_price";
-  if (payment.amountSource) return payment.amountSource;
-  return payment.amount ? "general_context" : undefined;
-}
-
-function playerLineHasPaymentAmount(note: string) {
-  if (/\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(note)) return false;
-  return /\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.test(note);
 }
 
 function normalizeSeasonDates(season: ParsedWhatsAppImport["season"]) {

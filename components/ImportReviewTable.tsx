@@ -58,7 +58,7 @@ export function ImportReviewTable({
   const [state, action, pending] = useActionState(parseWhatsAppAction, null as { parsed?: ParsedWhatsAppImport; error?: string } | null);
   const [confirmState, confirmAction, confirmPending] = useActionState(
     confirmWhatsAppImport,
-    null as { success?: boolean; message?: string; error?: string } | null
+    null as { success?: boolean; message?: string; warning?: string; error?: string } | null
   );
   const [rawText, setRawText] = useState("");
   const parsed = state?.parsed;
@@ -118,6 +118,7 @@ export function ImportReviewTable({
   useEffect(() => {
     if (confirmState?.success) {
       toast.success(confirmState.message ?? "Import confirmed successfully.");
+      if (confirmState.warning) toast.warning(confirmState.warning);
     }
     if (confirmState?.error) {
       toast.error(confirmState.error);
@@ -155,6 +156,8 @@ export function ImportReviewTable({
 
       {state?.error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{state.error}</p> : null}
       {confirmState?.error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{confirmState.error}</p> : null}
+      {confirmState?.success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{confirmState.message}</p> : null}
+      {confirmState?.warning ? <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{confirmState.warning}</p> : null}
 
       {parsed ? (
         <form action={confirmAction} className="grid gap-4">

@@ -6,6 +6,7 @@ import { whatsappInputSchema } from "../schemas";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { normalizePlayerName } from "../utils";
+import { normalizeImportedPaymentAmountSource } from "../import-payment-source";
 import { applySessionUsage } from "./session-usage";
 
 export async function parseWhatsAppAction(_: unknown, formData: FormData) {
@@ -163,11 +164,14 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         ? await getCreditBeforeSession(supabase, targetSeasonId, targetSessionId)
         : new Map<string, number>();
 
+    let importedPayments = 0;
+    let existingPayments = 0;
+    let skippedPayments = 0;
     for (const payment of parsed.payments ?? []) {
       if (!payment.matchedPlayerId || !targetSeasonId) continue;
       const parsedAmount = Number(payment.amount ?? 0);
       const parsedSessionsCovered = Number(payment.sessionsCovered ?? 0);
-      const amountSource = normalizePaymentAmountSource(payment);
+      const amountSource = normalizeImportedPaymentAmountSource(payment);
       const explicitAmount = Boolean(Number.isFinite(parsedAmount) && parsedAmount > 0 && amountSource === "player_line");
       const note = String(payment.note ?? "");
       const pendingWithoutSent = /\bpending\b/i.test(note) && !/\bsent\b/i.test(note);
@@ -197,6 +201,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
 
       const paymentAmount = Number(explicitAmount ? parsedAmount : sentWithoutAmount ? sessionPrice : null);
       if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+        skippedPayments += 1;
         await supabase.from("audit_logs").insert({
           actor_id: profile.id,
           action: "payment_import_skipped_no_amount",
@@ -229,6 +234,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         actorId: profile.id
       });
       if (!paymentRow) {
+        existingPayments += 1;
         await supabase.from("audit_logs").insert({
           actor_id: profile.id,
           action: "payment_import_skipped_existing",
@@ -255,6 +261,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         created_by: profile.id
       });
       if (ledgerError) throw new Error(ledgerError.message);
+      importedPayments += 1;
 
       await supabase.from("audit_logs").insert({
         actor_id: profile.id,
@@ -328,6 +335,13 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     }
 
     revalidatePath("/import-whatsapp");
+    revalidatePath("/dashboard");
+    revalidatePath("/payments");
+    revalidatePath("/players");
+    revalidatePath("/public/report");
+    for (const playerId of new Set(playerIds.values())) {
+      revalidatePath(`/players/${playerId}`);
+    }
     revalidatePath("/reports/payments");
     revalidatePath("/reports/attendance");
     revalidatePath("/seasons");
@@ -336,7 +350,11 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       revalidatePath(`/sessions/${targetSessionId}`);
       revalidatePath(`/public/sessions/${targetSessionId}/teams`);
     }
-    return { success: true, message: "WhatsApp import confirmed successfully." };
+    const paymentSummary = `${importedPayments} payments recorded, ${existingPayments} already recorded.`;
+    const warning = skippedPayments
+      ? ` ${skippedPayments} payments skipped because no valid player-specific amount was confirmed. Review the payment rows before retrying.`
+      : undefined;
+    return { success: true, message: `WhatsApp import confirmed. ${paymentSummary}`, warning };
   } catch (error) {
     return { error: friendlyImportError(error, "confirm") };
   }
@@ -824,23 +842,6 @@ async function cleanupDuplicateGoalsForSession(
 function sessionsCoveredFromAmount(amount: number, sessionPrice: number | null) {
   if (!sessionPrice) return 1;
   return Number((amount / sessionPrice).toFixed(2));
-}
-
-function normalizePaymentAmountSource(payment: any): "player_line" | "inferred_session_price" | "general_context" | undefined {
-  const amount = Number(payment.amount ?? 0);
-  const note = String(payment.note ?? "");
-  if (Number.isFinite(amount) && amount > 0 && playerLineHasPaymentAmount(note)) return "player_line";
-  if (Number.isFinite(amount) && amount > 0 && payment.amountSource === "player_line" && !note) return "player_line";
-  if (/\bsent\b/i.test(note)) return "inferred_session_price";
-  if (payment.amountSource === "inferred_session_price") return "inferred_session_price";
-  if (Number.isFinite(amount) && amount > 0) return "general_context";
-  return payment.amountSource;
-}
-
-function playerLineHasPaymentAmount(note: string) {
-  if (!note) return false;
-  if (/\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(note)) return false;
-  return /\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.test(note);
 }
 
 function sameMoney(left: unknown, right: unknown) {
