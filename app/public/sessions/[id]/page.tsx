@@ -126,7 +126,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
           />
         </section>
 
-        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.sessionDate ?? "Session"} />
+        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.sessionDate ?? "Session"} sessionDate={session?.sessionDate} canShare={canManageSessionActivity} />
 
         <section className="grid gap-3">
           <h2 className="section-title">Game scores</h2>

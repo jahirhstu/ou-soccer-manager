@@ -1,4 +1,6 @@
 import { Clock, Coffee, Home, Plane } from "lucide-react";
+import { FixtureShareButton } from "@/components/FixtureShareButton";
+import { fixtureBreakMinutes as minutesBetween, fixtureTimeRange as timeRange } from "@/lib/fixture-sharing";
 
 export type FixtureScheduleItem = {
   matchNumber: number | string | null;
@@ -12,10 +14,14 @@ export type FixtureScheduleItem = {
 
 export function FixtureScheduleCard({
   matches,
-  sessionLabel
+  sessionLabel,
+  sessionDate,
+  canShare = false
 }: {
   matches: FixtureScheduleItem[];
   sessionLabel?: string | null;
+  sessionDate?: string | null;
+  canShare?: boolean;
 }) {
   const sortedMatches = [...matches].sort((left, right) => numberValue(left.matchNumber) - numberValue(right.matchNumber));
 
@@ -27,9 +33,12 @@ export function FixtureScheduleCard({
             <h2 className="section-title">Fixture schedule</h2>
             <p className="mt-1 text-sm text-slate-500">{sessionLabel ? `${sessionLabel} timing, breaks, and home/away order` : "Timing, breaks, and home/away order"}</p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-md border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold uppercase text-pitch">
-            <Clock className="h-4 w-4" />
-            {scheduledCount(sortedMatches)} scheduled
+          <div className="ml-auto flex max-w-full flex-wrap items-start justify-end gap-2">
+            <div className="inline-flex items-center gap-2 rounded-md border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold uppercase text-pitch">
+              <Clock className="h-4 w-4" />
+              {scheduledCount(sortedMatches)} scheduled
+            </div>
+            {canShare && sortedMatches.length > 0 ? <FixtureShareButton matches={sortedMatches} sessionLabel={sessionLabel || "Session"} sessionDate={sessionDate} /> : null}
           </div>
         </div>
       </div>
@@ -108,35 +117,6 @@ function homeFallback(match: FixtureScheduleItem) {
 
 function awayFallback(match: FixtureScheduleItem) {
   return match.awayTeamName || "Not assigned";
-}
-
-function timeRange(start?: string | null, end?: string | null) {
-  if (start && end) return `${formatTime(start)}-${formatTime(end)}`;
-  if (start) return `${formatTime(start)} start`;
-  if (end) return `${formatTime(end)} end`;
-  return "TBD";
-}
-
-function formatTime(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const displayHour = hours % 12 || 12;
-  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
-}
-
-function minutesBetween(start?: string | null, end?: string | null) {
-  const startMinutes = parseTimeToMinutes(start);
-  const endMinutes = parseTimeToMinutes(end);
-  if (startMinutes == null || endMinutes == null) return 0;
-  return Math.max(0, endMinutes - startMinutes);
-}
-
-function parseTimeToMinutes(value?: string | null) {
-  if (!value) return null;
-  const [hours, minutes] = value.split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return hours * 60 + minutes;
 }
 
 function numberValue(value: number | string | null | undefined) {
