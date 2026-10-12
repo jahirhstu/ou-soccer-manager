@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureScheduleCard, type FixtureScheduleItem } from "@/components/FixtureScheduleCard";
 import { FixtureImage } from "@/components/FixtureShareButton";
+import { FixtureScheduleView } from "@/components/FixtureScheduleView";
 import { canShareImage, fixtureBreakMinutes, fixtureImageName, fixtureTimeRange, shareImage } from "@/lib/fixture-sharing";
 
 const matches: FixtureScheduleItem[] = [
@@ -22,11 +23,24 @@ describe("saved fixture sharing", () => {
 
   it("exports all games, date, breaks and venue assignments without scores or controls", () => {
     const sorted = [...matches].reverse();
-    const html = renderToStaticMarkup(<FixtureImage matches={sorted} sessionLabel="Sunday" sessionDate="2026-10-04" />);
-    for (const text of ["Sunday", "October 4, 2026", "G1", "G2", "7:00 AM-7:15 AM", "Break: 5 min", "Home: ", "Away: ", "Second B"]) expect(html).toContain(text);
+    const html = renderToStaticMarkup(<FixtureImage matches={sorted} sessionLabel="Sunday" sessionDate="2026-10-04" location="Bell Senseplex, Field 2" />);
+    for (const text of ["Sunday", "October 4, 2026", "G1", "G2", "7:00 AM-7:15 AM", "Break: 5 min", "Home", "Away", "Second B", "Bell Senseplex, Field 2"]) expect(html).toContain(text);
     for (const text of ["<button", "Game scores", "truncate", "<nav"]) expect(html).not.toContain(text);
-    expect(html).toContain("width:900px");
-    expect(html).toContain("overflow-wrap:anywhere");
+    expect(html).toContain("width:1280px");
+    expect(html).toContain("break-words");
+    expect(html).toContain("grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)]");
+  });
+
+  it("uses the same desktop fixture presentation inside the shared image", () => {
+    const props = { matches, sessionLabel: "Sunday", sessionDate: "2026-10-04", location: "Bell Senseplex" };
+    const live = renderToStaticMarkup(<FixtureScheduleView {...props} desktop />);
+    const image = renderToStaticMarkup(<FixtureImage {...props} />);
+    expect(image).toContain(live);
+    const responsive = renderToStaticMarkup(<FixtureScheduleCard {...props} />);
+    expect(responsive).toContain("Bell Senseplex");
+    expect(responsive).toContain("lg:grid-cols-");
+    expect(image).not.toContain("lg:grid-cols-");
+    expect(renderToStaticMarkup(<FixtureScheduleCard matches={matches} />)).not.toContain("lucide-map-pin");
   });
 
   it("retains finals placeholders and handles missing times or assignments", () => {

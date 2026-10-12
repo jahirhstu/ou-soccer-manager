@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, LoaderCircle, Share2, X } from "lucide-react";
-import type { FixtureScheduleItem } from "@/components/FixtureScheduleCard";
-import { canShareImage, fixtureBreakMinutes, fixtureImageName, fixtureTimeRange, shareImage } from "@/lib/fixture-sharing";
+import { FixtureScheduleView, type FixtureScheduleViewProps } from "@/components/FixtureScheduleView";
+import { canShareImage, fixtureImageName, shareImage } from "@/lib/fixture-sharing";
 
-type Props = { matches: FixtureScheduleItem[]; sessionLabel: string; sessionDate?: string | null };
+type Props = FixtureScheduleViewProps & { sessionLabel: string };
 
 export function FixtureShareButton(props: Props) {
   const exportRef = useRef<HTMLDivElement>(null);
@@ -113,32 +113,10 @@ export function FixtureShareButton(props: Props) {
   );
 }
 
-export function FixtureImage({ matches, sessionLabel, sessionDate, ref }: Props & { ref?: React.Ref<HTMLDivElement> }) {
-  const date = sessionDate ? new Date(`${sessionDate}T12:00:00`).toLocaleDateString("en-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : null;
+export function FixtureImage({ ref, ...props }: Props & { ref?: React.Ref<HTMLDivElement> }) {
   return (
-    <div ref={ref} style={{ width: 900, padding: 32, background: "#ffffff", color: "#17212b", fontFamily: "Arial, sans-serif", fontSize: 18, lineHeight: 1.5, letterSpacing: 0 }}>
-      <header style={{ borderBottom: "4px solid #166534", paddingBottom: 20, marginBottom: 8 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#166534" }}>OU Soccer | Fixture schedule</div>
-        <h1 style={{ fontSize: 30, fontWeight: 700, margin: "8px 0", overflowWrap: "anywhere" }}>{sessionLabel}</h1>
-        {date ? <div>{date}</div> : null}
-      </header>
-      {matches.map((match, index) => {
-        const gap = fixtureBreakMinutes(matches[index - 1]?.scheduledEndTime, match.scheduledStartTime);
-        return (
-          <div key={`${match.matchNumber}-${index}`}>
-            {gap > 0 ? <div style={{ background: "#fffbeb", color: "#92400e", padding: "8px 12px", fontWeight: 700 }}>Break: {gap} min</div> : null}
-            <div style={{ display: "grid", gridTemplateColumns: "64px 180px minmax(0, 1fr)", gap: 16, padding: "18px 0", borderBottom: "1px solid #dce2e7" }}>
-              <div style={{ fontWeight: 700, color: "#166534" }}>G{match.matchNumber ?? "-"}</div>
-              <div style={{ fontSize: 16 }}>{fixtureTimeRange(match.scheduledStartTime, match.scheduledEndTime)}</div>
-              <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                <div style={{ fontWeight: 700 }}>{match.teamAName ?? "Team A"} <span style={{ color: "#64748b", fontWeight: 400 }}>vs</span> {match.teamBName ?? "Team B"}</div>
-                <div style={{ fontSize: 15, marginTop: 6, color: "#475569" }}>Home: {match.homeTeamName || "Not assigned"}</div>
-                <div style={{ fontSize: 15, color: "#475569" }}>Away: {match.awayTeamName || "Not assigned"}</div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+    <div ref={ref} className="bg-white p-4" style={{ width: 1280 }}>
+      <FixtureScheduleView {...props} desktop />
     </div>
   );
 }
