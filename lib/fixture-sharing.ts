@@ -1,3 +1,5 @@
+import { canShareImages, imageFileName, shareImages } from "@/lib/image-sharing";
+
 export function fixtureTimeRange(start?: string | null, end?: string | null) {
   if (start && end) return `${formatTime(start)}-${formatTime(end)}`;
   if (start) return `${formatTime(start)} start`;
@@ -23,24 +25,13 @@ export function fixtureBreakMinutes(start?: string | null, end?: string | null) 
 }
 
 export function fixtureImageName(label: string, date?: string | null) {
-  const safeLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "session";
-  return `${safeLabel}${date ? `-${date.replace(/[^0-9-]/g, "")}` : ""}-fixture.png`;
+  return imageFileName(label, "fixture", date);
 }
 
 export function canShareImage(file: File) {
-  try {
-    return typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
-  } catch {
-    return false;
-  }
+  return canShareImages([file]);
 }
 
 export async function shareImage(file: File, title: string): Promise<"shared" | "cancelled"> {
-  try {
-    await navigator.share({ files: [file], title });
-    return "shared";
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") return "cancelled";
-    throw error;
-  }
+  return shareImages([file], title);
 }

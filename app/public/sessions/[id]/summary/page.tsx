@@ -3,11 +3,14 @@ import Link from "next/link";
 import { Award, CalendarDays, Medal, ShieldCheck, Trophy } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { MatchGoalDetails } from "@/components/MatchGoalDetails";
+import { ImageShareButton } from "@/components/ImageShareButton";
+import { PlayersShareImage, ResultsShareImage, StandingsShareImage } from "@/components/SessionShareImages";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { money } from "@/lib/utils";
+import { imageFileName } from "@/lib/image-sharing";
 
 type PublicSessionSummary = {
   session?: {
@@ -98,6 +101,16 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   const assistRows = aggregatePlayers(goals.filter((goal) => goal.assistName), "assistName");
   const totalGoals = goals.reduce((total, goal) => total + numberValue(goal.goalCount || 1), 0);
   const sessionLabel = session?.name ?? session?.sessionDate ?? "Session";
+  const shareSession = { name: sessionLabel, date: session?.sessionDate, location: session?.playgroundName || session?.location };
+  const shareMatches = matches.map((match) => ({
+    matchNumber: match.matchNumber,
+    teamAName: match.teamAName ?? sourceLabel(match.teamASource, "Team A"),
+    teamBName: match.teamBName ?? sourceLabel(match.teamBSource, "Team B"),
+    teamAScore: numberValue(match.teamAScore),
+    teamBScore: numberValue(match.teamBScore),
+    homeAway: homeAwayLabel(match),
+    goals: goalsByMatchNumber.get(match.matchNumber) ?? []
+  }));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -141,6 +154,9 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
               <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)} maxPageHeight={860}>
+                <StandingsShareImage session={shareSession} standings={standings} />
+              </ImageShareButton> : null}
               <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
             </div>
@@ -174,8 +190,11 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
         </section>
 
         <section className="grid items-start gap-3 lg:grid-cols-2">
+          {showReturnLink && (scorerRows.length > 0 || assistRows.length > 0) ? <div className="flex justify-end lg:col-span-2"><ImageShareButton label="Share scorers & assists" title="Scorers & Assists" filename={imageFileName(sessionLabel, "scorers-assists", session?.sessionDate)} maxPageHeight={860}>
+            <PlayersShareImage session={shareSession} scorers={scorerRows} assists={assistRows} />
+          </ImageShareButton></div> : null}
           <div className="grid gap-3">
-            <h2 className="section-title">Top scorers</h2>
+            <h2 className="section-title">Scorers</h2>
             <DataTable
               compact
               empty="No goals recorded yet."
@@ -188,7 +207,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
             />
           </div>
           <div className="grid gap-3">
-            <h2 className="section-title">Top assists</h2>
+            <h2 className="section-title">Assists</h2>
             <DataTable
               compact
               empty="No assists recorded yet."
@@ -203,7 +222,12 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
         </section>
 
         <section className="grid gap-3">
-          <h2 className="section-title">Match results</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Match results</h2>
+            {showReturnLink && matches.length > 0 ? <ImageShareButton label="Share match results" title="Match Results" filename={imageFileName(sessionLabel, "match-results", session?.sessionDate)} maxPageHeight={860}>
+              <ResultsShareImage session={shareSession} matches={shareMatches} />
+            </ImageShareButton> : null}
+          </div>
           <DataTable
             rows={matchRows}
             columns={[
