@@ -11,6 +11,7 @@ import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { money } from "@/lib/utils";
 import { imageFileName } from "@/lib/image-sharing";
+import { mergePlayerContributions } from "@/lib/player-contributions";
 
 type PublicSessionSummary = {
   session?: {
@@ -99,6 +100,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   }));
   const scorerRows = aggregatePlayers(goals.filter((goal) => goal.goalType !== "own_goal"), "scorerName");
   const assistRows = aggregatePlayers(goals.filter((goal) => goal.assistName), "assistName");
+  const contributions = mergePlayerContributions(scorerRows, assistRows);
   const totalGoals = goals.reduce((total, goal) => total + numberValue(goal.goalCount || 1), 0);
   const sessionLabel = session?.name ?? session?.sessionDate ?? "Session";
   const shareSession = { name: sessionLabel, date: session?.sessionDate, location: session?.playgroundName || session?.location };
@@ -154,7 +156,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
               <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)} maxPageHeight={860}>
+              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
                 <StandingsShareImage session={shareSession} standings={standings} />
               </ImageShareButton> : null}
               <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
@@ -189,42 +191,30 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
           />
         </section>
 
-        <section className="grid items-start gap-3 lg:grid-cols-2">
-          {showReturnLink && (scorerRows.length > 0 || assistRows.length > 0) ? <div className="flex justify-end lg:col-span-2"><ImageShareButton label="Share scorers & assists" title="Scorers & Assists" filename={imageFileName(sessionLabel, "scorers-assists", session?.sessionDate)} maxPageHeight={860}>
-            <PlayersShareImage session={shareSession} scorers={scorerRows} assists={assistRows} />
-          </ImageShareButton></div> : null}
-          <div className="grid gap-3">
-            <h2 className="section-title">Scorers</h2>
-            <DataTable
-              compact
-              empty="No goals recorded yet."
-              rows={scorerRows}
-              columns={[
-                { header: "Player", cell: (row) => row.playerName },
-                { header: "Team", cell: (row) => row.teamNames },
-                { header: "Goals", cell: (row) => <span className="font-semibold text-ink">{row.total}</span> }
-              ]}
-            />
+        <section className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Scorers &amp; Assists</h2>
+            {showReturnLink && contributions.length > 0 ? <ImageShareButton label="Share scorers & assists" title="Scorers & Assists" filename={imageFileName(sessionLabel, "scorers-assists", session?.sessionDate)}>
+              <PlayersShareImage session={shareSession} players={contributions} />
+            </ImageShareButton> : null}
           </div>
-          <div className="grid gap-3">
-            <h2 className="section-title">Assists</h2>
-            <DataTable
-              compact
-              empty="No assists recorded yet."
-              rows={assistRows}
-              columns={[
-                { header: "Player", cell: (row) => row.playerName },
-                { header: "Team", cell: (row) => row.teamNames },
-                { header: "Assists", cell: (row) => <span className="font-semibold text-ink">{row.total}</span> }
-              ]}
-            />
-          </div>
+          <DataTable
+            compact
+            empty="No goals or assists recorded yet."
+            rows={contributions}
+            columns={[
+              { header: "Player", cell: (row) => row.playerName },
+              { header: "Team", cell: (row) => row.teamNames },
+              { header: "Goals", cell: (row) => <span className="font-semibold text-ink">{row.goals}</span> },
+              { header: "Assists", cell: (row) => <span className="font-semibold text-ink">{row.assists}</span> }
+            ]}
+          />
         </section>
 
         <section className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="section-title">Match results</h2>
-            {showReturnLink && matches.length > 0 ? <ImageShareButton label="Share match results" title="Match Results" filename={imageFileName(sessionLabel, "match-results", session?.sessionDate)} maxPageHeight={860}>
+            {showReturnLink && matches.length > 0 ? <ImageShareButton label="Share match results" title="Match Results" filename={imageFileName(sessionLabel, "match-results", session?.sessionDate)}>
               <ResultsShareImage session={shareSession} matches={shareMatches} />
             </ImageShareButton> : null}
           </div>

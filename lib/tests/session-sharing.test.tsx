@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PlayersShareImage, ResultsShareImage, StandingsShareImage, TeamsShareImage, type ShareStanding } from "@/components/SessionShareImages";
 import { canShareImages, imageFileName, shareImages } from "@/lib/image-sharing";
+import { mergePlayerContributions } from "@/lib/player-contributions";
 
 const session = { name: "Sunday Football", date: "2026-10-04", location: "Bell Senseplex, Field 2" };
 const standing: ShareStanding = { teamId: "a", teamName: "Team Ahmed", rank: 1, played: 8, wins: 4, draws: 2, losses: 2, goalsFor: 12, goalsAgainst: 9, goalDifference: 3, awayGoals: 7, points: 14 };
@@ -16,19 +17,22 @@ describe("phone-readable session images", () => {
     expect(html).not.toContain("truncate");
   });
 
-  it("retains every scorer and assist and compacts uneven lists into two columns", () => {
+  it("retains every contributor in one aligned goals and assists table", () => {
     const scorers = Array.from({ length: 21 }, (_, index) => ({ playerName: `Scorer ${index + 1}`, teamNames: "Team A", total: index + 1 }));
-    const html = renderToStaticMarkup(<PlayersShareImage session={session} scorers={scorers} assists={[{ playerName: "Assist player", teamNames: "Team B", total: 3 }]} />);
+    const players = mergePlayerContributions(scorers, [{ playerName: "Assist player", teamNames: "Team B", total: 3 }]);
+    const html = renderToStaticMarkup(<PlayersShareImage session={session} players={players} />);
     for (const player of scorers) expect(html).toContain(player.playerName);
     expect(html).toContain("Assist player");
-    expect(html).toContain("repeat(2, minmax(0, 1fr))");
+    expect(html).toContain("minmax(0,1fr) 84px 84px");
+    expect(html).toContain(">Goals<");
+    expect(html).toContain(">Assists<");
     expect(html).not.toContain("Top scorers");
     expect(html).not.toContain("Top assists");
   });
 
   it("keeps result scores, home/away, goal counts, assists and own goals", () => {
     const html = renderToStaticMarkup(<ResultsShareImage session={session} matches={[{ matchNumber: 4, teamAName: "Team A", teamBName: "Team B", teamAScore: 3, teamBScore: 0, homeAway: "Home: Team A | Away: Team B", goals: [{ scorerName: "Rafiul", assistName: "Jahir", goalCount: 2, goalType: "goal" }, { scorerName: "Rocky", assistName: null, goalCount: 1, goalType: "own_goal" }] }]} />);
-    for (const value of ["Game 4", "3-0", "Home: Team A", "Away: Team B", "Rafiul", "x2", "Assist: Jahir", "Own goal: ", "Rocky"]) expect(html).toContain(value);
+    for (const value of ["Game 4", "3-0", "Home: Team A", "Away: Team B", "Rafiul", "x2", "Assist: Jahir", "Own goal", "Rocky"]) expect(html).toContain(value);
   });
 
   it("includes all saved roster players and marks captains without skill data", () => {
@@ -41,7 +45,7 @@ describe("phone-readable session images", () => {
   });
 
   it("handles empty reports without invalid grid dimensions", () => {
-    for (const image of [<StandingsShareImage session={session} standings={[]} />, <PlayersShareImage session={session} scorers={[]} assists={[]} />, <ResultsShareImage session={session} matches={[]} />, <TeamsShareImage session={session} teams={[]} />]) {
+    for (const image of [<StandingsShareImage session={session} standings={[]} />, <PlayersShareImage session={session} players={[]} />, <ResultsShareImage session={session} matches={[]} />, <TeamsShareImage session={session} teams={[]} />]) {
       const html = renderToStaticMarkup(image);
       expect(html).toContain("No ");
       expect(html).not.toContain("repeat(0");

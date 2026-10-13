@@ -37,6 +37,13 @@ export function FixtureScheduleView({
       <div className={`border-b border-line bg-slate-50 py-4 ${padding}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
+            {desktop ? <>
+              <h2 className="text-2xl font-bold text-ink">Fixture schedule{sessionLabel ? ` | ${sessionLabel}` : ""}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-lg text-slate-600">
+                {date ? <span>{date}</span> : null}
+                {location ? <span className="flex items-center gap-2"><MapPin className="h-5 w-5 shrink-0 text-pitch" />{location}</span> : null}
+              </div>
+            </> : <>
             <h2 className="section-title">Fixture schedule</h2>
             <p className="mt-1 break-words text-sm text-slate-500">{sessionLabel ? `${sessionLabel} timing, breaks, and home/away order` : "Timing, breaks, and home/away order"}</p>
             {date ? <p className="mt-1 text-sm text-slate-500">{date}</p> : null}
@@ -46,6 +53,7 @@ export function FixtureScheduleView({
                 <span className="min-w-0 break-words">{location}</span>
               </p>
             ) : null}
+            </>}
           </div>
           <div className="ml-auto flex max-w-full flex-wrap items-start justify-end gap-2">
             <div className="inline-flex items-center gap-2 rounded-md border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold uppercase text-pitch">
@@ -72,21 +80,21 @@ export function FixtureScheduleView({
                     Break: {breakMinutes} min
                   </div>
                 ) : null}
-                <div className={`grid gap-3 py-4 ${padding} ${desktop ? "grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)] items-center" : "lg:grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)] lg:items-center"}`}>
+                <div className={`grid gap-3 py-4 ${padding} ${desktop ? "grid-cols-[44px_230px_minmax(0,1fr)_340px] items-center" : "lg:grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)] lg:items-center"}`}>
                   <div className="flex items-center gap-2">
                     <span className="grid h-9 w-9 place-items-center rounded-md bg-pitch text-xs font-black text-white">
                       G{match.matchNumber ?? "-"}
                     </span>
-                    <span className="text-xs font-semibold uppercase text-slate-500">Game</span>
+                    {!desktop ? <span className="text-xs font-semibold uppercase text-slate-500">Game</span> : null}
                   </div>
 
-                  <div className="inline-flex w-fit items-center gap-2 rounded-md border border-line bg-slate-50 px-3 py-2 text-sm font-semibold text-ink">
+                  <div className={`inline-flex w-fit items-center gap-2 rounded-md border border-line bg-slate-50 px-3 py-2 font-semibold text-ink ${desktop ? "whitespace-nowrap text-lg" : "text-sm"}`}>
                     <Clock className="h-4 w-4 shrink-0 text-pitch" />
                     {timeRange(match.scheduledStartTime, match.scheduledEndTime)}
                   </div>
 
                   <div className="min-w-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-ink">
+                    <div className={`flex min-w-0 flex-wrap items-center gap-2 font-semibold text-ink ${desktop ? "text-xl" : "text-base"}`}>
                       <span className="min-w-0 break-words">{match.teamAName ?? "Team A"}</span>
                       <span className="rounded-md border border-line bg-white px-2 py-1 text-xs font-black uppercase text-slate-500">vs</span>
                       <span className="min-w-0 break-words">{match.teamBName ?? "Team B"}</span>
@@ -94,8 +102,8 @@ export function FixtureScheduleView({
                   </div>
 
                   <div className={`grid gap-2 ${desktop ? "grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"}`}>
-                    <TeamVenueBadge icon="home" label="Home" value={match.homeTeamName ?? homeFallback(match)} />
-                    <TeamVenueBadge icon="away" label="Away" value={match.awayTeamName ?? awayFallback(match)} />
+                    <TeamVenueBadge icon="home" label="Home" value={match.homeTeamName ?? homeFallback(match)} desktop={desktop} />
+                    <TeamVenueBadge icon="away" label="Away" value={match.awayTeamName ?? awayFallback(match)} desktop={desktop} />
                   </div>
                 </div>
               </div>
@@ -107,14 +115,14 @@ export function FixtureScheduleView({
   );
 }
 
-function TeamVenueBadge({ icon, label, value }: { icon: "home" | "away"; label: string; value: string }) {
+function TeamVenueBadge({ icon, label, value, desktop }: { icon: "home" | "away"; label: string; value: string; desktop?: boolean }) {
   const Icon = icon === "home" ? Home : Plane;
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-line bg-white px-3 py-2">
       <Icon className="h-4 w-4 shrink-0 text-pitch" />
       <div className="min-w-0">
         <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
-        <div className="break-words text-sm font-semibold text-ink">{value}</div>
+        <div className={`break-words font-semibold text-ink ${desktop ? "text-lg" : "text-sm"}`}>{value}</div>
       </div>
     </div>
   );

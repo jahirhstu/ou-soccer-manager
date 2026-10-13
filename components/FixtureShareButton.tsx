@@ -15,5 +15,5 @@ export function FixtureShareButton(props: Props) {
 }
 
 export function FixtureImage({ ref, ...props }: Props & { ref?: React.Ref<HTMLDivElement> }) {
-  return <div ref={ref} className="bg-white p-4" style={{ width: 1280 }}><FixtureScheduleView {...props} desktop /></div>;
+  return <div ref={ref} className="bg-white p-4" style={{ width: 1120 }}><FixtureScheduleView {...props} desktop /></div>;
 }

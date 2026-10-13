@@ -22,7 +22,9 @@ beforeEach(() => {
 describe("summary share controls", () => {
   it("shows three separate actions with the renamed cards and field context", async () => {
     const html = renderToStaticMarkup(await SummaryPage({ params: Promise.resolve({ id: "session" }) }));
-    for (const label of ["Share podium &amp; standings", "Share scorers &amp; assists", "Share match results", ">Scorers</h2>", ">Assists</h2>", "Field 2"]) expect(html).toContain(label);
+    for (const label of ["Share podium &amp; standings", "Share scorers &amp; assists", "Share match results", ">Scorers &amp; Assists</h2>", "Field 2"]) expect(html).toContain(label);
+    expect(html).not.toContain(">Scorers</h2>");
+    expect(html).not.toContain(">Assists</h2>");
     expect(html.match(/aria-busy="false"/g)).toHaveLength(3);
     expect(html).not.toContain("Top scorers");
     expect(html).not.toContain("Top assists");
@@ -36,6 +38,25 @@ describe("summary share controls", () => {
     expect(html).not.toContain("Share match results");
     expect(html).not.toContain("Share podium");
     expect(html).toContain("Scorer");
+  });
+
+  it("shows contributors once in the combined live table, with missing counts zero", async () => {
+    mocks.rpc.mockResolvedValue({ data: { ...detail, goals: [
+      ...detail.goals,
+      { matchNumber: 1, goalType: "goal", scorerName: "Scorer", assistName: "Scorer", teamName: "Team A", goalCount: 2 },
+      { matchNumber: 1, goalType: "goal", scorerName: "Goals only", assistName: null, teamName: "Team B", goalCount: 1 },
+      { matchNumber: 1, goalType: "own_goal", scorerName: "Own goal only", assistName: null, teamName: "Team B", goalCount: 1 }
+    ] }, error: null });
+    const html = renderToStaticMarkup(await SummaryPage({ params: Promise.resolve({ id: "session" }) }));
+    const section = html.split(">Scorers &amp; Assists</h2>")[1].split("</section>")[0];
+    const tbody = section.split("<tbody")[1].split("</tbody>")[0];
+    const rows = [...tbody.matchAll(/<tr\b[^>]*>(.*?)<\/tr>/g)].map(match => [...match[1].matchAll(/<td\b[^>]*>(.*?)<\/td>/g)].map(cell => cell[1].replace(/<[^>]*>/g, "")));
+    expect(rows).toEqual([
+      ["Scorer", "Team A", "3", "2"],
+      ["Goals only", "Team B", "1", "0"],
+      ["Assistant", "Team A", "0", "1"]
+    ]);
+    expect(section).not.toContain("Own goal only");
   });
 
   it("does not offer empty reports for sharing", async () => {

@@ -54,7 +54,7 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
               </div>
             </div>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {canEdit && savedTeams.length > 0 ? <ImageShareButton label="Share teams" title="Teams" filename={imageFileName(sessionLabel, "teams", report?.session?.sessionDate)} maxPageHeight={860}>
+              {canEdit && savedTeams.length > 0 ? <ImageShareButton label="Share teams" title="Teams" filename={imageFileName(sessionLabel, "teams", report?.session?.sessionDate)}>
                 <TeamsShareImage session={{ name: sessionLabel, date: report?.session?.sessionDate, location: report?.session?.location }} teams={savedTeams} />
               </ImageShareButton> : null}
               {canEdit ? (

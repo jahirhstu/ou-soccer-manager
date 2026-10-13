@@ -26,9 +26,11 @@ describe("saved fixture sharing", () => {
     const html = renderToStaticMarkup(<FixtureImage matches={sorted} sessionLabel="Sunday" sessionDate="2026-10-04" location="Bell Senseplex, Field 2" />);
     for (const text of ["Sunday", "October 4, 2026", "G1", "G2", "7:00 AM-7:15 AM", "Break: 5 min", "Home", "Away", "Second B", "Bell Senseplex, Field 2"]) expect(html).toContain(text);
     for (const text of ["<button", "Game scores", "truncate", "<nav"]) expect(html).not.toContain(text);
-    expect(html).toContain("width:1280px");
+    expect(html).toContain("width:1120px");
     expect(html).toContain("break-words");
-    expect(html).toContain("grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)]");
+    expect(html).toContain("grid-cols-[44px_230px_minmax(0,1fr)_340px]");
+    expect(html).toContain("whitespace-nowrap text-lg");
+    expect(html).not.toContain("timing, breaks, and home/away order");
   });
 
   it("uses the same desktop fixture presentation inside the shared image", () => {

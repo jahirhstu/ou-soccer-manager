@@ -1,125 +1,80 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Crown, Medal, Trophy } from "lucide-react";
+import type { PlayerContribution } from "@/lib/player-contributions";
 
 export type ShareSession = { name: string; date?: string | null; location?: string | null };
-export type ShareStanding = {
-  teamId: string; teamName: string; rank: number; played: number; wins: number; draws: number; losses: number;
-  goalsFor: number; goalsAgainst: number; goalDifference: number; awayGoals: number; points: number;
-};
-export type SharePlayerTotal = { playerName: string; teamNames: string; total: number };
-export type ShareResult = {
-  matchNumber: number; teamAName: string; teamBName: string; teamAScore: number; teamBScore: number; homeAway: string;
-  goals: { scorerName: string | null; assistName: string | null; goalCount: number | string | null; goalType?: string | null }[];
-};
+export type ShareStanding = { teamId: string; teamName: string; rank: number; played: number; wins: number; draws: number; losses: number; goalsFor: number; goalsAgainst: number; goalDifference: number; awayGoals: number; points: number };
+export type ShareResult = { matchNumber: number; teamAName: string; teamBName: string; teamAScore: number; teamBScore: number; homeAway: string; goals: { scorerName: string | null; assistName: string | null; goalCount: number | string | null; goalType?: string | null }[] };
 export type ShareTeam = { id?: string; name: string; captainPlayerId?: string | null; players: { id: string; name: string }[] };
 
-const ink = "#14201b";
-const green = "#0f7a4a";
-const muted = "#52635a";
-const border = "#dce5df";
+const ink = "#14201b", green = "#08784c", muted = "#52635a", border = "#dce5df";
 const grid = (columns: number): CSSProperties => ({ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 12 });
-const rowStyle: CSSProperties = { borderBottom: `1px solid ${border}`, padding: "10px 0", breakInside: "avoid" };
-const titleStyle: CSSProperties = { margin: 0, fontSize: 28, lineHeight: 1.2, fontWeight: 700, color: green, paddingBottom: 8 };
+const box: CSSProperties = { border: `1px solid ${border}`, borderRadius: 6, overflow: "hidden" };
 
 function Frame({ session, title, children }: { session: ShareSession; title: string; children: ReactNode }) {
-  return (
-    <div style={{ width: 640, boxSizing: "border-box", padding: 16, background: "#ffffff", color: ink, fontFamily: "Arial, sans-serif", fontSize: 30, lineHeight: 1.2, letterSpacing: 0, overflowWrap: "anywhere" }}>
-      <header data-share-header style={{ borderBottom: `3px solid ${green}`, paddingBottom: 10, marginBottom: 12 }}>
-        <div style={{ fontSize: 32, fontWeight: 700 }}>{session.name}</div>
-        <div style={{ fontSize: 28, fontWeight: 700, color: green, marginTop: 4 }}>{title}</div>
-        {session.date || session.location ? <div style={{ fontSize: 24, color: muted, marginTop: 6 }}>{[session.date, session.location].filter(Boolean).join(" | ")}</div> : null}
-      </header>
-      {children}
-    </div>
-  );
-}
-
-function Section({ heading, children }: { heading: ReactNode; children: ReactNode }) {
-  return <section data-share-section style={{ marginTop: 12 }}><div data-share-section-header>{heading}</div><div data-share-rows>{children}</div></section>;
-}
-
-export function StandingsShareImage({ session, standings }: { session: ShareSession; standings: ShareStanding[] }) {
-  const signed = (value: number) => value > 0 ? `+${value}` : String(value);
-  return (
-    <Frame session={session} title="Podium & Standings">
-      <Section heading={<h2 style={titleStyle}>Podium</h2>}>
-        <div style={grid(Math.max(1, Math.min(3, standings.length)))}>
-          {standings.slice(0, 3).map((team, index) => {
-            const Icon = index === 0 ? Trophy : Medal;
-            return <div key={team.teamId} style={{ padding: 10, borderRadius: 6, background: ["#fffbeb", "#f1f5f9", "#ecfdf5"][index] }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, color: ["#a16207", "#475569", green][index], fontSize: 22, fontWeight: 700 }}><Icon size={24} />{["Winner", "Second", "Third"][index]}</div>
-              <div style={{ fontSize: 28, fontWeight: 700, margin: "6px 0" }}>{team.teamName}</div>
-              <div style={{ fontSize: 32, fontWeight: 700 }}>{team.points}<span style={{ fontSize: 22, fontWeight: 400 }}> pts</span></div>
-            </div>;
-          })}
-          {!standings.length ? <div style={{ fontSize: 28 }}>No standings yet.</div> : null}
-        </div>
-      </Section>
-      <Section heading={<h2 style={titleStyle}>Standings</h2>}>
-        {standings.map((team) => <div key={team.teamId} style={rowStyle}>
-          <div style={{ display: "grid", gridTemplateColumns: "36px minmax(0, 1fr) auto", gap: 8, alignItems: "baseline", fontWeight: 700 }}><span style={{ color: green }}>{team.rank}</span><span>{team.teamName}</span><span>{team.points}<span style={{ fontSize: 22, fontWeight: 400 }}> pts</span></span></div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px", marginTop: 6, fontSize: 26 }}><span>P {team.played}</span><span>W {team.wins}</span><span>D {team.draws}</span><span>L {team.losses}</span></div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 4, fontSize: 24, color: muted }}><span>GF {team.goalsFor}</span><span>GA {team.goalsAgainst}</span><span>GD {signed(team.goalDifference)}</span><span>AG {team.awayGoals}</span></div>
-        </div>)}
-        {!standings.length ? <div style={rowStyle}>No standings yet.</div> : null}
-      </Section>
-    </Frame>
-  );
-}
-
-function PlayerCell({ player, empty }: { player?: SharePlayerTotal; empty?: string }) {
-  return <div style={{ ...rowStyle, padding: "6px 0", minWidth: 0 }}>
-    {player ? <><div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 8, fontWeight: 700 }}><span>{player.playerName}</span><span style={{ color: green }}>{player.total}</span></div>{player.teamNames ? <div style={{ color: muted, fontSize: 24, marginTop: 3 }}>{player.teamNames}</div> : null}</> : empty ? <div style={{ color: muted, fontSize: 26 }}>{empty}</div> : null}
+  return <div style={{ width: 640, boxSizing: "border-box", padding: 16, background: "#ffffff", color: ink, fontFamily: "Arial, sans-serif", fontSize: 30, lineHeight: 1.2, letterSpacing: 0, overflowWrap: "anywhere" }}>
+    <header style={{ borderBottom: `3px solid ${green}`, paddingBottom: 10, marginBottom: 12 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: muted }}>{session.name}</div>
+      <div style={{ fontSize: 32, fontWeight: 700, marginTop: 3 }}>{title}</div>
+      {session.date || session.location ? <div style={{ fontSize: 20, color: muted, marginTop: 5 }}>{[session.date, session.location].filter(Boolean).join(" | ")}</div> : null}
+    </header>{children}
   </div>;
 }
 
-export function PlayersShareImage({ session, scorers, assists }: { session: ShareSession; scorers: SharePlayerTotal[]; assists: SharePlayerTotal[] }) {
-  const uneven = Math.abs(scorers.length - assists.length) >= 2;
-  return <Frame session={session} title="Scorers & Assists">
-    {uneven ? [{ title: "Scorers", rows: scorers }, { title: "Assists", rows: assists }].map(({ title, rows }) => (
-      <Section key={title} heading={<h2 style={titleStyle}>{title}</h2>}>
-        {Array.from({ length: Math.max(1, Math.ceil(rows.length / 2)) }, (_, index) => <div key={index} style={grid(2)}><PlayerCell player={rows[index * 2]} empty={index === 0 ? "None recorded." : undefined} /><PlayerCell player={rows[index * 2 + 1]} /></div>)}
-      </Section>
-    )) : <Section heading={<div style={grid(2)}><h2 style={titleStyle}>Scorers</h2><h2 style={titleStyle}>Assists</h2></div>}>
-      {Array.from({ length: Math.max(1, scorers.length, assists.length) }, (_, index) => <div key={index} style={grid(2)}><PlayerCell player={scorers[index]} empty={index === 0 ? "No goals yet." : undefined} /><PlayerCell player={assists[index]} empty={index === 0 ? "No assists yet." : undefined} /></div>)}
-    </Section>}
+export function StandingsShareImage({ session, standings }: { session: ShareSession; standings: ShareStanding[] }) {
+  const signed = (n: number) => n > 0 ? `+${n}` : String(n);
+  return <Frame session={session} title="Podium & Standings">
+    <div style={grid(Math.max(1, Math.min(3, standings.length)))}>
+      {standings.slice(0, 3).map((team, index) => {
+        const Icon = index === 0 ? Trophy : Medal;
+        const color = ["#996608", "#526074", "#985a35"][index];
+        return <div key={team.teamId} style={{ ...box, padding: 10, borderColor: ["#e9c65f", "#cbd5e1", "#dcb89f"][index], background: ["#fff8df", "#f1f5f9", "#fff0e7"][index] }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color, fontSize: 20, fontWeight: 700 }}><Icon size={22} />{["Winner", "Second", "Third"][index]}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, margin: "8px 0" }}>{team.teamName}</div>
+          <div style={{ fontSize: 34, fontWeight: 700, color }}>{team.points}<span style={{ fontSize: 20 }}> pts</span></div>
+        </div>;
+      })}
+    </div>
+    <h2 style={{ margin: "16px 0 8px", fontSize: 24, color: green }}>Standings</h2>
+    <div style={box}>{standings.map((team, index) => <div key={team.teamId} style={{ padding: "10px 12px", borderTop: index ? `1px solid ${border}` : undefined, background: index % 2 ? "#f6f8f7" : "white" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "32px minmax(0,1fr) auto", gap: 8, alignItems: "center", fontWeight: 700 }}><span style={{ color: green }}>{team.rank}</span><span>{team.teamName}</span><span style={{ color: green }}>{team.points}<span style={{ fontSize: 18 }}> pts</span></span></div>
+      <div style={{ ...grid(8), gap: 4, marginTop: 8, textAlign: "center" }}>{[["P", team.played], ["W", team.wins], ["D", team.draws], ["L", team.losses], ["GF", team.goalsFor], ["GA", team.goalsAgainst], ["GD", signed(team.goalDifference)], ["AG", team.awayGoals]].map(([label, value]) => <div key={label} aria-label={`${label} ${value}`} style={{ borderLeft: label === "GF" ? `1px solid ${border}` : undefined }}><div style={{ fontSize: 16, color: muted }}>{label}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div></div>)}</div>
+    </div>)}{!standings.length ? <div style={{ padding: 12 }}>No standings yet.</div> : null}</div>
   </Frame>;
+}
+
+export function PlayersShareImage({ session, players }: { session: ShareSession; players: PlayerContribution[] }) {
+  const columns: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0,1fr) 84px 84px", gap: 8, alignItems: "center" };
+  return <Frame session={session} title="Scorers & Assists"><div style={box}>
+    <div style={{ ...columns, padding: "10px 12px", background: green, color: "white", fontSize: 20, fontWeight: 700 }}><span>Player / Team</span><span style={{ textAlign: "center" }}>Goals</span><span style={{ textAlign: "center" }}>Assists</span></div>
+    {players.map((player, index) => <div key={player.playerName} style={{ ...columns, padding: "10px 12px", borderTop: `1px solid ${border}`, background: index % 2 ? "#f6f8f7" : "white" }}>
+      <div><div style={{ fontWeight: 700 }}>{player.playerName}</div><div style={{ fontSize: 20, color: muted, marginTop: 3 }}>{player.teamNames}</div></div>
+      {[player.goals, player.assists].map((value, column) => <div key={column} style={{ textAlign: "center", fontSize: 34, fontWeight: 700, color: value ? (column ? "#2067a1" : green) : "#76847c", borderLeft: `1px solid ${border}` }}>{value}</div>)}
+    </div>)}{!players.length ? <div style={{ padding: 12 }}>No goals or assists recorded yet.</div> : null}
+  </div></Frame>;
 }
 
 export function ResultsShareImage({ session, matches }: { session: ShareSession; matches: ShareResult[] }) {
-  return <Frame session={session} title="Match Results">
-    {matches.map((match) => <Section key={match.matchNumber} heading={<div style={{ borderTop: `2px solid ${border}`, paddingTop: 8 }}>
-      <div style={{ fontSize: 24, fontWeight: 700, color: green }}>Game {match.matchNumber}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", gap: 12, fontWeight: 700, marginTop: 4 }}><span>{match.teamAName}</span><span style={{ fontSize: 36, whiteSpace: "nowrap" }}>{match.teamAScore}-{match.teamBScore}</span><span style={{ textAlign: "right" }}>{match.teamBName}</span></div>
-      <div style={{ fontSize: 24, color: muted, margin: "4px 0" }}>{match.homeAway}</div>
-    </div>}>
-      {match.goals.map((goal, index) => <div key={index} style={{ ...rowStyle, fontSize: 28 }}>
-        <div>{goal.goalType === "own_goal" ? "Own goal: " : "Goal: "}<strong>{goal.scorerName || "Unknown"}</strong>{Number(goal.goalCount ?? 1) > 1 ? <strong> x{goal.goalCount}</strong> : null}</div>
-        {goal.assistName ? <div style={{ fontSize: 24, color: muted, marginTop: 3 }}>Assist: {goal.assistName}</div> : null}
-      </div>)}
-      {!match.goals.length ? <div style={{ fontSize: 24, color: muted, paddingTop: 4 }}>No goal details recorded.</div> : null}
-    </Section>)}
-    {!matches.length ? <Section heading={null}><div>No match results yet.</div></Section> : null}
-  </Frame>;
+  return <Frame session={session} title="Match Results">{[...matches].sort((a, b) => a.matchNumber - b.matchNumber).map((match) => <section key={match.matchNumber} style={{ ...box, marginTop: 10 }}>
+    <div style={{ background: "#f0f6f3", padding: "8px 12px" }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: green }}>Game {match.matchNumber}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto minmax(0,1fr)", alignItems: "center", gap: 10, fontSize: 28, fontWeight: 700, marginTop: 3 }}><span>{match.teamAName}</span><span style={{ fontSize: 36, whiteSpace: "nowrap", color: green }}>{match.teamAScore}-{match.teamBScore}</span><span style={{ textAlign: "right" }}>{match.teamBName}</span></div>
+      <div style={{ fontSize: 18, color: muted, marginTop: 4 }}>{match.homeAway}</div>
+    </div>
+    <div style={{ padding: "4px 12px" }}>{match.goals.map((goal, index) => <div key={index} style={{ padding: "6px 0", borderTop: index ? `1px solid ${border}` : undefined, fontSize: 24 }}>
+      <strong>{goal.scorerName || "Unknown"}</strong>{Number(goal.goalCount ?? 1) > 1 ? <strong> x{goal.goalCount}</strong> : null}
+      {goal.goalType === "own_goal" ? <span style={{ color: "#a33b39", fontSize: 20 }}> (Own goal)</span> : null}
+      {goal.assistName ? <span style={{ color: muted, fontSize: 20 }}> | Assist: {goal.assistName}</span> : null}
+    </div>)}{!match.goals.length ? <div style={{ fontSize: 20, color: muted, padding: "4px 0" }}>No goal details recorded.</div> : null}</div>
+  </section>)}{!matches.length ? <div>No match results yet.</div> : null}</Frame>;
 }
 
 export function TeamsShareImage({ session, teams }: { session: ShareSession; teams: ShareTeam[] }) {
-  const columns = teams.length === 3 ? 3 : 2;
-  const groups = Array.from({ length: Math.ceil(teams.length / columns) }, (_, index) => teams.slice(index * columns, (index + 1) * columns));
-  return <Frame session={session} title="Teams">
-    {groups.map((group, groupIndex) => {
-      const players = group.map((team) => [...team.players].sort((a, b) => Number(b.id === team.captainPlayerId) - Number(a.id === team.captainPlayerId)));
-      return <Section key={groupIndex} heading={<div style={grid(group.length)}>{group.map((team, index) => <div key={team.id || index} style={{ padding: "8px 4px", background: ["#ecfdf5", "#eff6ff", "#fff7ed"][index], borderRadius: 6, fontSize: 30, fontWeight: 700 }}>{team.name}</div>)}</div>}>
-        {Array.from({ length: Math.max(1, ...players.map((rows) => rows.length)) }, (_, rowIndex) => <div key={rowIndex} style={grid(group.length)}>
-          {group.map((team, column) => {
-            const player = players[column][rowIndex];
-            return <div key={team.id || column} style={{ ...rowStyle, fontSize: 30, minWidth: 0 }}>
-              {player ? <><span>{player.name}</span>{player.id === team.captainPlayerId ? <Crown aria-label="Captain" size={24} style={{ display: "inline-block", marginLeft: 4, color: "#a16207", verticalAlign: "baseline" }} /> : null}</> : null}
-            </div>;
-          })}
-        </div>)}
-      </Section>;
-    })}
-    {!teams.length ? <Section heading={null}><div>No saved teams yet.</div></Section> : null}
-  </Frame>;
+  const columns = Math.max(1, teams.length === 3 ? 3 : Math.min(2, teams.length));
+  return <Frame session={session} title="Teams"><div style={{ ...grid(columns), alignItems: "start" }}>{teams.map((team, index) => <section key={team.id || index} style={box}>
+    <div style={{ padding: "10px 8px", background: ["#e5f4eb", "#e8f1fb", "#fff1df"][index % 3], borderBottom: `1px solid ${border}` }}><div style={{ fontSize: 26, fontWeight: 700 }}>{team.name}</div><div style={{ fontSize: 18, color: muted, marginTop: 4 }}>{team.players.length} players</div></div>
+    <div style={{ display: "grid", gap: 6, padding: 6 }}>{[...team.players].sort((a, b) => Number(b.id === team.captainPlayerId) - Number(a.id === team.captainPlayerId)).map((player) => <div key={player.id} style={{ ...box, padding: "8px 6px", fontSize: columns === 3 ? 26 : 30, background: player.id === team.captainPlayerId ? "#fffbea" : "white" }}>
+      <span>{player.name}</span>{player.id === team.captainPlayerId ? <Crown aria-label="Captain" size={20} style={{ display: "inline-block", marginLeft: 4, color: "#996608", verticalAlign: "baseline" }} /> : null}
+    </div>)}</div>
+  </section>)}</div>{!teams.length ? <div>No saved teams yet.</div> : null}</Frame>;
 }
