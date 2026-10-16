@@ -21,6 +21,7 @@ export function PaymentFlashToast({ success }: { success?: string }) {
     if (success === "waiver_saved") toast.success("Waiver recorded.");
     if (success === "refund_saved") toast.success("Refund recorded.");
     if (success === "transfer_saved") toast.success("Balance carried forward.");
+    if (success === "player_credit_transferred") toast.success("Player credit transferred.");
     if (success === "club_transfer_saved") toast.success("Club balance carried forward.");
     if (success === "club_transfer_reversed") toast.success("Club balance transfer reversed.");
     const nextParams = new URLSearchParams(searchParams.toString());

@@ -22,7 +22,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       .gt("waiver_amount", 0)
       .order("waived_at", { ascending: false }),
     supabase.from("attendance").select("*,sessions(session_date)").eq("player_id", id).order("created_at", { ascending: false }),
-    supabase.from("ledger_entries").select("*,seasons(name)").eq("player_id", id).order("created_at", { ascending: false }),
+    supabase.from("ledger_entries").select("*,seasons(name),sessions(session_date,name),counterparty:players!ledger_entries_related_player_id_fkey(display_name)").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id).eq("goal_type", "goal"),
     supabase.from("player_season_payment_summary").select("*").eq("player_id", id),
     getCurrentProfile()
@@ -140,9 +140,9 @@ function paymentHistoryRows(payments: any[], waivers: any[], refunds: any[], tra
       note: row.refund_reference ?? `${row.refund_method ?? "Refund"}`
     })),
     ...transfers.map((row) => ({
-      type: balanceTransferLabel(row.type),
+      type: balanceTransferLabel(row.type, row.related_player_id, row.counterparty?.display_name),
       season: row.seasons?.name ?? "-",
-      session: "Season balance",
+      session: [row.sessions?.session_date, row.sessions?.name].filter(Boolean).join(" - ") || "Season balance",
       date: row.transfer_date ?? String(row.created_at ?? "").slice(0, 10),
       amount: Number(row.amount ?? 0),
       sessions: "-",

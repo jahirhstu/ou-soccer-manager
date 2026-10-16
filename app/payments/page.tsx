@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRightLeft, BadgeDollarSign, MessageSquareText, Plus, Undo2 } from "lucide-react";
+import { ArrowRightLeft, BadgeDollarSign, Download, MessageSquareText, Plus, Undo2 } from "lucide-react";
 import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { PaymentFlashToast } from "@/components/PaymentFlashToast";
@@ -18,7 +18,7 @@ type PaymentHistoryRow = {
   amount: number;
   sessionsCovered: number | string | null;
   method: string;
-  kind: "Payment" | "Waiver" | "Refund" | "Credit in" | "Credit out" | "Owing in" | "Owing out";
+  kind: string;
   note?: string | null;
 };
 
@@ -38,11 +38,11 @@ export default async function PaymentsPage({
     .order("waived_at", { ascending: false });
   let refundQuery = supabase
     .from("ledger_entries")
-    .select("*,players(display_name),programs(name),seasons(name)")
+    .select("*,players!ledger_entries_player_id_fkey(display_name),programs(name),seasons(name)")
     .eq("type", "refund_paid")
     .order("created_at", { ascending: false });
   let transferQuery = supabase.from("ledger_entries")
-    .select("*,players(display_name),programs(name),seasons(name)")
+    .select("*,players!ledger_entries_player_id_fkey(display_name),counterparty:players!ledger_entries_related_player_id_fkey(display_name),programs(name),seasons(name),sessions(session_date,name)")
     .in("type", balanceTransferTypes)
     .not("transfer_id", "is", null)
     .order("created_at", { ascending: false });
@@ -52,6 +52,15 @@ export default async function PaymentsPage({
   if (program?.id) transferQuery = transferQuery.eq("program_id", program.id);
   const [{ data }, { data: waivers }, { data: refunds }, { data: transfers }] = await Promise.all([query, waiverQuery, refundQuery, transferQuery]);
   const rows = sortRows([...paymentRows(data ?? []), ...waiverRows(waivers ?? []), ...refundRows(refunds ?? []), ...transferRows(transfers ?? [])], sortKey(filters.sort));
+  const playerTransfers = (transfers ?? []).filter(row => row.related_player_id && row.type === "credit_transferred_out");
+  const csvCell = (value: unknown) => {
+    const text = String(value ?? "");
+    const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+    return `"${safe.replaceAll('"', '""')}"`;
+  };
+  const transferCsv = ["Transfer ID,Date,Season,Funding player ID,Funding player,Recipient ID,Recipient,Amount,Session ID,Note",
+    ...playerTransfers.map(row => [row.transfer_id, row.transfer_date, row.seasons?.name, row.player_id, row.players?.display_name,
+      row.related_player_id, row.counterparty?.display_name, row.amount, row.session_id, row.transfer_note].map(csvCell).join(","))].join("\n");
   return (
     <AppShell>
       <PaymentFlashToast success={filters.success} />
@@ -62,6 +71,8 @@ export default async function PaymentsPage({
           <Link className="btn-secondary" href="/payments/waiver"><BadgeDollarSign className="h-4 w-4" /> Record waiver</Link>
           <Link className="btn-secondary" href="/payments/refund"><Undo2 className="h-4 w-4" /> Record refund</Link>
           <Link className="btn-secondary" href="/payments/carry-forward"><ArrowRightLeft className="h-4 w-4" /> Carry forward balance</Link>
+          <Link className="btn-secondary" href="/payments/new?source=credit"><ArrowRightLeft className="h-4 w-4" /> Transfer player credit</Link>
+          {playerTransfers.length ? <a className="btn-secondary" download="player-credit-transfers.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(transferCsv)}`}><Download className="h-4 w-4" /> Export player transfers</a> : null}
           <Link className="btn-primary" href="/payments/new"><Plus className="h-4 w-4" /> Record payment</Link>
         </div>
       </div>
@@ -150,12 +161,12 @@ function transferRows(rows: any[]): PaymentHistoryRow[] {
     playerName: row.players?.display_name ?? "-",
     programName: row.programs?.name ?? "-",
     seasonName: row.seasons?.name ?? "-",
-    sessionLabel: "Season balance",
+    sessionLabel: sessionLabel(row, "Season balance", "Session reference"),
     date: row.transfer_date ?? String(row.created_at ?? "").slice(0, 10),
     amount: Number(row.amount ?? 0),
     sessionsCovered: "-",
-    method: "Balance transfer",
-    kind: balanceTransferLabel(row.type),
+    method: row.related_player_id ? "Player credit transfer" : "Balance transfer",
+    kind: balanceTransferLabel(row.type, row.related_player_id, row.counterparty?.display_name),
     note: [row.description, row.transfer_note].filter(Boolean).join(" - ")
   }));
 }
