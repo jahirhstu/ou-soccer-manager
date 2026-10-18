@@ -142,7 +142,8 @@ export function AppNav({
 function isVisible(item: NavItem, role: UserRole | undefined, variant: NavVariant) {
   if (variant === "public") return item.roles.includes("player");
   if (!role || !item.roles.includes(role)) return false;
-  if ((role === "admin" || role === "captain") && item.href.startsWith("/public/") && item.href !== "/public/report") return false;
+  if ((role === "admin" || role === "captain") && item.href.startsWith("/public/")
+    && item.href !== "/public/report" && !(role === "admin" && item.href === "/public/goals-assists")) return false;
   return true;
 }
 

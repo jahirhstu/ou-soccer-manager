@@ -1,20 +1,10 @@
 import { DataTable } from "@/components/DataTable";
 import { PublicShell } from "@/components/PublicShell";
+import { ImageShareButton } from "@/components/ImageShareButton";
+import { GoalsAssistsShareImage, type GoalsAssistsRow } from "@/components/GoalsAssistsShareImage";
+import { imageFileName } from "@/lib/image-sharing";
 import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-type GoalsAssistsRow = {
-  player_name: string | null;
-  season_id: string | null;
-  season_name: string | null;
-  goals: number | null;
-  assists: number | null;
-  sessions_count: number | null;
-  games_count: number | null;
-  goals_per_game: number | string | null;
-  assists_per_game: number | string | null;
-  goal_contributions_per_game: number | string | null;
-};
 
 type PublicSessionRow = {
   id: string;
@@ -44,6 +34,9 @@ export default async function PublicGoalsAssistsPage({
     if (filters.season && row.season_id !== filters.season) return false;
     return true;
   }), sortKey(filters.sort));
+  const selectedSeason = filters.season ? seasons.find(season => season.id === filters.season)?.name ?? filters.season : "All seasons";
+  const selectedSession = filters.session ? sessions.find(session => session.id === filters.session) : undefined;
+  const selectedSessionLabel = filters.session ? selectedSession ? `${selectedSession.session_date} | ${sessionLabel(selectedSession)}` : filters.session : "All sessions";
 
   return (
     <PublicShell>
@@ -58,13 +51,15 @@ export default async function PublicGoalsAssistsPage({
           </div>
         </section>
 
-        <form className="panel grid gap-3 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
-          <input className="input" defaultValue={filters.player ?? ""} name="player" placeholder="Filter by player" />
-          <select className="input" defaultValue={filters.season ?? ""} name="season">
+        <div className="panel flex flex-wrap items-end gap-3 p-4">
+        <form className="grid min-w-0 flex-1 basis-[560px] gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+          {filters.sort ? <input type="hidden" name="sort" value={filters.sort} /> : null}
+          <input aria-label="Filter by player" className="input" defaultValue={filters.player ?? ""} name="player" placeholder="Filter by player" />
+          <select aria-label="Season" className="input" defaultValue={filters.season ?? ""} name="season">
             <option value="">All seasons</option>
             {seasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
           </select>
-          <select className="input" defaultValue={filters.session ?? ""} name="session">
+          <select aria-label="Session" className="input" defaultValue={filters.session ?? ""} name="session">
             <option value="">All sessions</option>
             {sessions.map((session) => (
               <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
@@ -72,6 +67,10 @@ export default async function PublicGoalsAssistsPage({
           </select>
           <button className="btn-primary">Apply</button>
         </form>
+        {!error && rows.length > 0 ? <div className="ml-auto"><ImageShareButton label="Share list" title="Goals & Assists" filename={imageFileName("goals-assists", [filters.player, filters.season ? selectedSeason : "all-seasons", selectedSession?.session_date, selectedSession?.name].filter(Boolean).join("-"))}>
+          <GoalsAssistsShareImage rows={rows} seasonLabel={selectedSeason} sessionLabel={selectedSessionLabel} playerFilter={filters.player} />
+        </ImageShareButton></div> : null}
+        </div>
 
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
