@@ -25,7 +25,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     : { data: null };
   const enabledModules = modules?.map((module) => module.module_key) ?? null;
   const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug, programSlug);
-  const unreadNotificationCount = organizationAdmin ? await getUnreadNotificationCount() : 0;
+  const unreadNotificationCount = organizationAdmin ? await getUnreadNotificationCount(profile.organization_id) : 0;
   const notificationsHref = tenantPath("/notifications", tenantSlug, programSlug);
   return (
     <div className="min-h-screen">
@@ -96,11 +96,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-async function getUnreadNotificationCount() {
+async function getUnreadNotificationCount(organizationId: string) {
   const supabase = await createSupabaseServerClient();
   const { count } = await supabase
     .from("notifications")
     .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
     .is("read_at", null);
   return count ?? 0;
 }

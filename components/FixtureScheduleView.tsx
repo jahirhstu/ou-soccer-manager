@@ -1,0 +1,147 @@
+import type { ReactNode } from "react";
+import { Clock, Coffee, Home, MapPin, Plane } from "lucide-react";
+import { fixtureBreakMinutes as minutesBetween, fixtureTimeRange as timeRange } from "@/lib/fixture-sharing";
+
+export type FixtureScheduleItem = {
+  matchNumber: number | string | null;
+  teamAName: string | null;
+  teamBName: string | null;
+  homeTeamName?: string | null;
+  awayTeamName?: string | null;
+  scheduledStartTime?: string | null;
+  scheduledEndTime?: string | null;
+};
+
+export type FixtureScheduleViewProps = {
+  matches: FixtureScheduleItem[];
+  sessionLabel?: string | null;
+  sessionDate?: string | null;
+  location?: string | null;
+};
+
+// Both the live schedule and its shared image use this presentation.
+export function FixtureScheduleView({
+  matches,
+  sessionLabel,
+  sessionDate,
+  location,
+  desktop = false,
+  actions
+}: FixtureScheduleViewProps & { desktop?: boolean; actions?: ReactNode }) {
+  const sortedMatches = [...matches].sort((left, right) => numberValue(left.matchNumber) - numberValue(right.matchNumber));
+  const date = sessionDate ? new Date(`${sessionDate}T12:00:00`).toLocaleDateString("en-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : null;
+  const padding = desktop ? "px-5" : "px-4 sm:px-5";
+
+  return (
+    <section className="panel overflow-hidden">
+      <div className={`border-b border-line bg-slate-50 py-4 ${padding}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            {desktop ? <>
+              <h2 className="text-2xl font-bold text-ink">Fixture schedule{sessionLabel ? ` | ${sessionLabel}` : ""}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-lg text-slate-600">
+                {date ? <span>{date}</span> : null}
+                {location ? <span className="flex items-center gap-2"><MapPin className="h-5 w-5 shrink-0 text-pitch" />{location}</span> : null}
+              </div>
+            </> : <>
+            <h2 className="section-title">Fixture schedule</h2>
+            <p className="mt-1 break-words text-sm text-slate-500">{sessionLabel ? `${sessionLabel} timing, breaks, and home/away order` : "Timing, breaks, and home/away order"}</p>
+            {date ? <p className="mt-1 text-sm text-slate-500">{date}</p> : null}
+            {location ? (
+              <p className="mt-2 flex items-start gap-2 text-sm font-medium text-ink">
+                <MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-pitch" />
+                <span className="min-w-0 break-words">{location}</span>
+              </p>
+            ) : null}
+            </>}
+          </div>
+          <div className="ml-auto flex max-w-full flex-wrap items-start justify-end gap-2">
+            <div className="inline-flex items-center gap-2 rounded-md border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold uppercase text-pitch">
+              <Clock className="h-4 w-4" />
+              {scheduledCount(sortedMatches)} scheduled
+            </div>
+            {actions}
+          </div>
+        </div>
+      </div>
+
+      {!sortedMatches.length ? (
+        <div className="p-8 text-center text-sm text-slate-500">No fixture has been generated yet.</div>
+      ) : (
+        <div className="grid gap-0 divide-y divide-line">
+          {sortedMatches.map((match, index) => {
+            const previous = index > 0 ? sortedMatches[index - 1] : null;
+            const breakMinutes = minutesBetween(previous?.scheduledEndTime, match.scheduledStartTime);
+            return (
+              <div key={`${match.matchNumber}-${match.teamAName}-${match.teamBName}`}>
+                {breakMinutes > 0 ? (
+                  <div className={`flex items-center gap-2 bg-amber-50 py-2 text-sm font-semibold text-amber-800 ${padding}`}>
+                    <Coffee className="h-4 w-4" />
+                    Break: {breakMinutes} min
+                  </div>
+                ) : null}
+                <div className={`grid gap-3 py-4 ${padding} ${desktop ? "grid-cols-[44px_230px_minmax(0,1fr)_340px] items-center" : "lg:grid-cols-[92px_150px_minmax(0,1fr)_minmax(210px,0.75fr)] lg:items-center"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-9 w-9 place-items-center rounded-md bg-pitch text-xs font-black text-white">
+                      G{match.matchNumber ?? "-"}
+                    </span>
+                    {!desktop ? <span className="text-xs font-semibold uppercase text-slate-500">Game</span> : null}
+                  </div>
+
+                  <div className={`inline-flex w-fit items-center gap-2 rounded-md border border-line bg-slate-50 px-3 py-2 font-semibold text-ink ${desktop ? "whitespace-nowrap text-lg" : "text-sm"}`}>
+                    <Clock className="h-4 w-4 shrink-0 text-pitch" />
+                    {timeRange(match.scheduledStartTime, match.scheduledEndTime)}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className={`flex min-w-0 flex-wrap items-center gap-2 font-semibold text-ink ${desktop ? "text-xl" : "text-base"}`}>
+                      <span className="min-w-0 break-words">{match.teamAName ?? "Team A"}</span>
+                      <span className="rounded-md border border-line bg-white px-2 py-1 text-xs font-black uppercase text-slate-500">vs</span>
+                      <span className="min-w-0 break-words">{match.teamBName ?? "Team B"}</span>
+                    </div>
+                  </div>
+
+                  <div className={`grid gap-2 ${desktop ? "grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"}`}>
+                    <TeamVenueBadge icon="home" label="Home" value={match.homeTeamName ?? homeFallback(match)} desktop={desktop} />
+                    <TeamVenueBadge icon="away" label="Away" value={match.awayTeamName ?? awayFallback(match)} desktop={desktop} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TeamVenueBadge({ icon, label, value, desktop }: { icon: "home" | "away"; label: string; value: string; desktop?: boolean }) {
+  const Icon = icon === "home" ? Home : Plane;
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md border border-line bg-white px-3 py-2">
+      <Icon className="h-4 w-4 shrink-0 text-pitch" />
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
+        <div className={`break-words font-semibold text-ink ${desktop ? "text-lg" : "text-sm"}`}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function scheduledCount(matches: FixtureScheduleItem[]) {
+  const count = matches.filter((match) => match.scheduledStartTime && match.scheduledEndTime).length;
+  return `${count}/${matches.length}`;
+}
+
+function homeFallback(match: FixtureScheduleItem) {
+  return match.homeTeamName || "Not assigned";
+}
+
+function awayFallback(match: FixtureScheduleItem) {
+  return match.awayTeamName || "Not assigned";
+}
+
+function numberValue(value: number | string | null | undefined) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}

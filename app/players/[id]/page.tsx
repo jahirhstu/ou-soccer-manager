@@ -1,15 +1,18 @@
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { money } from "@/lib/utils";
+import { balanceTransferLabel, balanceTransferTypes } from "@/lib/transfers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import Link from "next/link";
-import { Pencil } from "lucide-react";
+import { ArrowRightLeft, Pencil, Undo2 } from "lucide-react";
+import { hasPermission } from "@/lib/permissions";
+import { getCurrentProfile } from "@/lib/supabase/server";
 
 export default async function PlayerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-  const [{ data: player }, { data: payments }, { data: waivers }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }] = await Promise.all([
+  const [{ data: player }, { data: payments }, { data: waivers }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }, profile] = await Promise.all([
     supabase.from("players").select("*").eq("id", id).single(),
     supabase.from("payments").select("*,seasons(name)").eq("player_id", id).gt("amount", 0).order("payment_date", { ascending: false }),
     supabase
@@ -19,9 +22,10 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       .gt("waiver_amount", 0)
       .order("waived_at", { ascending: false }),
     supabase.from("attendance").select("*,sessions(session_date)").eq("player_id", id).order("created_at", { ascending: false }),
-    supabase.from("ledger_entries").select("*").eq("player_id", id).order("created_at", { ascending: false }),
+    supabase.from("ledger_entries").select("*,seasons(name),sessions(session_date,name),counterparty:players!ledger_entries_related_player_id_fkey(display_name)").eq("player_id", id).order("created_at", { ascending: false }),
     supabase.from("goals").select("*,sessions(session_date),assist:players!goals_assist_player_id_fkey(display_name)").eq("scorer_id", id).eq("goal_type", "goal"),
-    supabase.from("player_season_payment_summary").select("*").eq("player_id", id)
+    supabase.from("player_season_payment_summary").select("*").eq("player_id", id),
+    getCurrentProfile()
   ]);
   return (
     <AppShell>
@@ -29,10 +33,21 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
         <section className="panel p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="page-title">{player?.display_name ?? "Player"}</h1>
-            <Link className="btn-secondary" href={`/players/${id}/edit`}>
-              <Pencil className="h-4 w-4" />
-              Edit player
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              {hasPermission(profile?.role, "manage_finance") && (summary ?? []).some((row) => Number(row.credit_amount ?? 0) > 0 || Number(row.owes_money ?? 0) > 0) ? (
+                <Link className="btn-secondary" href={`/payments/carry-forward?player=${id}&season=${(summary ?? []).find((row) => Number(row.credit_amount ?? 0) > 0 || Number(row.owes_money ?? 0) > 0)?.season_id}`}>
+                  <ArrowRightLeft className="h-4 w-4" /> Carry forward balance
+                </Link>
+              ) : null}
+              {hasPermission(profile?.role, "manage_finance") && (summary ?? []).some((row) => Number(row.credit_amount ?? 0) > 0) ? (
+                  <Link className="btn-secondary" href={`/payments/refund?player=${id}&season=${(summary ?? []).find((row) => Number(row.credit_amount ?? 0) > 0)?.season_id}`}>
+                    <Undo2 className="h-4 w-4" /> Record refund
+                  </Link>
+              ) : null}
+              <Link className="btn-secondary" href={`/players/${id}/edit`}>
+                <Pencil className="h-4 w-4" /> Edit player
+              </Link>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
             {player?.status ? <StatusBadge status={player.status} /> : null}
@@ -49,17 +64,19 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
             { header: "Played", cell: (row) => row.total_played_sessions ?? 0 },
             { header: "Remaining", cell: (row) => row.remaining_sessions ?? 0 },
             { header: "Waived", cell: (row) => money(row.waived_amount) },
-            { header: "Credit", cell: (row) => money(row.credit_amount) }
+            { header: "Credit", cell: (row) => money(row.credit_amount) },
+            { header: "Owing", cell: (row) => money(row.owes_money) },
+            { header: "Refunded", cell: (row) => money(row.refund_paid_amount) }
           ]} />
         </section>
         <section className="grid gap-3">
           <h2 className="section-title">Payment history</h2>
-          <DataTable rows={paymentHistoryRows(payments ?? [], waivers ?? [])} columns={[
+          <DataTable rows={paymentHistoryRows(payments ?? [], waivers ?? [], (ledger ?? []).filter((row) => row.type === "refund_paid"), (ledger ?? []).filter((row) => row.transfer_id && balanceTransferTypes.includes(row.type)))} columns={[
             { header: "Type", cell: (row) => row.type },
             { header: "Season", cell: (row) => row.season },
             { header: "Session", cell: (row) => row.session },
             { header: "Date", cell: (row) => row.date },
-            { header: "Amount", cell: (row) => row.type === "Waiver" ? `${money(row.amount)} waived` : money(row.amount) },
+            { header: "Amount", cell: (row) => row.type === "Waiver" ? `${money(row.amount)} waived` : row.type === "Refund" ? `${money(row.amount)} refunded` : money(row.amount) },
             { header: "Sessions", cell: (row) => row.sessions },
             { header: "Note", cell: (row) => row.note ?? "-" }
           ]} />
@@ -93,7 +110,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   );
 }
 
-function paymentHistoryRows(payments: any[], waivers: any[]) {
+function paymentHistoryRows(payments: any[], waivers: any[], refunds: any[], transfers: any[]) {
   return [
     ...payments.map((row) => ({
       type: "Payment",
@@ -112,6 +129,24 @@ function paymentHistoryRows(payments: any[], waivers: any[]) {
       amount: Number(row.waiver_amount ?? 0),
       sessions: "-",
       note: row.waiver_reason
+    })),
+    ...refunds.map((row) => ({
+      type: "Refund",
+      season: row.seasons?.name ?? "-",
+      session: "Season refund",
+      date: row.refund_date ?? String(row.created_at ?? "").slice(0, 10),
+      amount: Number(row.amount ?? 0),
+      sessions: "-",
+      note: row.refund_reference ?? `${row.refund_method ?? "Refund"}`
+    })),
+    ...transfers.map((row) => ({
+      type: balanceTransferLabel(row.type, row.related_player_id, row.counterparty?.display_name),
+      season: row.seasons?.name ?? "-",
+      session: [row.sessions?.session_date, row.sessions?.name].filter(Boolean).join(" - ") || "Season balance",
+      date: row.transfer_date ?? String(row.created_at ?? "").slice(0, 10),
+      amount: Number(row.amount ?? 0),
+      sessions: "-",
+      note: [row.description, row.transfer_note].filter(Boolean).join(" - ")
     }))
   ].sort((left, right) => String(right.date).localeCompare(String(left.date)) || left.season.localeCompare(right.season));
 }

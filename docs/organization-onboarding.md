@@ -36,13 +36,16 @@ The plaintext invitation token is generated server-side and returned once. Only 
 
 ## Required migration
 
-Apply migrations through:
+For a fresh development database, apply the integrated migration sequence through `090_import_program_scope.sql`.
+For an existing database, first read [the migration reconciliation notes](develop-main-integration.md#migration-ordering); development migration versions were renumbered during integration and must not be replayed blindly.
+
+After confirming the target is a fresh development database:
 
 ```bash
 supabase db push
 ```
 
-For a linked development project, confirm migration `074_organization_onboarding.sql` appears in the migration history before using the new platform pages.
+For a linked development project, confirm migration `086_organization_onboarding.sql` appears in the migration history before using the new platform pages.
 
 ## Test-user setup
 

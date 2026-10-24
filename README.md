@@ -205,4 +205,4 @@ Payments are manually recorded by admins. Payment writes create ledger entries a
 - `program_modules` controls features and write availability inside a program.
 - Public reports use tenant/program-scoped RPCs. Financial values are private unless explicitly enabled.
 
-Apply all migrations through `supabase/migrations/063_program_authorization.sql` before running this version. The seed command bootstraps its admin as the platform owner for local development.
+For a fresh development database, apply migrations through `supabase/migrations/090_import_program_scope.sql`. Existing development databases require migration-history reconciliation first; see [the branch integration notes](docs/develop-main-integration.md). The existing seed command bootstraps its admin as the platform owner; a comprehensive architecture-aware dataset is a separate follow-up.

@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, type LucideIcon } from "lucide-react";
+import { randomUUID } from "node:crypto";
+import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, WalletCards, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { DashboardSeasonSelect } from "@/components/DashboardSeasonSelect";
+import { ClubBalanceTransferForm } from "@/components/ClubBalanceTransferForm";
+import { PaymentFlashToast } from "@/components/PaymentFlashToast";
+import { reverseClubBalanceTransfer } from "@/lib/actions/club-transfers";
+import { resolveDashboardSeason } from "@/lib/dashboard-seasons";
 import { AppShell } from "../(shell)";
 import { money } from "@/lib/utils";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
 
 type DashboardSummaryRow = {
   season_id: string;
@@ -13,76 +19,128 @@ type DashboardSummaryRow = {
   estimated_used_amount: number | string | null;
   owes_money: number | string | null;
 };
-type DashboardPaymentRow = {
-  amount: number | string | null;
-  season_id: string;
-  session_id: string | null;
-};
-type DashboardExpenseRow = {
-  amount: number | string | null;
-  season_id: string | null;
-};
-
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ season?: string; success?: string }> }) {
+  const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
   const tenantSlug = await getRequestTenantSlug();
   const programSlug = await getRequestProgramSlug();
-  const [{ data: seasons }, { data: players }, { data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financePayments }, { data: expenses }] = await Promise.all([
-    supabase.from("seasons").select("*").eq("status", "active").limit(1),
-    supabase.from("players").select("*").eq("status", "active"),
-    supabase.from("sessions").select("*,playgrounds(name)").order("session_date", { ascending: false }).limit(5),
-    supabase.from("payments").select("amount,payment_date,players(display_name)").gt("amount", 0).order("created_at", { ascending: false }).limit(5),
-    supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").order("goals", { ascending: false }).limit(5),
-    supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").gt("remaining_sessions", 0).limit(5),
+  const [program, profile] = await Promise.all([getCurrentProgram(), getCurrentProfile()]);
+  let seasonQuery = supabase.from("seasons").select("*").eq("organization_id", profile?.organization_id)
+    .order("start_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false, nullsFirst: false }).order("id");
+  if (program?.id) seasonQuery = seasonQuery.eq("program_id", program.id);
+  const { data: seasons, error: seasonError } = await seasonQuery;
+  if (seasonError) throw new Error(seasonError.message);
+  const activeSeason = resolveDashboardSeason(seasons ?? [], filters.season);
+  if (!activeSeason) return <AppShell><h1 className="page-title">Dashboard</h1><p className="mt-4 text-sm text-slate-600">No seasons configured.</p></AppShell>;
+  const dateParts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const part = (type: string) => dateParts.find((item) => item.type === type)?.value ?? "";
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  const results = await Promise.all([
+    supabase.from("sessions").select("*,playgrounds(name)").eq("season_id", activeSeason.id).order("session_date", { ascending: false }).limit(5),
+    supabase.from("payments").select("amount,payment_date,players(display_name)").eq("season_id", activeSeason.id).gt("amount", 0).order("created_at", { ascending: false }).limit(5),
+    supabase.from("player_season_stats_summary").select("player_id,player_name,goals,assists").eq("season_id", activeSeason.id).order("goals", { ascending: false }).limit(5),
+    supabase.from("player_season_payment_summary").select("player_id,player_name,remaining_sessions,credit_amount").eq("season_id", activeSeason.id).gt("credit_amount", 0).limit(5),
     supabase.rpc("internal_scoped_player_report", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }),
-    supabase.from("payments").select("season_id,session_id,amount").gt("amount", 0),
-    supabase.from("club_expenses").select("season_id,amount")
+    supabase.rpc("admin_dashboard_season_finance", { p_season_id: activeSeason.id }),
+    supabase.from("sessions").select("id", { count: "exact", head: true }).eq("season_id", activeSeason.id),
+    supabase.from("sessions").select("session_date").eq("season_id", activeSeason.id).eq("status", "scheduled").gte("session_date", today).order("session_date").limit(1),
+    supabase.rpc("admin_club_transfer_summary", { p_season_id: activeSeason.id }),
+    supabase.from("club_balance_transfers").select("*").eq("organization_id", profile.organization_id)
+      .or(`source_season_id.eq.${activeSeason.id},destination_season_id.eq.${activeSeason.id}`)
+      .order("created_at", { ascending: false }),
+    activeSeason.program_id
+      ? supabase.from("club_expenses").select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id).eq("program_id", activeSeason.program_id).is("season_id", null)
+      : supabase.from("club_expenses").select("id", { count: "exact", head: true })
+        .eq("organization_id", profile.organization_id).is("program_id", null).is("season_id", null)
   ]);
-  const activeSeason = seasons?.[0];
+  for (const result of results) if (result.error) throw new Error(result.error.message);
+  const [{ data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financeRows }, { count: sessionCount }, { data: upcoming }, { data: transferSummaries }, { data: transferHistory }, { count: unassignedExpenses }] = results;
+  const finance = financeRows?.[0];
+  if (!finance) throw new Error("Season financial summary is unavailable.");
+  const transferSummary = transferSummaries?.[0];
+  if (!transferSummary) throw new Error("Club transfer summary is unavailable.");
+  const destinations = (seasons ?? []).filter((season) => activeSeason.program_id && season.program_id === activeSeason.program_id
+    && activeSeason.start_date && season.start_date && season.start_date > activeSeason.start_date);
+  const seasonNames = new Map((seasons ?? []).map((season) => [season.id, season.name]));
+  const reversedIds = new Set((transferHistory ?? []).map((row) => row.reverses_transfer_id).filter(Boolean));
   const summaryRows = (summaries ?? []) as DashboardSummaryRow[];
   const activeSummaries = activeSeason ? summaryRows.filter((row) => row.season_id === activeSeason.id) : summaryRows;
-  const paymentRows = (financePayments ?? []) as DashboardPaymentRow[];
-  const expenseRows = (expenses ?? []) as DashboardExpenseRow[];
-  const activePayments = activeSeason ? paymentRows.filter((row) => row.season_id === activeSeason.id) : paymentRows;
-  const activeExpenses = activeSeason ? expenseRows.filter((row) => row.season_id === activeSeason.id || row.season_id == null) : expenseRows;
-  const collectedFromReport = sumMoney(activeSummaries.map((row) => row.total_paid_amount));
-  const signupCollectedFromEntries = sumMoney(activePayments.filter((row) => !row.session_id).map((row) => row.amount));
-  const dropInCollectedFromEntries = sumMoney(activePayments.filter((row) => row.session_id).map((row) => row.amount));
-  const totalCollectedFromEntries = signupCollectedFromEntries + dropInCollectedFromEntries;
-  const signupCollected = totalCollectedFromEntries ? signupCollectedFromEntries : collectedFromReport;
-  const dropInCollected = totalCollectedFromEntries ? dropInCollectedFromEntries : 0;
-  const totalCollected = totalCollectedFromEntries || collectedFromReport;
   const totalUsed = sumMoney(activeSummaries.map((row) => row.estimated_used_amount));
   const totalOwing = sumMoney(activeSummaries.map((row) => row.owes_money));
-  const totalExpenses = sumMoney(activeExpenses.map((row) => row.amount));
-  const clubBalance = totalCollected - totalExpenses;
 
   return (
     <AppShell>
+      <PaymentFlashToast success={filters.success} />
       <div className="grid gap-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="page-title">Dashboard</h1>
-            <p className="text-sm text-slate-500">Active season: {activeSeason?.name ?? "No active season"}</p>
+            <p className="text-sm text-slate-500">Season: {activeSeason.name}{activeSeason.status === "active" ? " (Active)" : ""}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <DashboardSeasonSelect seasons={seasons ?? []} selectedId={activeSeason.id} />
             <Link className="btn-secondary" href="/public/report" rel="noopener noreferrer" target="_blank"><ExternalLink className="h-4 w-4" /> Report Gallery</Link>
             <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric icon={Users} label="Players" value={players?.length ?? 0} />
-          <Metric icon={CalendarClock} label="Sessions" value={sessions?.length ?? 0} />
-          <Metric icon={Trophy} label="Upcoming session" value={sessions?.[0]?.session_date ?? "-"} />
+          <Metric icon={Users} label="Players" value={finance.player_count ?? 0} />
+          <Metric icon={CalendarClock} label="Sessions" value={sessionCount ?? 0} />
+          <Metric icon={Trophy} label="Upcoming session" value={upcoming?.[0]?.session_date ?? "-"} />
           <Metric icon={CircleDollarSign} label="Price per session" value={money(activeSeason?.price_per_session)} />
-          <Metric icon={CreditCard} label="Signup collected" value={money(signupCollected)} />
-          <Metric icon={CreditCard} label="Drop-in collected" value={money(dropInCollected)} />
-          <Metric icon={CreditCard} label="Total collected" value={money(totalCollected)} />
-          <Metric icon={ReceiptText} label="Total expenses" value={money(totalExpenses)} />
-          <Metric icon={CircleDollarSign} label="Club balance" value={money(clubBalance)} />
-          <Metric icon={TrendingDown} label="Total charged(used)" value={money(totalUsed)} />
+          <Metric icon={CreditCard} label="Signup collected" value={money(finance.signup_collected)} />
+          <Metric icon={CreditCard} label="Drop-in collected" value={money(finance.drop_in_collected)} />
+          <Metric icon={CreditCard} label="Total collected" value={money(finance.total_collected)} />
+          <Metric icon={ReceiptText} label="Total expenses" value={money(finance.total_expenses)} />
+          <Metric icon={ReceiptText} label="Total refunded" value={money(finance.total_refunded)} />
+          <Metric icon={CircleDollarSign} label="Club balance" value={money(finance.club_balance)} />
+          <Metric icon={CircleDollarSign} label="Net Club Balance" supportingText="Club balance after unused player credit" value={money(finance.net_club_balance)} />
+          <Metric icon={ReceiptText} label="Total Waived" supportingText="Session fees forgiven this season" value={money(finance.total_waived)} />
+          <Metric
+            icon={WalletCards}
+            label="Total Player Credit Remaining"
+            supportingText="Unused player funds currently held by the club"
+            tooltip="The sum of all positive player balances. Amounts owed by players do not reduce this total."
+            value={money(finance.total_player_credit)}
+          />
+          <Metric icon={TrendingDown} label="Net session charges" value={money(totalUsed)} />
           <Metric icon={CircleDollarSign} label="Total owing" value={money(totalOwing)} />
         </div>
+        <section className="grid gap-3">
+          <h2 className="section-title">Club balance carry-forward</h2>
+          <div className="grid gap-3 border-y border-line py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <div><span className="text-slate-500">Season result before transfers</span><div className="font-semibold text-ink">{money(transferSummary.season_result)}</div></div>
+            <div><span className="text-slate-500">Carried in</span><div className="font-semibold text-ink">{money(transferSummary.carried_in)}</div></div>
+            <div><span className="text-slate-500">Carried out</span><div className="font-semibold text-ink">{money(transferSummary.carried_out)}</div></div>
+            <div><span className="text-slate-500">Balance remaining</span><div className="font-semibold text-ink">{money(transferSummary.balance_remaining)}</div></div>
+          </div>
+          {unassignedExpenses ? <p className="text-sm text-amber-800">
+            {unassignedExpenses} unassigned expense{unassignedExpenses === 1 ? "" : "s"} must be <Link className="underline" href="/expenses">assigned to a season</Link> before a transfer.
+          </p> : null}
+          <ClubBalanceTransferForm key={activeSeason.id} source={activeSeason} destinations={destinations}
+            balance={transferSummary.balance_remaining} today={today} submissionId={randomUUID()}
+            unassignedExpenses={unassignedExpenses ?? 0} />
+          <h3 className="section-title">Transfer history</h3>
+          <DataTable rows={transferHistory ?? []} columns={[
+            { header: "Date", cell: (row) => row.transfer_date },
+            { header: "From", cell: (row) => seasonNames.get(row.source_season_id) ?? "-" },
+            { header: "To", cell: (row) => seasonNames.get(row.destination_season_id) ?? "-" },
+            { header: "Amount", cell: (row) => money(row.amount) },
+            { header: "Status", cell: (row) => row.reverses_transfer_id ? "Reversal" : reversedIds.has(row.id) ? "Reversed" : "Recorded" },
+            { header: "Note", cell: (row) => row.note ?? "-" },
+            { header: "Action", cell: (row) => !row.reverses_transfer_id && !reversedIds.has(row.id) ? (
+              <form action={reverseClubBalanceTransfer} className="flex items-center gap-2">
+                <input type="hidden" name="transfer_id" value={row.id} />
+                <input type="hidden" name="season_id" value={activeSeason.id} />
+                <input type="hidden" name="submission_id" value={randomUUID()} />
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" name="confirmed" value="yes" required /> Confirm</label>
+                <button className="btn-secondary" type="submit">Reverse</button>
+              </form>
+            ) : "-" }
+          ]} />
+        </section>
         <section className="grid gap-3">
           <h2 className="section-title">Recent sessions</h2>
           <DataTable compact rows={sessions ?? []} columns={[
@@ -122,9 +180,21 @@ export default async function DashboardPage() {
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string | number }) {
+function Metric({
+  icon: Icon,
+  label,
+  supportingText,
+  tooltip,
+  value
+}: {
+  icon: LucideIcon;
+  label: string;
+  supportingText?: string;
+  tooltip?: string;
+  value: string | number;
+}) {
   return (
-    <div className="panel p-4">
+    <div className="panel p-4" title={tooltip}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-slate-500">{label}</div>
         <span className="grid h-9 w-9 place-items-center rounded-md bg-emerald-50 text-pitch ring-1 ring-emerald-100">
@@ -132,6 +202,7 @@ function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string;
         </span>
       </div>
       <div className="mt-3 break-words text-2xl font-semibold tracking-tight text-ink">{value}</div>
+      {supportingText ? <p className="mt-1 text-xs leading-5 text-slate-500">{supportingText}</p> : null}
     </div>
   );
 }

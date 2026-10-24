@@ -48,6 +48,9 @@ export async function middleware(request: NextRequest) {
   const cookieProgramSlug = normalizeTenantSlug(request.cookies.get("active_program_slug")?.value);
   let activeProgramSlug = programSlug || getActiveProgramSlugForTenant(tenantSlug, cookieProgramTenantSlug, cookieProgramSlug);
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-tenant-slug");
+  requestHeaders.delete("x-program-slug");
+  requestHeaders.delete("x-active-program-slug");
   if (tenantSlug) requestHeaders.set("x-tenant-slug", tenantSlug);
   if (programSlug) requestHeaders.set("x-program-slug", programSlug);
   if (activeProgramSlug) requestHeaders.set("x-active-program-slug", activeProgramSlug);

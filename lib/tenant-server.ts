@@ -1,5 +1,9 @@
 import { cookies, headers } from "next/headers";
-import { normalizeTenantSlug } from "./tenant";
+import { normalizeTenantSlug, tenantPath } from "./tenant";
+
+export async function getScopedPath(path: string) {
+  return tenantPath(path, await getRequestTenantSlug(), await getRequestProgramSlug());
+}
 
 export async function getRequestTenantSlug() {
   const requestHeaders = await headers();

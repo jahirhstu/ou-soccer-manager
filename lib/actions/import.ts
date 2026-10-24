@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { whatsappParser } from "../parsers";
 import { whatsappInputSchema } from "../schemas";
 import { hasPermission } from "../permissions";
-import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "../supabase/server";
+import { requireEnabledProgramModule } from "../program-access";
 import { normalizePlayerName } from "../utils";
+import { normalizeImportedPaymentAmountSource } from "../import-payment-source";
 import { applySessionUsage } from "./session-usage";
 
 export async function parseWhatsAppAction(_: unknown, formData: FormData) {
@@ -68,12 +70,27 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     applyDropoutAttendanceOverrides(parsed);
 
     const supabase = await createSupabaseServerClient();
+    const program = await getCurrentProgram();
+    if (!program?.id || !profile.organization_id) throw new Error("Choose an organization and program before importing.");
+    await requireEnabledProgramModule(supabase, profile.organization_id, program.id, "whatsapp_import");
+    if (input.seasonId && input.seasonId !== "__create__") {
+      const { data: season, error } = await supabase.from("seasons").select("id")
+        .eq("id", input.seasonId).eq("organization_id", profile.organization_id).eq("program_id", program.id).maybeSingle();
+      if (error || !season) throw new Error("Choose a season in the current program.");
+    }
+    if (input.sessionId && input.sessionId !== "__create__") {
+      const { data: session, error } = await supabase.from("sessions").select("id,season_id")
+        .eq("id", input.sessionId).eq("organization_id", profile.organization_id).eq("program_id", program.id).maybeSingle();
+      if (error || !session || (input.seasonId && input.seasonId !== session.season_id)) throw new Error("Choose a session in the selected season and program.");
+    }
     const targetSeasonId = await resolveTargetSeasonId({
       supabase,
       requestedSeasonId: input.seasonId,
       parsed,
       formData,
-      actorId: profile.id
+      actorId: profile.id,
+      organizationId: profile.organization_id,
+      programId: program.id
     });
     const targetSessionId = await resolveTargetSessionId({
       supabase,
@@ -81,7 +98,8 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       seasonId: targetSeasonId,
       parsed,
       formData,
-      actorId: profile.id
+      actorId: profile.id,
+      organizationId: profile.organization_id
     });
     const targetSession = targetSessionId ? await getSessionStatusForImport(supabase, targetSessionId) : null;
     ensureParsedPlayersAreAttendance(parsed, Boolean(targetSessionId));
@@ -91,7 +109,8 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       parsedPlayers: parsed.players ?? [],
       matches,
       updatePlayerNames,
-      actorId: profile.id
+      actorId: profile.id,
+      organizationId: profile.organization_id
     });
 
     for (const collection of [parsed.players, parsed.payments, parsed.attendance, parsed.goals]) {
@@ -143,6 +162,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     const { data: importRow, error } = await supabase
       .from("whatsapp_imports")
       .insert({
+        organization_id: profile.organization_id,
         season_id: targetSeasonId,
         session_id: targetSessionId,
         raw_text: input.rawText,
@@ -163,11 +183,14 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         ? await getCreditBeforeSession(supabase, targetSeasonId, targetSessionId)
         : new Map<string, number>();
 
+    let importedPayments = 0;
+    let existingPayments = 0;
+    let skippedPayments = 0;
     for (const payment of parsed.payments ?? []) {
       if (!payment.matchedPlayerId || !targetSeasonId) continue;
       const parsedAmount = Number(payment.amount ?? 0);
       const parsedSessionsCovered = Number(payment.sessionsCovered ?? 0);
-      const amountSource = normalizePaymentAmountSource(payment);
+      const amountSource = normalizeImportedPaymentAmountSource(payment);
       const explicitAmount = Boolean(Number.isFinite(parsedAmount) && parsedAmount > 0 && amountSource === "player_line");
       const note = String(payment.note ?? "");
       const pendingWithoutSent = /\bpending\b/i.test(note) && !/\bsent\b/i.test(note);
@@ -197,6 +220,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
 
       const paymentAmount = Number(explicitAmount ? parsedAmount : sentWithoutAmount ? sessionPrice : null);
       if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+        skippedPayments += 1;
         await supabase.from("audit_logs").insert({
           actor_id: profile.id,
           action: "payment_import_skipped_no_amount",
@@ -229,6 +253,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         actorId: profile.id
       });
       if (!paymentRow) {
+        existingPayments += 1;
         await supabase.from("audit_logs").insert({
           actor_id: profile.id,
           action: "payment_import_skipped_existing",
@@ -255,6 +280,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
         created_by: profile.id
       });
       if (ledgerError) throw new Error(ledgerError.message);
+      importedPayments += 1;
 
       await supabase.from("audit_logs").insert({
         actor_id: profile.id,
@@ -328,6 +354,13 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
     }
 
     revalidatePath("/import-whatsapp");
+    revalidatePath("/dashboard");
+    revalidatePath("/payments");
+    revalidatePath("/players");
+    revalidatePath("/public/report");
+    for (const playerId of new Set(playerIds.values())) {
+      revalidatePath(`/players/${playerId}`);
+    }
     revalidatePath("/reports/payments");
     revalidatePath("/reports/attendance");
     revalidatePath("/seasons");
@@ -336,7 +369,11 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData) {
       revalidatePath(`/sessions/${targetSessionId}`);
       revalidatePath(`/public/sessions/${targetSessionId}/teams`);
     }
-    return { success: true, message: "WhatsApp import confirmed successfully." };
+    const paymentSummary = `${importedPayments} payments recorded, ${existingPayments} already recorded.`;
+    const warning = skippedPayments
+      ? ` ${skippedPayments} payments skipped because no valid player-specific amount was confirmed. Review the payment rows before retrying.`
+      : undefined;
+    return { success: true, message: `WhatsApp import confirmed. ${paymentSummary}`, warning };
   } catch (error) {
     return { error: friendlyImportError(error, "confirm") };
   }
@@ -441,13 +478,17 @@ async function resolveTargetSeasonId({
   requestedSeasonId,
   parsed,
   formData,
-  actorId
+  actorId,
+  organizationId,
+  programId
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   requestedSeasonId?: string;
   parsed: any;
   formData: FormData;
   actorId: string;
+  organizationId: string;
+  programId: string;
 }) {
   if (!requestedSeasonId) return undefined;
   if (requestedSeasonId !== "__create__") {
@@ -471,6 +512,8 @@ async function resolveTargetSeasonId({
   const { data, error } = await supabase
     .from("seasons")
     .insert({
+      organization_id: organizationId,
+      program_id: programId,
       name,
       start_date: formValue(formData, "createSeasonStartDate") || parsed.season?.startDate || parsed.session?.date || null,
       end_date: formValue(formData, "createSeasonEndDate") || parsed.season?.endDate || null,
@@ -492,7 +535,8 @@ async function resolveTargetSessionId({
   seasonId,
   parsed,
   formData,
-  actorId
+  actorId,
+  organizationId
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   requestedSessionId?: string;
@@ -500,11 +544,12 @@ async function resolveTargetSessionId({
   parsed: any;
   formData: FormData;
   actorId: string;
+  organizationId: string;
 }) {
   if (!requestedSessionId) return undefined;
   if (requestedSessionId !== "__create__") {
     const location = nullableFormValue(formData, "createSessionLocation");
-    const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId) : null;
+    const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId, organizationId) : null;
     const sessionDate = formValue(formData, "createSessionDate") || parsed.session?.date;
     if (!sessionDate) throw new Error("Parsed session needs a date before it can be updated.");
     const duration = formValue(formData, "createSessionDuration");
@@ -533,7 +578,7 @@ async function resolveTargetSessionId({
 
   const duration = formValue(formData, "createSessionDuration") || parsed.session?.duration;
   const location = formValue(formData, "createSessionLocation") || parsed.session?.location || null;
-  const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId) : null;
+  const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId, organizationId) : null;
   const { data, error } = await supabase
     .from("sessions")
     .insert({
@@ -575,12 +620,14 @@ function numberValue(formData: FormData, key: string) {
 async function findOrCreatePlayground(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   name: string,
-  actorId: string
+  actorId: string,
+  organizationId: string
 ) {
   const cleaned = name.trim();
   const { data: existing, error: existingError } = await supabase
     .from("playgrounds")
     .select("id")
+    .eq("organization_id", organizationId)
     .ilike("name", cleaned)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
@@ -588,7 +635,7 @@ async function findOrCreatePlayground(
 
   const { data, error } = await supabase
     .from("playgrounds")
-    .insert({ name: cleaned, created_by: actorId })
+    .insert({ organization_id: organizationId, name: cleaned, created_by: actorId })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
@@ -700,11 +747,11 @@ async function getCreditBeforeSession(
     const amount = Number(entry.amount ?? 0);
     const current = creditByPlayer.get(entry.player_id) ?? 0;
 
-    if (["payment_received", "credit_added", "credit_transferred_in"].includes(entry.type)) {
+    if (["payment_received", "credit_added", "credit_transferred_in", "debt_transferred_out"].includes(entry.type)) {
       creditByPlayer.set(entry.player_id, current + amount);
     }
 
-    if (["session_used", "credit_transferred_out", "refund_paid"].includes(entry.type)) {
+    if (["session_used", "credit_transferred_out", "refund_paid", "debt_transferred_in"].includes(entry.type)) {
       creditByPlayer.set(entry.player_id, current - amount);
     }
   }
@@ -824,23 +871,6 @@ async function cleanupDuplicateGoalsForSession(
 function sessionsCoveredFromAmount(amount: number, sessionPrice: number | null) {
   if (!sessionPrice) return 1;
   return Number((amount / sessionPrice).toFixed(2));
-}
-
-function normalizePaymentAmountSource(payment: any): "player_line" | "inferred_session_price" | "general_context" | undefined {
-  const amount = Number(payment.amount ?? 0);
-  const note = String(payment.note ?? "");
-  if (Number.isFinite(amount) && amount > 0 && playerLineHasPaymentAmount(note)) return "player_line";
-  if (Number.isFinite(amount) && amount > 0 && payment.amountSource === "player_line" && !note) return "player_line";
-  if (/\bsent\b/i.test(note)) return "inferred_session_price";
-  if (payment.amountSource === "inferred_session_price") return "inferred_session_price";
-  if (Number.isFinite(amount) && amount > 0) return "general_context";
-  return payment.amountSource;
-}
-
-function playerLineHasPaymentAmount(note: string) {
-  if (!note) return false;
-  if (/\b(?:drop-?ins?|cost per session|full season|remaining balance|please pay|please e-?transfer|interac|for players who already paid)\b/i.test(note)) return false;
-  return /\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:cad\s*)?(?:paid|sent|payment|e-?transfer|cash|bank)\b|\b(?:paid|sent|payment|e-?transfer|cash|bank)\b\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.test(note);
 }
 
 function sameMoney(left: unknown, right: unknown) {
@@ -1195,18 +1225,20 @@ async function resolveImportedPlayers({
   parsedPlayers,
   matches,
   updatePlayerNames,
-  actorId
+  actorId,
+  organizationId
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   parsedPlayers: Array<{ name: string; matchedPlayerId?: string }>;
   matches: Map<string, string>;
   updatePlayerNames: Set<string>;
   actorId: string;
+  organizationId: string;
 }) {
   const playerIds = new Map<string, string>();
   const [{ data: existingPlayers, error }, { data: aliases, error: aliasError }] = await Promise.all([
-    supabase.from("players").select("id,display_name"),
-    supabase.from("player_aliases").select("player_id,alias_name,normalized_alias")
+    supabase.from("players").select("id,display_name").eq("organization_id", organizationId),
+    supabase.from("player_aliases").select("player_id,alias_name,normalized_alias").eq("organization_id", organizationId)
   ]);
   if (error) throw new Error(error.message);
   if (aliasError) throw new Error(aliasError.message);
@@ -1219,11 +1251,13 @@ async function resolveImportedPlayers({
   for (const player of parsedPlayers) {
     if (matches.has(player.name)) {
       const matchedPlayerId = matches.get(player.name)!;
+      if (!(existingPlayers ?? []).some(existing => existing.id === matchedPlayerId)) throw new Error("Matched player does not belong to this organization.");
       await rememberPlayerAlias({
         supabase,
         playerId: matchedPlayerId,
         aliasName: player.name,
-        actorId
+        actorId,
+        organizationId
       });
       if (updatePlayerNames.has(player.name)) {
         const displayName = normalizePlayerName(player.name);
@@ -1248,7 +1282,8 @@ async function resolveImportedPlayers({
         supabase,
         playerId: aliasId,
         aliasName: player.name,
-        actorId
+        actorId,
+        organizationId
       });
       setPlayerId(playerIds, player.name, aliasId);
       continue;
@@ -1256,7 +1291,7 @@ async function resolveImportedPlayers({
 
     const { data: created, error: createError } = await supabase
       .from("players")
-      .insert({ display_name: normalizedName, status: "active", notes: "Created from WhatsApp import" })
+      .insert({ organization_id: organizationId, display_name: normalizedName, status: "active", notes: "Created from WhatsApp import" })
       .select("id")
       .single();
     if (createError) throw new Error(createError.message);
@@ -1266,7 +1301,8 @@ async function resolveImportedPlayers({
       supabase,
       playerId: created.id,
       aliasName: player.name,
-      actorId
+      actorId,
+      organizationId
     });
   }
 
@@ -1277,18 +1313,21 @@ async function rememberPlayerAlias({
   supabase,
   playerId,
   aliasName,
-  actorId
+  actorId,
+  organizationId
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   playerId: string;
   aliasName: string;
   actorId: string;
+  organizationId: string;
 }) {
   const normalizedAlias = normalizeNameKey(aliasName);
   const { data: existing, error: existingError } = await supabase
     .from("player_aliases")
     .select("id,match_count")
     .eq("normalized_alias", normalizedAlias)
+    .eq("organization_id", organizationId)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
 
@@ -1313,6 +1352,7 @@ async function rememberPlayerAlias({
       player_id: playerId,
       alias_name: normalizePlayerName(aliasName),
       normalized_alias: normalizedAlias,
+      organization_id: organizationId,
       created_by: actorId,
       last_used_at: new Date().toISOString()
     });

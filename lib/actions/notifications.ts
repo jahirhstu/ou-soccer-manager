@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { requireOrganizationAdminAuthority } from "../organization-access";
+import { getRequestTenantSlug, getRequestProgramSlug } from "../tenant-server";
 
 export async function submitPaymentSentNotification(_: unknown, formData: FormData) {
   try {
@@ -11,7 +12,9 @@ export async function submitPaymentSentNotification(_: unknown, formData: FormDa
     if (!playerId || !seasonId) return { error: "Player and season are required." };
 
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("submit_payment_sent_notification", {
+    const { data, error } = await supabase.rpc("scoped_submit_payment_sent_notification", {
+      p_organization_slug: await getRequestTenantSlug(),
+      p_program_slug: (await getRequestProgramSlug()) || null,
       p_player_id: playerId,
       p_season_id: seasonId
     });

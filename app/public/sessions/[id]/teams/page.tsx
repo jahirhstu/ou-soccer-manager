@@ -1,6 +1,9 @@
 import { CalendarDays, MapPin, ShieldCheck } from "lucide-react";
 import { PublicShell } from "@/components/PublicShell";
 import { TeamBuilder, type TeamBuilderData } from "@/components/TeamBuilder";
+import { ImageShareButton } from "@/components/ImageShareButton";
+import { TeamsShareImage } from "@/components/SessionShareImages";
+import { imageFileName } from "@/lib/image-sharing";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
@@ -16,6 +19,8 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
   ]);
   const report = data as TeamBuilderData | null;
   const canEdit = hasPermission(profile?.role, "manage_attendance");
+  const sessionLabel = report?.session?.name ?? report?.session?.sessionDate ?? "Session";
+  const savedTeams = (report?.teams ?? []).filter((team) => team.players.length > 0);
 
   return (
     <PublicShell returnHref={canEdit ? `/sessions/${id}` : undefined} returnLabel="Return">
@@ -51,11 +56,16 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
                 </div>
               </div>
             </div>
-            {canEdit ? (
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                Captain/admin edit mode
-              </span>
-            ) : null}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {canEdit && savedTeams.length > 0 ? <ImageShareButton label="Share teams" title="Teams" filename={imageFileName(sessionLabel, "teams", report?.session?.sessionDate)}>
+                <TeamsShareImage session={{ name: sessionLabel, date: report?.session?.sessionDate, location: report?.session?.location }} teams={savedTeams} />
+              </ImageShareButton> : null}
+              {canEdit ? (
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  Captain/admin edit mode
+                </span>
+              ) : null}
+            </div>
           </div>
         </header>
 

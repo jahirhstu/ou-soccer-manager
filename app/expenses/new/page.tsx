@@ -32,7 +32,7 @@ export default async function NewExpensePage() {
         </label>
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Season
-          <SeasonSelect seasons={seasons ?? []} required={false} />
+          <SeasonSelect seasons={seasons ?? []} />
         </label>
         <label className="grid gap-1 text-sm font-medium text-slate-700">
           Session

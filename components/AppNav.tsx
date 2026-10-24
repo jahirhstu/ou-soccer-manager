@@ -151,7 +151,8 @@ function isVisible(item: NavItem, role: UserRole | undefined, variant: NavVarian
   if (!role || !item.roles.includes(role)) return false;
   if (item.requiresOrganizationAdmin && !organizationAdmin) return false;
   if (item.moduleKey && enabledModules && !enabledModules.includes(item.moduleKey)) return false;
-  if ((role === "admin" || role === "captain") && item.href.startsWith("/public/") && item.href !== "/public/report") return false;
+  if ((role === "admin" || role === "captain") && item.href.startsWith("/public/")
+    && item.href !== "/public/report" && !(role === "admin" && item.href === "/public/goals-assists")) return false;
   return true;
 }
 

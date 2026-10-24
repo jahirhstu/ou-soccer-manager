@@ -58,7 +58,7 @@ export function ImportReviewTable({
   const [state, action, pending] = useActionState(parseWhatsAppAction, null as { parsed?: ParsedWhatsAppImport; error?: string } | null);
   const [confirmState, confirmAction, confirmPending] = useActionState(
     confirmWhatsAppImport,
-    null as { success?: boolean; message?: string; error?: string } | null
+    null as { success?: boolean; message?: string; warning?: string; error?: string } | null
   );
   const [rawText, setRawText] = useState("");
   const parsed = state?.parsed;
@@ -118,6 +118,7 @@ export function ImportReviewTable({
   useEffect(() => {
     if (confirmState?.success) {
       toast.success(confirmState.message ?? "Import confirmed successfully.");
+      if (confirmState.warning) toast.warning(confirmState.warning);
     }
     if (confirmState?.error) {
       toast.error(confirmState.error);
@@ -155,6 +156,8 @@ export function ImportReviewTable({
 
       {state?.error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{state.error}</p> : null}
       {confirmState?.error ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{confirmState.error}</p> : null}
+      {confirmState?.success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{confirmState.message}</p> : null}
+      {confirmState?.warning ? <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{confirmState.warning}</p> : null}
 
       {parsed ? (
         <form action={confirmAction} className="grid gap-4">
@@ -913,8 +916,8 @@ function getCreditBeforeSession(ledgerEntries: LedgerEntryRow[], playerId: strin
     .filter((entry) => entry.player_id === playerId && entry.season_id === seasonId && entry.session_id !== sessionId)
     .reduce((total, entry) => {
       const amount = Number(entry.amount ?? 0);
-      if (["payment_received", "credit_added", "credit_transferred_in"].includes(entry.type)) return total + amount;
-      if (["session_used", "credit_transferred_out", "refund_paid"].includes(entry.type)) return total - amount;
+      if (["payment_received", "credit_added", "credit_transferred_in", "debt_transferred_out"].includes(entry.type)) return total + amount;
+      if (["session_used", "credit_transferred_out", "refund_paid", "debt_transferred_in"].includes(entry.type)) return total - amount;
       return total;
     }, 0);
 }

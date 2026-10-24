@@ -125,7 +125,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
             { header: "Head-to-head", cell: (row) => row.headToHead || "-" }
           ]} />
         </section>
-        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.session_date ?? "Session"} />
+        <FixtureScheduleCard matches={fixtureMatches} sessionLabel={session?.name ?? session?.session_date ?? "Session"} sessionDate={session?.session_date} location={(session as any)?.playgrounds?.name || session?.location} canShare={canManageSessionActivity} />
         <section className="grid gap-3">
           <h2 className="section-title">Game scores</h2>
           <DataTable rows={matchRows} columns={[

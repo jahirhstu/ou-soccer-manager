@@ -16,6 +16,8 @@ export type LedgerType =
   | "credit_added"
   | "credit_transferred_out"
   | "credit_transferred_in"
+  | "debt_transferred_out"
+  | "debt_transferred_in"
   | "refund_due"
   | "refund_paid"
   | "manual_adjustment";

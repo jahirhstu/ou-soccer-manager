@@ -3,12 +3,16 @@ import Link from "next/link";
 import { Award, CalendarDays, Medal, ShieldCheck, Trophy } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { MatchGoalDetails } from "@/components/MatchGoalDetails";
+import { ImageShareButton } from "@/components/ImageShareButton";
+import { PlayersShareImage, ResultsShareImage, StandingsShareImage } from "@/components/SessionShareImages";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { money } from "@/lib/utils";
+import { imageFileName } from "@/lib/image-sharing";
+import { mergePlayerContributions } from "@/lib/player-contributions";
 
 type PublicSessionSummary = {
   session?: {
@@ -99,8 +103,19 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   }));
   const scorerRows = aggregatePlayers(goals.filter((goal) => goal.goalType !== "own_goal"), "scorerName");
   const assistRows = aggregatePlayers(goals.filter((goal) => goal.assistName), "assistName");
+  const contributions = mergePlayerContributions(scorerRows, assistRows);
   const totalGoals = goals.reduce((total, goal) => total + numberValue(goal.goalCount || 1), 0);
   const sessionLabel = session?.name ?? session?.sessionDate ?? "Session";
+  const shareSession = { name: sessionLabel, date: session?.sessionDate, location: session?.playgroundName || session?.location };
+  const shareMatches = matches.map((match) => ({
+    matchNumber: match.matchNumber,
+    teamAName: match.teamAName ?? sourceLabel(match.teamASource, "Team A"),
+    teamBName: match.teamBName ?? sourceLabel(match.teamBSource, "Team B"),
+    teamAScore: numberValue(match.teamAScore),
+    teamBScore: numberValue(match.teamBScore),
+    homeAway: homeAwayLabel(match),
+    goals: goalsByMatchNumber.get(match.matchNumber) ?? []
+  }));
 
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
@@ -144,6 +159,9 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
               <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
+                <StandingsShareImage session={shareSession} standings={standings} />
+              </ImageShareButton> : null}
               <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
             </div>
@@ -176,37 +194,33 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
           />
         </section>
 
-        <section className="grid items-start gap-3 lg:grid-cols-2">
-          <div className="grid gap-3">
-            <h2 className="section-title">Top scorers</h2>
-            <DataTable
-              compact
-              empty="No goals recorded yet."
-              rows={scorerRows}
-              columns={[
-                { header: "Player", cell: (row) => row.playerName },
-                { header: "Team", cell: (row) => row.teamNames },
-                { header: "Goals", cell: (row) => <span className="font-semibold text-ink">{row.total}</span> }
-              ]}
-            />
+        <section className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Scorers &amp; Assists</h2>
+            {showReturnLink && contributions.length > 0 ? <ImageShareButton label="Share scorers & assists" title="Scorers & Assists" filename={imageFileName(sessionLabel, "scorers-assists", session?.sessionDate)}>
+              <PlayersShareImage session={shareSession} players={contributions} />
+            </ImageShareButton> : null}
           </div>
-          <div className="grid gap-3">
-            <h2 className="section-title">Top assists</h2>
-            <DataTable
-              compact
-              empty="No assists recorded yet."
-              rows={assistRows}
-              columns={[
-                { header: "Player", cell: (row) => row.playerName },
-                { header: "Team", cell: (row) => row.teamNames },
-                { header: "Assists", cell: (row) => <span className="font-semibold text-ink">{row.total}</span> }
-              ]}
-            />
-          </div>
+          <DataTable
+            compact
+            empty="No goals or assists recorded yet."
+            rows={contributions}
+            columns={[
+              { header: "Player", cell: (row) => row.playerName },
+              { header: "Team", cell: (row) => row.teamNames },
+              { header: "Goals", cell: (row) => <span className="font-semibold text-ink">{row.goals}</span> },
+              { header: "Assists", cell: (row) => <span className="font-semibold text-ink">{row.assists}</span> }
+            ]}
+          />
         </section>
 
         <section className="grid gap-3">
-          <h2 className="section-title">Match results</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Match results</h2>
+            {showReturnLink && matches.length > 0 ? <ImageShareButton label="Share match results" title="Match Results" filename={imageFileName(sessionLabel, "match-results", session?.sessionDate)}>
+              <ResultsShareImage session={shareSession} matches={shareMatches} />
+            </ImageShareButton> : null}
+          </div>
           <DataTable
             rows={matchRows}
             columns={[

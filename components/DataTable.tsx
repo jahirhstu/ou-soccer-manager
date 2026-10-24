@@ -12,12 +12,14 @@ export function DataTable<T>({
   columns,
   rows,
   empty = "No records yet.",
-  compact = false
+  compact = false,
+  sorting
 }: {
   columns: Column<T>[];
   rows: T[];
   empty?: string;
   compact?: boolean;
+  sorting?: { header: string; direction: "asc" | "desc"; href: (header: string) => string | null };
 }) {
   if (!rows.length) {
     return <div className="panel border-dashed p-10 text-center text-sm text-slate-500">{empty}</div>;
@@ -25,7 +27,7 @@ export function DataTable<T>({
 
   return (
     <div data-sortable-table-root>
-      <DataTableSorter />
+      {!sorting && <DataTableSorter />}
       <div className="grid gap-3 md:hidden" data-sortable-mobile-list>
         {rows.map((row, index) => (
           <div className="panel divide-y divide-line p-1" data-sortable-mobile-card key={index}>
@@ -44,8 +46,13 @@ export function DataTable<T>({
             <thead className="border-b border-line bg-slate-50/80 text-xs uppercase text-slate-500">
               <tr>
                 {columns.map((column, columnIndex) => (
-                  <th className={cn("font-semibold tracking-normal", compact ? "px-3 py-2.5" : "px-4 py-3")} key={column.header}>
-                    <button
+                  <th aria-sort={sorting?.header === column.header ? (sorting.direction === "asc" ? "ascending" : "descending") : undefined} className={cn("font-semibold tracking-normal", compact ? "px-3 py-2.5" : "px-4 py-3")} key={column.header}>
+                    {sorting ? (
+                      sorting.href(column.header) ? <a className="inline-flex items-center gap-1.5" href={sorting.href(column.header)!} aria-label={`Sort ${column.header} ${sorting.header === column.header && sorting.direction === "asc" ? "descending" : "ascending"}`}>
+                        {column.header}
+                        {sorting.header === column.header ? (sorting.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />) : <ArrowDownUp className="h-3.5 w-3.5" />}
+                      </a> : column.header
+                    ) : <button
                       aria-label={`Sort ${column.header} ascending`}
                       aria-sort="none"
                       className="group inline-flex max-w-full items-center gap-1.5 text-left uppercase transition hover:text-pitch"
@@ -60,7 +67,7 @@ export function DataTable<T>({
                         <ArrowUp className="hidden h-3.5 w-3.5 text-pitch" data-sort-icon="asc" />
                         <ArrowDown className="hidden h-3.5 w-3.5 text-pitch" data-sort-icon="desc" />
                       </span>
-                    </button>
+                    </button>}
                   </th>
                 ))}
               </tr>
