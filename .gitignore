@@ -5,3 +5,7 @@ node_modules
 coverage
 dist
 *.tsbuildinfo
+.pnpm-store/
+seed-demo-manifest.local.json
+dev-database.local.json
+scripts/generated/*.local.json
