@@ -195,7 +195,7 @@ export async function middleware(request: NextRequest) {
         .eq("status", "active")
         .maybeSingle();
       if (!programMembership) return NextResponse.redirect(new URL("/join?error=program_access_required", request.url));
-      role = programMembership.role === "manager" ? "admin" : programMembership.role;
+      role = programMembership.role === "manager" ? "admin" : programMembership.role === "member" ? "player" : programMembership.role;
     }
     if (role === "player") {
       if (isPlayerAllowedRoute(pathname)) return withTenantCookie(response, tenantSlug, programSlug);

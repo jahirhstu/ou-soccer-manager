@@ -14,7 +14,8 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "db:inspect:dev": "tsx scripts/inspect-dev-database.ts",
     "db:prepare:dev": "tsx scripts/prepare-dev-upgrade.ts",
-    "db:dev": "tsx scripts/dev-database.ts"
+    "db:dev": "tsx scripts/dev-database.ts",
+    "db:rehearse": "tsx scripts/rehearse-production.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
