@@ -2926,6 +2926,669 @@ with check (exists (select 1 from public.programs p where p.organization_id = pl
   and public.can_manage_program_finance(p.id, 'whatsapp_import')));
 
 
+-- SOURCE: 091_historical_program_scope.sql
+-- Preserve historical records while making their existing parent scope explicit.
+do $$
+declare
+  target text;
+  parent text;
+  parent_key text;
+  invalid_count bigint;
+begin
+  foreach target in array array['payments','ledger_entries','session_player_charges','club_expenses',
+    'attendance','dropouts','goals','session_matches','session_team_players','session_teams','whatsapp_imports'] loop
+    if target in ('attendance','dropouts','goals','session_matches','session_team_players','session_teams') then
+      parent := 'sessions'; parent_key := 'session_id';
+    else
+      parent := 'seasons'; parent_key := 'season_id';
+    end if;
+    execute format('select count(*) from public.%I child join public.%I parent on parent.id=child.%I
+      where child.organization_id <> parent.organization_id
+         or (child.program_id is not null and child.program_id is distinct from parent.program_id)',target,parent,parent_key)
+      into invalid_count;
+    if invalid_count > 0 then raise exception 'Conflicting historical scope in %; review before upgrading',target; end if;
+    execute format('update public.%I child set program_id=parent.program_id
+      from public.%I parent where parent.id=child.%I and child.program_id is null and parent.program_id is not null',target,parent,parent_key);
+  end loop;
+end;
+$$;
+
+
+-- SOURCE: 092_development_organization_refresh.sql
+-- No target is enabled by this migration. Operators configure development only.
+create table public.development_refresh_targets (
+  organization_id uuid primary key references public.organizations(id),
+  enabled boolean not null default false,
+  source_ref text not null check(source_ref = 'uqntqbcimkyoiptvtrem'),
+  target_ref text not null check(target_ref = 'vnmloamscqaqmagimfmz'),
+  check(source_ref <> target_ref)
+);
+create table public.development_refresh_jobs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id),
+  requested_by uuid not null references public.profiles(id),
+  status text not null default 'analyze_queued' check(status in
+    ('analyze_queued','analyzing','preview_ready','apply_queued','applying','succeeded','failed','cancelled','expired')),
+  preview jsonb,
+  snapshot_hash text,
+  error text,
+  expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index development_refresh_one_active on public.development_refresh_jobs(organization_id)
+  where status in ('analyze_queued','analyzing','preview_ready','apply_queued','applying');
+
+alter table public.development_refresh_targets enable row level security;
+alter table public.development_refresh_jobs enable row level security;
+revoke all on public.development_refresh_targets,public.development_refresh_jobs from public,anon,authenticated;
+grant select on public.development_refresh_jobs to authenticated;
+grant all on public.development_refresh_targets,public.development_refresh_jobs to service_role;
+create policy refresh_jobs_admin_read on public.development_refresh_jobs for select to authenticated using (
+  exists(select 1 from public.organization_members m where m.organization_id=development_refresh_jobs.organization_id
+    and m.profile_id=auth.uid() and m.status='active' and m.role in ('owner','admin'))
+);
+
+create function public.request_development_refresh(p_organization_id uuid, p_job_id uuid default null, p_command text default 'analyze')
+returns uuid language plpgsql security definer set search_path=public as $$
+declare job public.development_refresh_jobs; result uuid;
+begin
+  if not exists(select 1 from public.organization_members where organization_id=p_organization_id
+    and profile_id=auth.uid() and status='active' and role in ('owner','admin')) then
+    raise exception 'Only an active organization owner or admin can refresh its development data';
+  end if;
+  if not exists(select 1 from public.development_refresh_targets where organization_id=p_organization_id and enabled
+    and source_ref='uqntqbcimkyoiptvtrem' and target_ref='vnmloamscqaqmagimfmz') then
+    raise exception 'Production refresh is not configured for this organization';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_organization_id::text, 92));
+  update public.development_refresh_jobs set status='expired',updated_at=now()
+    where organization_id=p_organization_id and status='preview_ready' and expires_at <= now();
+  if p_command='analyze' then
+    insert into public.development_refresh_jobs(organization_id,requested_by)
+      values(p_organization_id,auth.uid()) returning id into result;
+  else
+    select * into job from public.development_refresh_jobs where id=p_job_id and organization_id=p_organization_id for update;
+    if job.id is null or job.requested_by<>auth.uid() then raise exception 'Refresh request was not found'; end if;
+    if p_command='confirm' then
+      if job.status<>'preview_ready' or job.expires_at<=now() then raise exception 'Analyze again before confirming'; end if;
+      update public.development_refresh_jobs set status='apply_queued',updated_at=now() where id=job.id;
+    elsif p_command='cancel' and job.status in ('analyze_queued','preview_ready','apply_queued') then
+      update public.development_refresh_jobs set status='cancelled',updated_at=now() where id=job.id;
+    else raise exception 'This refresh cannot be changed'; end if;
+    result:=job.id;
+  end if;
+  insert into public.audit_logs(organization_id,actor_id,action,entity_type,entity_id,new_data)
+    values(p_organization_id,auth.uid(),'development_refresh_'||p_command,'development_refresh_jobs',result,
+      jsonb_build_object('direction','production_to_development'));
+  return result;
+end $$;
+revoke all on function public.request_development_refresh(uuid,uuid,text) from public,anon;
+grant execute on function public.request_development_refresh(uuid,uuid,text) to authenticated;
+
+
+-- SOURCE: 093_native_apps.sql
+-- Authenticated mobile reads deliberately do not depend on public-report visibility.
+alter table public.profiles add column if not exists photo_path text;
+
+create or replace function public.mobile_program_access(p_program_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(exists (
+    select 1 from public.programs p
+    join public.organizations o on o.id = p.organization_id and o.onboarding_status = 'active'
+    join public.organization_members om on om.organization_id = o.id
+      and om.profile_id = auth.uid() and om.status = 'active'
+    where p.id = p_program_id and p.status = 'active'
+      and (om.role in ('owner','admin') or exists (
+        select 1 from public.program_members pm where pm.program_id = p.id
+          and pm.profile_id = auth.uid() and pm.status = 'active'
+      ))
+  ), false);
+$$;
+
+create or replace function public.mobile_context()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare v_profile jsonb; v_workspaces jsonb;
+begin
+  if auth.uid() is null then raise exception 'Authentication required'; end if;
+  select jsonb_build_object('id',id,'displayName',display_name,'email',email,'photoPath',photo_path)
+    into v_profile from public.profiles where id = auth.uid();
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'organizationId',o.id,'organizationName',o.name,'programId',p.id,'programName',p.name,
+    'activityType',p.activity_type,'role',public.program_role(p.id),'organizationRole',om.role,
+    'playerId',coalesce(pm.player_id,om.player_id),
+    'currency',coalesce(os.currency_code,'CAD'),
+    'modules',coalesce((select jsonb_object_agg(module_key,enabled) from public.program_modules where program_id=p.id),'{}'::jsonb)
+  ) order by o.name,p.name),'[]'::jsonb) into v_workspaces
+  from public.programs p join public.organizations o on o.id=p.organization_id
+  join public.organization_members om on om.organization_id=o.id and om.profile_id=auth.uid() and om.status='active'
+  left join public.program_members pm on pm.program_id=p.id and pm.profile_id=auth.uid() and pm.status='active'
+  left join public.organization_settings os on os.organization_id=o.id
+  where public.mobile_program_access(p.id);
+  return jsonb_build_object('profile',v_profile,'workspaces',v_workspaces,'requests',coalesce((
+    select jsonb_agg(jsonb_build_object('name',o.name,'status',m.status))
+    from public.organization_members m join public.organizations o on o.id=m.organization_id
+    where m.profile_id=auth.uid() and m.status<>'active'
+  ),'[]'::jsonb));
+end;
+$$;
+
+create or replace function public.mobile_list(p_program_id uuid, p_resource text, p_offset integer default 0)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_player uuid; v_manager boolean; v_module text; v_rows jsonb; v_currency text;
+begin
+  if not public.mobile_program_access(p_program_id) then raise exception 'Program access required'; end if;
+  if p_offset is null or p_offset < 0 then raise exception 'Invalid page'; end if;
+  v_manager := public.program_role(p_program_id)='manager';
+  select coalesce(pm.player_id,om.player_id),coalesce(os.currency_code,'CAD') into v_player,v_currency
+    from public.programs p
+    join public.organization_members om on om.organization_id=p.organization_id and om.profile_id=auth.uid() and om.status='active'
+    left join public.program_members pm on pm.program_id=p.id and pm.profile_id=auth.uid() and pm.status='active'
+    left join public.organization_settings os on os.organization_id=p.organization_id where p.id=p_program_id;
+  v_module := case when p_resource in ('balances','payments','myBalances','myPayments') then 'payments'
+    when p_resource='expenses' then 'expenses'
+    when p_resource in ('statistics','myStatistics') then 'scores'
+    when p_resource in ('sessions','upcomingSessions','mySessions','seasons') then 'activities'
+    when p_resource in ('members','players') then 'members' else p_resource end;
+  if not public.is_program_module_enabled(p_program_id,v_module) then raise exception 'Module is disabled'; end if;
+  if p_resource in ('players','expenses','members') and not v_manager then raise exception 'Manager access required'; end if;
+  -- One ordered, bounded page. Financial views are only evaluated for this season scope.
+  if p_resource in ('sessions','upcomingSessions','mySessions') then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select s.id,coalesce(s.name,s.session_date::text) title,
+        s.session_date::text || ' / ' || s.status subtitle,coalesce(pg.name,s.location,'') detail
+      from public.sessions s left join public.playgrounds pg on pg.id=s.playground_id
+      where s.program_id=p_program_id
+        and (p_resource<>'upcomingSessions' or (s.session_date>=current_date and s.status='scheduled'))
+        and (p_resource<>'mySessions' or exists (
+          select 1 from public.attendance a where a.session_id=s.id and a.player_id=v_player and a.status in ('played','replacement')
+        )) order by case when p_resource='upcomingSessions' then s.session_date end asc,s.session_date desc,s.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource='seasons' then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select id,name title,status subtitle,coalesce(start_date::text,'') || ' - ' || coalesce(end_date::text,'') detail
+      from public.seasons where program_id=p_program_id order by start_date desc nulls last,id limit 26 offset p_offset
+    ) r;
+  elsif p_resource in ('balances','myBalances') then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select summary.player_id::text || ':' || s.id::text id,summary.player_name title,
+        s.name subtitle,v_currency || ' ' || (coalesce(summary.credit_amount,0)-coalesce(summary.owes_money,0))::numeric(12,2)::text detail
+      from public.seasons s join public.player_season_payment_summary summary on summary.season_id=s.id
+      join public.players player on player.id=summary.player_id and player.organization_id=s.organization_id
+      where s.program_id=p_program_id and ((v_manager and p_resource='balances') or summary.player_id=v_player)
+      order by s.start_date desc nulls last,summary.player_name,summary.player_id,s.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource in ('payments','myPayments') then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select l.id,p.display_name title,replace(l.type,'_',' ') || ' / ' || coalesce(l.refund_date::text,l.created_at::date::text) subtitle,
+        v_currency || ' ' || coalesce(l.amount,0)::numeric(12,2)::text || ' / ' || s.name detail
+      from public.ledger_entries l join public.seasons s on s.id=l.season_id join public.players p on p.id=l.player_id
+      where s.program_id=p_program_id and ((v_manager and p_resource='payments') or l.player_id=v_player)
+      order by l.created_at desc,l.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource in ('statistics','myStatistics') then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select st.player_id::text || ':' || s.id::text id,p.display_name title,s.name subtitle,
+        coalesce(st.goals,0)::text || ' goals / ' || coalesce(st.assists,0)::text || ' assists / ' || coalesce(st.appearances,0)::text || ' appearances' detail
+      from public.player_season_stats_summary st join public.seasons s on s.id=st.season_id
+      join public.players p on p.id=st.player_id and p.organization_id=s.organization_id
+      where s.program_id=p_program_id and (p_resource='statistics' or p.id=v_player)
+        and (st.appearances>0 or st.goals>0 or st.assists>0 or exists(
+          select 1 from public.program_members pm where pm.program_id=p_program_id and pm.player_id=p.id
+        ))
+      order by st.goals desc,st.assists desc,st.player_id,s.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource='players' then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select p.id,p.display_name title,p.status subtitle,coalesce(p.email,p.phone,'') detail
+      from public.players p where exists(select 1 from public.program_members pm where pm.program_id=p_program_id and pm.player_id=p.id)
+      order by p.display_name,p.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource='expenses' then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select e.id,e.category title,e.expense_date::text subtitle,v_currency || ' ' || e.amount::numeric(12,2)::text detail
+      from public.club_expenses e where e.program_id=p_program_id order by e.expense_date desc,e.id limit 26 offset p_offset
+    ) r;
+  elsif p_resource='members' then
+    select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+      select m.id,coalesce(p.display_name,player.display_name,'Unlinked member') title,m.role || ' / ' || m.status subtitle,
+        coalesce(p.email,'') detail
+      from public.program_members m left join public.profiles p on p.id=m.profile_id
+      left join public.players player on player.id=m.player_id where m.program_id=p_program_id
+      order by m.created_at desc,m.id limit 26 offset p_offset
+    ) r;
+  else raise exception 'Unknown resource';
+  end if;
+  return jsonb_build_object('rows',case when jsonb_array_length(v_rows)>25 then v_rows-25 else v_rows end,'hasMore',jsonb_array_length(v_rows)>25);
+end;
+$$;
+
+create or replace function public.mobile_session(p_program_id uuid, p_session_id uuid)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+begin
+  if not public.mobile_program_access(p_program_id)
+    or not public.is_program_module_enabled(p_program_id,'activities')
+    or not exists(select 1 from public.sessions where id=p_session_id and program_id=p_program_id)
+    then raise exception 'Session access required'; end if;
+  if not public.is_program_module_enabled(p_program_id,'scores')
+    or not public.is_program_module_enabled(p_program_id,'teams') then raise exception 'Match day is disabled'; end if;
+  return public.public_game_score_editor(p_session_id);
+end;
+$$;
+
+revoke all on function public.mobile_program_access(uuid),public.mobile_context(),public.mobile_list(uuid,text,integer),public.mobile_session(uuid,uuid) from public,anon;
+grant execute on function public.mobile_program_access(uuid),public.mobile_context(),public.mobile_list(uuid,text,integer),public.mobile_session(uuid,uuid) to authenticated;
+
+-- Private account photos. No organization identity is inferred from names or email.
+-- Conditional installation permits local schema tests without Supabase Storage.
+do $$
+begin
+  if to_regclass('storage.buckets') is not null then
+    insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+      values('profile-photos','profile-photos',false,2097152,array['image/jpeg','image/png','image/webp'])
+      on conflict(id) do update set public=false,file_size_limit=2097152,allowed_mime_types=excluded.allowed_mime_types;
+    execute 'create policy profile_photos_owner_read on storage.objects for select to authenticated using
+      (bucket_id = ''profile-photos'' and (storage.foldername(name))[1] = auth.uid()::text)';
+    execute 'create policy profile_photos_owner_insert on storage.objects for insert to authenticated with check
+      (bucket_id = ''profile-photos'' and (storage.foldername(name))[1] = auth.uid()::text)';
+    execute 'create policy profile_photos_owner_delete on storage.objects for delete to authenticated using
+      (bucket_id = ''profile-photos'' and (storage.foldername(name))[1] = auth.uid()::text)';
+  end if;
+end;
+$$;
+
+create or replace function public.set_my_photo(p_path text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if auth.uid() is null or p_path not like auth.uid()::text || '/%' or length(p_path)>200
+    then raise exception 'Invalid photo path'; end if;
+  if not exists(select 1 from storage.objects where bucket_id='profile-photos' and name=p_path)
+    then raise exception 'Upload the photo first'; end if;
+  update public.profiles set photo_path=p_path where id=auth.uid();
+end;
+$$;
+revoke all on function public.set_my_photo(text) from public,anon;
+grant execute on function public.set_my_photo(text) to authenticated;
+
+create or replace function public.mobile_save_scores(p_program_id uuid,p_session_id uuid,p_games jsonb)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare v_result jsonb;
+begin
+  if not public.mobile_program_access(p_program_id)
+    or public.program_role(p_program_id) not in ('manager','captain')
+    or not exists(select 1 from public.sessions where id=p_session_id and program_id=p_program_id and status='scheduled')
+    then raise exception 'This session cannot be scored by this account'; end if;
+  v_result := public.save_program_game_scores(p_session_id,p_games);
+  if v_result ? 'error' then raise exception '%',v_result->>'error'; end if;
+  return v_result;
+end;
+$$;
+revoke all on function public.mobile_save_scores(uuid,uuid,jsonb) from public,anon;
+grant execute on function public.mobile_save_scores(uuid,uuid,jsonb) to authenticated;
+
+create or replace function public.mobile_record_finance(p_program_id uuid,p_kind text,p_submission_id uuid,p_data jsonb)
+returns uuid language plpgsql security definer set search_path=public as $$
+declare
+  v_org uuid; v_season public.seasons%rowtype; v_player uuid;
+  v_amount numeric; v_date date; v_method text; v_note text; v_id uuid;
+  v_existing public.audit_logs%rowtype;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id)<>'manager'
+    or not public.can_manage_program_finance(p_program_id,case when p_kind='expense' then 'expenses' else 'payments' end)
+    then raise exception 'Manager finance access required'; end if;
+  if p_submission_id is null or p_kind not in ('payment','refund','transfer','carry','expense') then raise exception 'Invalid transaction'; end if;
+  select organization_id into v_org from public.programs where id=p_program_id;
+  perform pg_advisory_xact_lock(hashtextextended(p_submission_id::text,0));
+  select * into v_existing from public.audit_logs where id=p_submission_id;
+  if found then
+    if v_existing.organization_id=v_org and v_existing.actor_id=auth.uid()
+      and v_existing.action='mobile_' || p_kind || '_recorded'
+      and v_existing.new_data->>'program_id'=p_program_id::text and v_existing.new_data->'payload'=p_data
+      then return (v_existing.new_data->>'result_id')::uuid; end if;
+    raise exception 'Submission ID already used for a different transaction';
+  end if;
+  select * into v_season from public.seasons where id=(p_data->>'seasonId')::uuid and program_id=p_program_id;
+  if not found then raise exception 'Choose a season in this program'; end if;
+  if coalesce(p_data->>'amount','') !~ '^[0-9]+(\.[0-9]{1,2})?$' then raise exception 'Enter a decimal amount'; end if;
+  v_amount := (p_data->>'amount')::numeric;
+  v_date := (p_data->>'date')::date;
+  v_method := p_data->>'method'; v_note := nullif(btrim(p_data->>'note'),'');
+  if v_amount<=0 or v_amount>99999999.99 or v_date is null or v_date>current_date
+    or length(coalesce(v_note,''))>300 then raise exception 'Invalid amount, date or reference'; end if;
+  if p_kind<>'expense' then
+    v_player := (p_data->>'playerId')::uuid;
+    perform 1 from public.players where id=v_player and organization_id=v_org for update;
+    if not found then raise exception 'Player does not belong to this organization'; end if;
+  end if;
+  if p_kind in ('payment','refund') and (v_method is null or v_method not in ('cash','e-transfer','other')) then raise exception 'Invalid payment method'; end if;
+  if p_kind='refund' then
+    v_id := public.record_player_refund(v_player,v_season.id,v_amount,v_date,v_method,v_note,p_submission_id);
+  elsif p_kind='transfer' then
+    v_id := public.transfer_player_credit(v_player,(p_data->>'recipientId')::uuid,v_season.id,v_amount,v_date,null,v_note,p_submission_id);
+  elsif p_kind='carry' then
+    v_id := public.carry_forward_player_balance(v_player,v_season.id,(p_data->>'destinationSeasonId')::uuid,v_amount,v_date,v_note,p_submission_id,'credit');
+  elsif p_kind='payment' then
+    insert into public.payments(organization_id,program_id,season_id,player_id,payment_date,amount,sessions_covered,payment_method,reference_note,created_by)
+      values(v_org,p_program_id,v_season.id,v_player,v_date,v_amount,
+        case when v_season.price_per_session>0 then round(v_amount/v_season.price_per_session,2) else 0 end,
+        v_method,v_note,auth.uid()) returning id into v_id;
+    insert into public.ledger_entries(organization_id,program_id,season_id,player_id,type,amount,sessions_count,description,created_by)
+      values(v_org,p_program_id,v_season.id,v_player,'payment_received',v_amount,
+        case when v_season.price_per_session>0 then round(v_amount/v_season.price_per_session,2) else 0 end,
+        coalesce(v_note,'Mobile payment ' || v_id::text),auth.uid());
+  else
+    insert into public.club_expenses(organization_id,program_id,season_id,expense_date,category,amount,notes,created_by)
+      values(v_org,p_program_id,v_season.id,v_date,p_data->>'category',v_amount,v_note,auth.uid()) returning id into v_id;
+  end if;
+  insert into public.audit_logs(id,organization_id,actor_id,action,entity_type,entity_id,new_data)
+    values(p_submission_id,v_org,auth.uid(),'mobile_' || p_kind || '_recorded','mobile_transaction',v_id,
+      jsonb_build_object('result_id',v_id,'program_id',p_program_id,'season_id',v_season.id,'amount',v_amount,'payload',p_data));
+  return v_id;
+end;
+$$;
+revoke all on function public.mobile_record_finance(uuid,text,uuid,jsonb) from public,anon;
+grant execute on function public.mobile_record_finance(uuid,text,uuid,jsonb) to authenticated;
+
+create or replace function public.mobile_create_record(p_program_id uuid,p_kind text,p_id uuid,p_data jsonb)
+returns uuid language plpgsql security definer set search_path=public as $$
+declare v_org uuid; v_module text; v_existing public.audit_logs%rowtype;
+begin
+  v_module := case when p_kind='player' then 'members' else 'activities' end;
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id)<>'manager'
+    or not public.is_program_module_enabled(p_program_id,v_module) then raise exception 'Manager access required'; end if;
+  select organization_id into v_org from public.programs where id=p_program_id;
+  if p_id is null or p_kind not in ('season','session','player') then raise exception 'Invalid record'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_id::text,0));
+  select * into v_existing from public.audit_logs where id=p_id;
+  if found then
+    if v_existing.organization_id=v_org and v_existing.actor_id=auth.uid()
+      and v_existing.action='mobile_create_' || p_kind and v_existing.new_data->>'program_id'=p_program_id::text
+      and v_existing.new_data->'payload'=p_data then return p_id; end if;
+    raise exception 'Submission ID already used';
+  end if;
+  if length(btrim(coalesce(p_data->>'name','')))<1 or length(p_data->>'name')>150 then raise exception 'Enter a name (maximum 150 characters)'; end if;
+  if p_kind in ('season','session') and (coalesce(p_data->>'price','') !~ '^[0-9]+(\.[0-9]{1,2})?$'
+    or (p_data->>'price')::numeric>99999999.99) then raise exception 'Enter a nonnegative price'; end if;
+  if p_kind='season' then
+    if (p_data->>'endDate')::date<(p_data->>'startDate')::date then raise exception 'End date is before start date'; end if;
+    insert into public.seasons(id,organization_id,program_id,name,start_date,end_date,price_per_session,total_planned_sessions,status,created_by)
+      values(p_id,v_org,p_program_id,btrim(p_data->>'name'),(p_data->>'startDate')::date,(p_data->>'endDate')::date,
+        (p_data->>'price')::numeric,(p_data->>'sessions')::integer,'draft',auth.uid());
+  elsif p_kind='session' then
+    if not exists(select 1 from public.seasons where id=(p_data->>'seasonId')::uuid and program_id=p_program_id) then raise exception 'Season must belong to this program'; end if;
+    insert into public.sessions(id,organization_id,program_id,season_id,name,session_date,start_time,end_time,price_per_session,location,created_by)
+      values(p_id,v_org,p_program_id,(p_data->>'seasonId')::uuid,btrim(p_data->>'name'),(p_data->>'date')::date,
+        (p_data->>'startTime')::time,(p_data->>'endTime')::time,(p_data->>'price')::numeric,p_data->>'location',auth.uid());
+  else
+    insert into public.players(id,organization_id,display_name,email,phone,status)
+      values(p_id,v_org,btrim(p_data->>'name'),nullif(btrim(p_data->>'email'),''),nullif(btrim(p_data->>'phone'),''),'active');
+    insert into public.program_members(organization_id,program_id,player_id,role,status)
+      values(v_org,p_program_id,p_id,'member','active');
+  end if;
+  insert into public.audit_logs(id,organization_id,actor_id,action,entity_type,entity_id,new_data)
+    values(p_id,v_org,auth.uid(),'mobile_create_' || p_kind,p_kind,p_id,jsonb_build_object('program_id',p_program_id,'payload',p_data));
+  return p_id;
+end;
+$$;
+revoke all on function public.mobile_create_record(uuid,text,uuid,jsonb) from public,anon;
+grant execute on function public.mobile_create_record(uuid,text,uuid,jsonb) to authenticated;
+
+create or replace function public.mobile_credit_preview(p_program_id uuid,p_season_id uuid,p_player_id uuid)
+returns text language plpgsql stable security definer set search_path=public as $$
+declare v_credit numeric;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id)<>'manager'
+    or not public.can_manage_program_finance(p_program_id) then raise exception 'Manager finance access required'; end if;
+  if not exists(select 1 from public.seasons s join public.players p on p.organization_id=s.organization_id
+    where s.id=p_season_id and s.program_id=p_program_id and p.id=p_player_id) then raise exception 'Invalid season or player'; end if;
+  select credit_amount into v_credit from public.player_season_payment_summary where season_id=p_season_id and player_id=p_player_id;
+  return coalesce(v_credit,0)::numeric(12,2)::text;
+end;
+$$;
+revoke all on function public.mobile_credit_preview(uuid,uuid,uuid) from public,anon;
+grant execute on function public.mobile_credit_preview(uuid,uuid,uuid) to authenticated;
+
+create or replace function public.mobile_member(p_program_id uuid,p_member_id uuid)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare v_member jsonb;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id)<>'manager'
+    or not public.is_program_module_enabled(p_program_id,'members') then raise exception 'Manager access required'; end if;
+  select jsonb_build_object('id',m.id,'name',coalesce(profile.display_name,player.display_name),
+    'role',m.role,'status',m.status,'organizationStatus',om.status,'email',profile.email)
+    into v_member from public.program_members m
+    left join public.profiles profile on profile.id=m.profile_id
+    left join public.players player on player.id=m.player_id
+    left join public.organization_members om on om.organization_id=m.organization_id and om.profile_id=m.profile_id
+    where m.id=p_member_id and m.program_id=p_program_id;
+  if v_member is null then raise exception 'Member not found'; end if;
+  return v_member;
+end;
+$$;
+create or replace function public.mobile_update_member(p_program_id uuid,p_member_id uuid,p_role text,p_status text,p_approve_organization boolean default false)
+returns void language plpgsql security definer set search_path=public as $$
+declare v_member public.program_members%rowtype; v_org_role text; v_target_org_role text;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id)<>'manager'
+    or not public.is_program_module_enabled(p_program_id,'members') then raise exception 'Manager access required'; end if;
+  if p_role is null or p_role not in ('manager','captain','member') or p_status is null or p_status not in ('pending','active','rejected','suspended') then raise exception 'Invalid role or status'; end if;
+  select * into v_member from public.program_members where id=p_member_id and program_id=p_program_id for update;
+  if not found or v_member.profile_id=auth.uid() then raise exception 'Cannot modify this membership'; end if;
+  select role into v_org_role from public.organization_members where organization_id=v_member.organization_id and profile_id=auth.uid() and status='active';
+  select role into v_target_org_role from public.organization_members where organization_id=v_member.organization_id and profile_id=v_member.profile_id;
+  if v_target_org_role in ('owner','admin') then raise exception 'Organization administrators must be managed on the website'; end if;
+  if v_org_role not in ('owner','admin') and (v_member.role='manager' or p_role='manager' or p_approve_organization) then raise exception 'Organization administrator required'; end if;
+  if p_approve_organization then
+    update public.organization_members set status='active' where organization_id=v_member.organization_id and profile_id=v_member.profile_id and role='player' and status='pending';
+  end if;
+  if p_status='active' and v_member.profile_id is not null and not exists(
+    select 1 from public.organization_members where organization_id=v_member.organization_id and profile_id=v_member.profile_id and status='active'
+  ) then raise exception 'Organization membership must be approved first'; end if;
+  update public.program_members set role=p_role,status=p_status where id=p_member_id;
+  insert into public.audit_logs(organization_id,actor_id,action,entity_type,entity_id,old_data,new_data)
+    values(v_member.organization_id,auth.uid(),'mobile_membership_updated','program_members',p_member_id,
+      to_jsonb(v_member),jsonb_build_object('role',p_role,'status',p_status,'organization_approved',p_approve_organization));
+end;
+$$;
+revoke all on function public.mobile_member(uuid,uuid),public.mobile_update_member(uuid,uuid,text,text,boolean) from public,anon;
+grant execute on function public.mobile_member(uuid,uuid),public.mobile_update_member(uuid,uuid,text,text,boolean) to authenticated;
+
+
+-- SOURCE: 094_mobile_session_operations.sql
+-- Review before deployment. No historical data is modified by this migration.
+create or replace function public.mobile_session_roster(p_program_id uuid,p_session_id uuid,p_offset integer default 0,p_query text default '')
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare v_session public.sessions%rowtype; v_rows jsonb;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id) not in ('manager','captain')
+    or not public.is_program_module_enabled(p_program_id,'attendance') then raise exception 'Attendance access required'; end if;
+  if p_offset is null or p_offset<0 or length(coalesce(p_query,''))>100 then raise exception 'Invalid page or search'; end if;
+  select * into v_session from public.sessions where id=p_session_id and program_id=p_program_id;
+  if not found then raise exception 'Session not found in this program'; end if;
+  select coalesce(jsonb_agg(to_jsonb(r)),'[]') into v_rows from (
+    select p.id,p.display_name as name,a.status,coalesce(a.notes,'') as notes
+    from public.players p left join public.attendance a on a.player_id=p.id and a.session_id=p_session_id
+    where p.organization_id=v_session.organization_id
+      and (a.id is not null or exists(select 1 from public.program_members pm where pm.program_id=p_program_id and pm.player_id=p.id))
+      and position(lower(coalesce(p_query,'')) in lower(p.display_name))>0
+    order by p.display_name,p.id limit 26 offset p_offset
+  ) r;
+  return jsonb_build_object('session',jsonb_build_object('id',v_session.id,'name',v_session.name,'date',v_session.session_date,'status',v_session.status),
+    'rows',case when jsonb_array_length(v_rows)>25 then v_rows-25 else v_rows end,'hasMore',jsonb_array_length(v_rows)>25,
+    'canComplete',public.program_role(p_program_id)='manager' and public.is_program_module_enabled(p_program_id,'activities'));
+end;
+$$;
+
+create or replace function public.mobile_session_operation(p_program_id uuid,p_session_id uuid,p_action text,p_submission_id uuid,p_data jsonb)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  v_session public.sessions%rowtype; v_old public.attendance%rowtype; v_a public.attendance%rowtype;
+  v_charge public.session_player_charges%rowtype; v_existing public.audit_logs%rowtype;
+  v_player uuid; v_status text; v_price numeric; v_charge_id uuid; v_ledger_id uuid;
+  v_completed boolean; v_changed integer:=0; v_removed integer:=0; v_new integer:=0;
+  v_payload jsonb; v_result jsonb; v_season uuid;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id) not in ('manager','captain')
+    or not public.is_program_module_enabled(p_program_id,'attendance') then raise exception 'Attendance access required'; end if;
+  if p_action is null or p_action not in ('attendance','complete') or p_submission_id is null or jsonb_typeof(p_data) is distinct from 'object'
+    then raise exception 'Invalid operation'; end if;
+  if p_action='complete' and (public.program_role(p_program_id)<>'manager' or not public.is_program_module_enabled(p_program_id,'activities'))
+    then raise exception 'Manager access required to complete sessions'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_submission_id::text,0));
+  v_payload:=jsonb_build_object('programId',p_program_id,'sessionId',p_session_id,'action',p_action,'data',p_data);
+  select * into v_existing from public.audit_logs where id=p_submission_id;
+  if found then
+    if v_existing.actor_id=auth.uid() and v_existing.action='mobile_session_operation' and v_existing.new_data->'payload'=v_payload
+      then return v_existing.new_data->'result'; end if;
+    raise exception 'Submission ID already used';
+  end if;
+  select season_id into v_season from public.sessions where id=p_session_id and program_id=p_program_id;
+  if not found then raise exception 'Session not found in this program'; end if;
+  perform 1 from public.seasons where id=v_season for update;
+  select * into v_session from public.sessions where id=p_session_id and program_id=p_program_id for update;
+  if v_session.season_id is distinct from v_season then raise exception 'Session changed; reload before saving'; end if;
+  if v_session.status='cancelled' then raise exception 'Cancelled sessions cannot be changed'; end if;
+  if p_action='attendance' then
+    v_player:=(p_data->>'playerId')::uuid; v_status:=p_data->>'status';
+    if v_status is null or v_status not in ('confirmed','played','absent','dropped','replacement','waitlisted') or length(coalesce(p_data->>'notes',''))>1000
+      then raise exception 'Invalid attendance'; end if;
+    if not exists(select 1 from public.players p where p.id=v_player and p.organization_id=v_session.organization_id
+      and (exists(select 1 from public.program_members pm where pm.program_id=p_program_id and pm.player_id=p.id)
+        or exists(select 1 from public.attendance a where a.session_id=p_session_id and a.player_id=p.id)))
+      then raise exception 'Player not in this program or session'; end if;
+    select * into v_old from public.attendance where session_id=p_session_id and player_id=v_player for update;
+    if v_old.status is distinct from (p_data->>'expectedStatus') then raise exception 'Attendance changed; reload before saving'; end if;
+    insert into public.attendance(organization_id,program_id,session_id,player_id,status,notes,created_by)
+      values(v_session.organization_id,p_program_id,p_session_id,v_player,v_status,nullif(p_data->>'notes',''),auth.uid())
+      on conflict(session_id,player_id) do update set status=excluded.status,notes=excluded.notes;
+  end if;
+  select coalesce(v_session.price_per_session,price_per_session,0) into v_price from public.seasons where id=v_season;
+  v_completed:=p_action='complete' or v_session.status='completed' or v_session.session_date<(now() at time zone 'America/Toronto')::date;
+  -- Match website reconciliation: bill confirmed/played/replacement once;
+  -- preserve existing amounts/waivers and remove only non-billable charges.
+  for v_a in select * from public.attendance where session_id=p_session_id for update loop
+    if v_a.status not in ('confirmed','played','replacement') then
+      select * into v_charge from public.session_player_charges where session_id=p_session_id and player_id=v_a.player_id for update;
+      if found then
+        if v_charge.ledger_entry_id is not null and not exists(select 1 from public.ledger_entries where id=v_charge.ledger_entry_id
+          and type='session_used' and session_id=p_session_id and player_id=v_a.player_id)
+          then raise exception 'Charge ledger mismatch; administrator review required'; end if;
+        delete from public.session_player_charges where id=v_charge.id;
+        delete from public.ledger_entries where id=v_charge.ledger_entry_id;
+        v_removed:=v_removed+1;
+      end if;
+    else
+      if v_completed and v_a.status='confirmed' then
+        update public.attendance set status='played' where id=v_a.id;
+        v_changed:=v_changed+1;
+      end if;
+      v_charge_id:=null;
+      insert into public.session_player_charges(organization_id,program_id,season_id,session_id,player_id,amount,original_amount,waiver_amount,sessions_count,source,created_by)
+        values(v_session.organization_id,p_program_id,v_season,p_session_id,v_a.player_id,v_price,v_price,0,1,
+          case when p_action='complete' then 'session_completed' else 'manual' end,auth.uid())
+        on conflict(session_id,player_id) do nothing returning id into v_charge_id;
+      if v_charge_id is not null then
+        insert into public.ledger_entries(organization_id,program_id,season_id,session_id,player_id,type,amount,sessions_count,description,created_by)
+          values(v_session.organization_id,p_program_id,v_season,p_session_id,v_a.player_id,'session_used',v_price,1,
+            case when p_action='complete' then 'Session completed' else 'Manual attendance update' end || '. Status: ' || case when v_a.status='confirmed' then 'played' else v_a.status end || '.',auth.uid())
+          returning id into v_ledger_id;
+        update public.session_player_charges set ledger_entry_id=v_ledger_id where id=v_charge_id;
+        v_new:=v_new+1;
+      end if;
+    end if;
+  end loop;
+  if p_action='complete' then update public.sessions set status='completed' where id=p_session_id; end if;
+  v_result:=jsonb_build_object('chargedPlayers',v_new,'removedCharges',v_removed,'confirmedChangedToPlayed',v_changed);
+  insert into public.audit_logs(id,organization_id,actor_id,action,entity_type,entity_id,old_data,new_data)
+    values(p_submission_id,v_session.organization_id,auth.uid(),'mobile_session_operation','sessions',p_session_id,
+      jsonb_build_object('sessionStatus',v_session.status,'attendance',to_jsonb(v_old)),jsonb_build_object('payload',v_payload,'result',v_result));
+  return v_result;
+end;
+$$;
+revoke all on function public.mobile_session_roster(uuid,uuid,integer,text),public.mobile_session_operation(uuid,uuid,text,uuid,jsonb) from public,anon;
+grant execute on function public.mobile_session_roster(uuid,uuid,integer,text),public.mobile_session_operation(uuid,uuid,text,uuid,jsonb) to authenticated;
+
+
+-- SOURCE: 095_mobile_session_planning.sql
+-- Native adapters for existing session planning. No historical rows are changed.
+create or replace function public.mobile_session_planning(p_program_id uuid,p_session_id uuid)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id) not in ('manager','captain')
+    or not public.is_program_module_enabled(p_program_id,'teams') then raise exception 'Team planning access required'; end if;
+  if not exists(select 1 from public.sessions where id=p_session_id and program_id=p_program_id) then raise exception 'Session not found in this program'; end if;
+  return public.public_session_team_builder(p_session_id);
+end;
+$$;
+
+create or replace function public.mobile_generate_fixture(
+  p_program_id uuid,p_session_id uuid,p_submission_id uuid,p_repeats integer,
+  p_first_minutes integer,p_second_minutes integer,p_break_after integer,p_break_minutes integer,p_avoid_team uuid default null
+) returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  s public.sessions%rowtype; previous public.audit_logs%rowtype; payload jsonb; result jsonb;
+  ids uuid[]; pairs jsonb:='[]'; pair jsonb; preferred jsonb; home uuid; away uuid;
+  i integer; j integer; r integer; n integer:=0; cursor_minutes integer; duration integer; starts time; ends time;
+begin
+  if not public.mobile_program_access(p_program_id) or public.program_role(p_program_id) not in ('manager','captain')
+    or not public.is_program_module_enabled(p_program_id,'fixtures') then raise exception 'Fixture access required'; end if;
+  if p_submission_id is null or p_repeats is null or p_repeats not between 1 and 20
+    or p_first_minutes is null or p_first_minutes not between 1 and 180
+    or p_second_minutes is null or p_second_minutes not between 1 and 180
+    or p_break_after is null or p_break_after not between 0 and 1000
+    or p_break_minutes is null or p_break_minutes not between 0 and 180 then raise exception 'Invalid fixture settings'; end if;
+  payload:=jsonb_build_array(p_program_id,p_session_id,p_repeats,p_first_minutes,p_second_minutes,p_break_after,p_break_minutes,p_avoid_team);
+  perform pg_advisory_xact_lock(hashtextextended(p_submission_id::text,0));
+  select * into previous from public.audit_logs where id=p_submission_id;
+  if found then
+    if previous.actor_id=auth.uid() and previous.action='mobile_generate_fixture' and previous.new_data->'payload'=payload then return previous.new_data->'result'; end if;
+    raise exception 'Submission ID already used';
+  end if;
+  select * into s from public.sessions where id=p_session_id and program_id=p_program_id for update;
+  if not found then raise exception 'Session not found in this program'; end if;
+  if s.status<>'scheduled' then raise exception 'Only scheduled sessions can generate fixtures'; end if;
+  perform 1 from public.session_matches where session_id=s.id for update;
+  if exists(select 1 from public.session_matches where session_id=s.id and result_status='played')
+    or exists(select 1 from public.goals where session_id=s.id) then raise exception 'Fixture cannot be regenerated after scores have been saved'; end if;
+  select array_agg(id order by name,id) into ids from public.session_teams where session_id=s.id;
+  if coalesce(cardinality(ids),0)<2 or cardinality(ids)>12 then raise exception 'Choose between two and twelve teams'; end if;
+  if p_avoid_team is not null and not (p_avoid_team=any(ids)) then raise exception 'Unknown team'; end if;
+  for i in 1..cardinality(ids)-1 loop
+    for j in i+1..cardinality(ids) loop
+      pair:=jsonb_build_array(ids[i],ids[j]);
+      if preferred is null and p_avoid_team is not null and ids[i]<>p_avoid_team and ids[j]<>p_avoid_team then preferred:=pair;
+      else pairs:=pairs||jsonb_build_array(pair); end if;
+    end loop;
+  end loop;
+  if preferred is not null then pairs:=jsonb_build_array(preferred)||pairs; end if;
+  if jsonb_array_length(pairs)*p_repeats>1000 then raise exception 'Too many games'; end if;
+  cursor_minutes:=extract(hour from s.start_time)::integer*60+extract(minute from s.start_time)::integer;
+  delete from public.session_matches where session_id=s.id;
+  for r in 0..p_repeats-1 loop
+    for pair in select value from jsonb_array_elements(pairs) loop
+      home:=(pair->>(r%2))::uuid; away:=(pair->>(1-r%2))::uuid;
+      if p_break_after>0 and n=p_break_after then cursor_minutes:=cursor_minutes+p_break_minutes; end if;
+      duration:=case when p_break_after>0 and n>=p_break_after then p_second_minutes else p_first_minutes end;
+      starts:=(time '00:00'+make_interval(mins=>cursor_minutes))::time;
+      cursor_minutes:=cursor_minutes+duration;
+      ends:=(time '00:00'+make_interval(mins=>cursor_minutes))::time;
+      n:=n+1;
+      insert into public.session_matches(organization_id,program_id,session_id,match_number,display_order,team_a_id,team_b_id,away_team_id,
+        scheduled_start_time,scheduled_end_time,result_status,team_a_score,team_b_score,created_by)
+      values(s.organization_id,p_program_id,s.id,n,n,home,away,away,starts,ends,'scheduled',0,0,auth.uid());
+    end loop;
+  end loop;
+  result:=jsonb_build_object('games',n);
+  insert into public.audit_logs(id,organization_id,actor_id,action,entity_type,entity_id,new_data)
+    values(p_submission_id,s.organization_id,auth.uid(),'mobile_generate_fixture','sessions',s.id,jsonb_build_object('payload',payload,'result',result));
+  return result;
+end;
+$$;
+revoke all on function public.mobile_session_planning(uuid,uuid),public.mobile_generate_fixture(uuid,uuid,uuid,integer,integer,integer,integer,integer,uuid) from public,anon;
+grant execute on function public.mobile_session_planning(uuid,uuid),public.mobile_generate_fixture(uuid,uuid,uuid,integer,integer,integer,integer,integer,uuid) to authenticated;
+
+
 revoke all on function public.public_player_report() from public,anon,authenticated;
 
 revoke all on function public.public_latest_session_winner(uuid) from public,anon,authenticated;
@@ -2965,6 +3628,62 @@ grant execute on function public.carry_forward_player_credit(p_player_id uuid, p
 revoke execute on function public.derive_season_program_scope() from public,anon,authenticated,service_role;
 
 grant execute on function public.derive_season_program_scope() to anon,authenticated,service_role;
+
+revoke execute on function public.mobile_context() from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_context() to authenticated,service_role;
+
+revoke execute on function public.mobile_create_record(p_program_id uuid, p_kind text, p_id uuid, p_data jsonb) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_create_record(p_program_id uuid, p_kind text, p_id uuid, p_data jsonb) to authenticated,service_role;
+
+revoke execute on function public.mobile_credit_preview(p_program_id uuid, p_season_id uuid, p_player_id uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_credit_preview(p_program_id uuid, p_season_id uuid, p_player_id uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_generate_fixture(p_program_id uuid, p_session_id uuid, p_submission_id uuid, p_repeats integer, p_first_minutes integer, p_second_minutes integer, p_break_after integer, p_break_minutes integer, p_avoid_team uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_generate_fixture(p_program_id uuid, p_session_id uuid, p_submission_id uuid, p_repeats integer, p_first_minutes integer, p_second_minutes integer, p_break_after integer, p_break_minutes integer, p_avoid_team uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_list(p_program_id uuid, p_resource text, p_offset integer) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_list(p_program_id uuid, p_resource text, p_offset integer) to authenticated,service_role;
+
+revoke execute on function public.mobile_member(p_program_id uuid, p_member_id uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_member(p_program_id uuid, p_member_id uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_program_access(p_program_id uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_program_access(p_program_id uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_record_finance(p_program_id uuid, p_kind text, p_submission_id uuid, p_data jsonb) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_record_finance(p_program_id uuid, p_kind text, p_submission_id uuid, p_data jsonb) to authenticated,service_role;
+
+revoke execute on function public.mobile_save_scores(p_program_id uuid, p_session_id uuid, p_games jsonb) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_save_scores(p_program_id uuid, p_session_id uuid, p_games jsonb) to authenticated,service_role;
+
+revoke execute on function public.mobile_session(p_program_id uuid, p_session_id uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_session(p_program_id uuid, p_session_id uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_session_operation(p_program_id uuid, p_session_id uuid, p_action text, p_submission_id uuid, p_data jsonb) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_session_operation(p_program_id uuid, p_session_id uuid, p_action text, p_submission_id uuid, p_data jsonb) to authenticated,service_role;
+
+revoke execute on function public.mobile_session_planning(p_program_id uuid, p_session_id uuid) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_session_planning(p_program_id uuid, p_session_id uuid) to authenticated,service_role;
+
+revoke execute on function public.mobile_session_roster(p_program_id uuid, p_session_id uuid, p_offset integer, p_query text) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_session_roster(p_program_id uuid, p_session_id uuid, p_offset integer, p_query text) to authenticated,service_role;
+
+revoke execute on function public.mobile_update_member(p_program_id uuid, p_member_id uuid, p_role text, p_status text, p_approve_organization boolean) from public,anon,authenticated,service_role;
+
+grant execute on function public.mobile_update_member(p_program_id uuid, p_member_id uuid, p_role text, p_status text, p_approve_organization boolean) to authenticated,service_role;
 
 revoke execute on function public.public_game_score_editor(p_session_id uuid) from public,anon,authenticated,service_role;
 
@@ -3006,6 +3725,10 @@ revoke execute on function public.record_player_refund(p_player_id uuid, p_seaso
 
 grant execute on function public.record_player_refund(p_player_id uuid, p_season_id uuid, p_amount numeric, p_refund_date date, p_method text, p_reference text, p_submission_id uuid) to authenticated,service_role;
 
+revoke execute on function public.request_development_refresh(p_organization_id uuid, p_job_id uuid, p_command text) from public,anon,authenticated,service_role;
+
+grant execute on function public.request_development_refresh(p_organization_id uuid, p_job_id uuid, p_command text) to authenticated,service_role;
+
 revoke execute on function public.reverse_club_balance_transfer(p_transfer_id uuid, p_submission_id uuid) from public,anon,authenticated,service_role;
 
 grant execute on function public.reverse_club_balance_transfer(p_transfer_id uuid, p_submission_id uuid) to authenticated,service_role;
@@ -3021,6 +3744,10 @@ grant execute on function public.scoped_public_payment_notification_keys(p_organ
 revoke execute on function public.scoped_submit_payment_sent_notification(p_organization_slug text, p_program_slug text, p_player_id uuid, p_season_id uuid) from public,anon,authenticated,service_role;
 
 grant execute on function public.scoped_submit_payment_sent_notification(p_organization_slug text, p_program_slug text, p_player_id uuid, p_season_id uuid) to anon,authenticated,service_role;
+
+revoke execute on function public.set_my_photo(p_path text) from public,anon,authenticated,service_role;
+
+grant execute on function public.set_my_photo(p_path text) to authenticated,service_role;
 
 revoke execute on function public.submit_payment_sent_notification(p_player_id uuid, p_season_id uuid) from public,anon,authenticated,service_role;
 

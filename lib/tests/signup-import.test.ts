@@ -95,6 +95,15 @@ describe("signup payment amount validation", () => {
 });
 
 describe("Fall signup confirmation", () => {
+  it("blocks ambiguous names before creating any import or payment records", async () => {
+    records.player_aliases = [{ organization_id: "org", player_id: "player-1", alias_name: "Jahir", normalized_alias: "jahir" }];
+    const result = await confirmWhatsAppImport(null, form());
+    expect(result).toMatchObject({ error: expect.stringContaining("Select the correct player") });
+    expect(records.payments).toEqual([]);
+    expect(records.ledger_entries).toEqual([]);
+    expect(records.whatsapp_imports).toEqual([]);
+    expect(records.audit_logs).toEqual([]);
+  });
   it("parses the supplied message as 21 players, 19 payments, and no attendance", async () => {
     const parsed = await new RuleBasedWhatsAppParser().parse(rawText);
     expect(parsed.importType).toBe("season_signup");

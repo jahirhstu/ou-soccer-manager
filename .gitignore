@@ -1,4 +1,10 @@
 node_modules
+**/.expo/
+apps/*/android/
+apps/*/ios/
+apps/*/.env
+*.ipa
+*.aab
 .next
 .env
 .env*.local

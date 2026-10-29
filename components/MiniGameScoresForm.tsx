@@ -2,40 +2,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, Mic, Plus, Save, Trash2, X } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
-import { parseVoiceScoringCommand, transcribeVoiceScoringAudio } from "@/lib/actions/voice-scoring";
 
 type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
-type AudioContextConstructor = new () => AudioContext;
-type ParsedVoiceScoringGoal = {
-  assistName?: string;
-  confidence?: "low" | "medium" | "high";
-  goalCount?: number;
-  goalType?: GoalInput["goalType"];
-  matchNumber: number;
-  scorerName: string;
-};
-type VoiceScoringPreviewGoal = ParsedVoiceScoringGoal & {
-  assistPlayerId?: string;
-  error?: string;
-  gameKey?: string;
-  scorerId?: string;
-  warning?: string;
-};
-type VoiceScoringResult = {
-  goals?: ParsedVoiceScoringGoal[];
-  parser?: {
-    engine: "llm" | "rule_based";
-    provider: "openai" | "gemini" | "rule_based";
-    model?: string;
-    fallbackUsed?: boolean;
-  };
-  rawText?: string;
-  warnings?: string[];
-  error?: string;
-};
 
 export type TeamOption = {
   id: string;
@@ -89,20 +60,9 @@ export function MiniGameScoresForm({
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveMessage, setSaveMessage] = useState("All changes saved.");
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const audioSamplesRef = useRef<Float32Array[]>([]);
-  const audioSampleRateRef = useRef(44100);
-  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const saveSequenceRef = useRef(0);
-  const [voiceCommand, setVoiceCommand] = useState("");
-  const [voiceParsePending, setVoiceParsePending] = useState(false);
-  const [voiceRecording, setVoiceRecording] = useState(false);
-  const [voiceResult, setVoiceResult] = useState<VoiceScoringResult | null>(null);
-  const [voiceTranscribePending, setVoiceTranscribePending] = useState(false);
   const playersByTeam = useMemo(() => new Map(teams.map((team) => [team.id, team.players])), [teams]);
   const teamByPlayer = useMemo(() => {
     const map = new Map<string, string>();
@@ -135,28 +95,6 @@ export function MiniGameScoresForm({
       }))
   }));
   const payloadJson = JSON.stringify(payload);
-  const voiceContextJson = JSON.stringify({
-    matches: resolvedGames
-      .filter((game) => game.teamAId && game.teamBId)
-      .map((game) => ({
-        matchNumber: game.matchNumber,
-        teams: [
-          {
-            name: teamDisplayName(teams, game, "a"),
-            players: playersForTeam(playersByTeam, game.teamAId).map((player) => player.name)
-          },
-          {
-            name: teamDisplayName(teams, game, "b"),
-            players: playersForTeam(playersByTeam, game.teamBId).map((player) => player.name)
-          }
-        ]
-      }))
-  });
-  const voicePreviewGoals = useMemo(
-    () => buildVoicePreviewGoals(voiceResult?.goals ?? [], resolvedGames, teams, playersByTeam),
-    [playersByTeam, resolvedGames, teams, voiceResult]
-  );
-  const validVoicePreviewGoals = voicePreviewGoals.filter((goal) => !goal.error && goal.gameKey && goal.scorerId);
 
   useEffect(() => {
     if (lastSavedPayloadRef.current === null) lastSavedPayloadRef.current = payloadJson;
@@ -227,12 +165,6 @@ export function MiniGameScoresForm({
     };
   }, [payloadJson, readOnly, saveNow]);
 
-  useEffect(() => {
-    return () => {
-      cleanupVoiceRecording();
-    };
-  }, []);
-
   function updateGame(key: string, patch: Partial<MatchInput>) {
     setGames((current) => current.map((game) => game.key === key ? { ...game, ...patch } : game));
   }
@@ -252,150 +184,6 @@ export function MiniGameScoresForm({
     const hasSelectedPlayer = Boolean(goal?.scorerId || goal?.assistPlayerId);
     if (hasSelectedPlayer && !window.confirm("Delete this goal? This change will be saved automatically.")) return;
     updateGame(game.key, { goals: game.goals.filter((item) => item.key !== goalKey) });
-  }
-
-  async function parseVoiceCommand(commandText = voiceCommand) {
-    const text = commandText.trim();
-    if (!text) {
-      toast.error("Enter or record a scoring command first.");
-      return;
-    }
-    setVoiceParsePending(true);
-    setVoiceResult(null);
-    const formData = new FormData();
-    formData.set("commandText", text);
-    formData.set("contextJson", voiceContextJson);
-    try {
-      const result = await parseVoiceScoringCommand(formData);
-      setVoiceResult(result);
-      if (result.error) toast.error(result.error);
-      if (!result.error && !(result.goals?.length)) toast.error("No goals were found in that command.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not parse voice scoring command.";
-      setVoiceResult({ error: message });
-      toast.error(message);
-    } finally {
-      setVoiceParsePending(false);
-    }
-  }
-
-  async function startVoiceScoring() {
-    const AudioContextConstructor = getAudioContextConstructor();
-    if (!navigator.mediaDevices?.getUserMedia || !AudioContextConstructor) {
-      toast.error("Audio recording is not supported in this browser.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioContext = new AudioContextConstructor();
-      const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      audioSamplesRef.current = [];
-      audioSampleRateRef.current = audioContext.sampleRate;
-      audioContextRef.current = audioContext;
-      audioProcessorRef.current = processor;
-      audioSourceRef.current = source;
-      audioStreamRef.current = stream;
-      setVoiceRecording(true);
-      setVoiceResult(null);
-
-      processor.onaudioprocess = (event) => {
-        audioSamplesRef.current.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-      };
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      if (audioContext.state === "suspended") await audioContext.resume();
-    } catch (error) {
-      cleanupVoiceRecording();
-      const message = error instanceof Error ? error.message : "Could not start audio recording.";
-      setVoiceResult({ error: message });
-      toast.error(message);
-    }
-  }
-
-  function stopVoiceScoring() {
-    const audioBlob = finishVoiceRecording();
-    if (!audioBlob.size) {
-      toast.error("No audio was recorded.");
-      return;
-    }
-    void transcribeAndParseRecording(audioBlob);
-  }
-
-  function finishVoiceRecording() {
-    const samples = audioSamplesRef.current;
-    const sampleRate = audioSampleRateRef.current;
-    cleanupVoiceRecording();
-    setVoiceRecording(false);
-    audioSamplesRef.current = [];
-    if (!samples.length) return new Blob([], { type: "audio/wav" });
-    return encodeWav(samples, sampleRate);
-  }
-
-  function cleanupVoiceRecording() {
-    audioProcessorRef.current?.disconnect();
-    audioSourceRef.current?.disconnect();
-    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-    void audioContextRef.current?.close();
-    audioContextRef.current = null;
-    audioProcessorRef.current = null;
-    audioSourceRef.current = null;
-    audioStreamRef.current = null;
-  }
-
-  async function transcribeAndParseRecording(audioBlob: Blob) {
-    setVoiceTranscribePending(true);
-    setVoiceResult(null);
-    const formData = new FormData();
-    const audioType = audioBlob.type || "audio/wav";
-    formData.set("audio", new File([audioBlob], `voice-scoring-${Date.now()}.${audioFileExtension(audioType)}`, { type: audioType }));
-    formData.set("contextText", voiceTranscriptionContext(resolvedGames, teams, playersByTeam));
-    try {
-      const result = await transcribeVoiceScoringAudio(formData);
-      if (result.error || !result.transcript) {
-        const message = result.error ?? "Could not transcribe audio.";
-        setVoiceResult({ error: message });
-        toast.error(message);
-        return;
-      }
-      setVoiceCommand(result.transcript);
-      await parseVoiceCommand(result.transcript);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not transcribe audio.";
-      setVoiceResult({ error: message });
-      toast.error(message);
-    } finally {
-      setVoiceTranscribePending(false);
-    }
-  }
-
-  function applyVoiceGoals() {
-    if (!validVoicePreviewGoals.length) {
-      toast.error("No valid parsed goals to add.");
-      return;
-    }
-    setGames((current) =>
-      current.map((game) => {
-        const goalsForGame = validVoicePreviewGoals.filter((goal) => goal.gameKey === game.key && goal.scorerId);
-        if (!goalsForGame.length) return game;
-        return {
-          ...game,
-          goals: [
-            ...goalsForGame.map((goal) => ({
-              assistPlayerId: goal.goalType === "own_goal" ? "" : goal.assistPlayerId ?? "",
-              goalCount: Math.max(1, Number(goal.goalCount ?? 1) || 1),
-              goalType: goal.goalType === "own_goal" ? "own_goal" as const : "goal" as const,
-              key: randomKey("voice-goal"),
-              scorerId: goal.scorerId ?? ""
-            })),
-            ...game.goals
-          ]
-        };
-      })
-    );
-    toast.success(`${validVoicePreviewGoals.length} voice goal${validVoicePreviewGoals.length === 1 ? "" : "s"} added.`);
-    setVoiceResult(null);
-    setVoiceCommand("");
   }
 
   return (
@@ -432,81 +220,6 @@ export function MiniGameScoresForm({
             </div>
           ) : null}
         </div>
-        {!readOnly ? (
-          <div className="grid gap-3 rounded-md border border-line bg-slate-50 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-ink">Voice scoring</h2>
-                <p className="text-xs text-slate-500">Record or type multiple scoring commands, then review before adding.</p>
-              </div>
-              <button
-                className={`btn-secondary min-h-9 px-3 text-xs ${voiceRecording ? "border-emerald-300 bg-emerald-50 text-emerald-800" : ""}`}
-                disabled={voiceParsePending || voiceTranscribePending}
-                onClick={() => voiceRecording ? stopVoiceScoring() : void startVoiceScoring()}
-                type="button"
-              >
-                <Mic className="h-3.5 w-3.5" />
-                {voiceRecording ? "Stop" : voiceTranscribePending ? "Transcribing..." : "Record"}
-              </button>
-            </div>
-            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-              <textarea
-                className="input min-h-20 resize-y text-sm"
-                onChange={(event) => {
-                  setVoiceCommand(event.target.value);
-                  setVoiceResult(null);
-                }}
-                placeholder="Example: Game five, goal by Imon assist by Morshadul. Goal by M Asad assist by Rokibul."
-                value={voiceCommand}
-              />
-              <div className="flex flex-wrap gap-2 md:justify-end">
-                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={voiceParsePending || voiceTranscribePending || !voiceCommand.trim()} onClick={() => void parseVoiceCommand()} type="button">
-                  {voiceParsePending ? "Parsing..." : "Parse"}
-                </button>
-                <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!voiceCommand.trim() && !voiceResult} onClick={() => {
-                  setVoiceCommand("");
-                  setVoiceResult(null);
-                }} type="button">
-                  <X className="h-3.5 w-3.5" />
-                  Clear
-                </button>
-              </div>
-            </div>
-            {voiceResult ? (
-              <div className={`grid gap-2 rounded-md border p-3 text-sm ${
-                voiceResult.error
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : validVoicePreviewGoals.length
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-amber-200 bg-amber-50 text-amber-800"
-              }`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-semibold">
-                    {voiceResult.error ? "Could not process voice command" : `${validVoicePreviewGoals.length} valid goal${validVoicePreviewGoals.length === 1 ? "" : "s"} ready`}
-                  </div>
-                  {voiceResult.parser ? (
-                    <div className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold">
-                      Parsed by {voiceResult.parser.engine === "llm" ? "LLM based" : "Rule based"}
-                    </div>
-                  ) : null}
-                </div>
-                {voiceResult.error ? <p className="text-xs">{voiceResult.error}</p> : null}
-                {voicePreviewGoals.length ? (
-                  <div className="rounded-md border border-white/70 bg-white px-3 py-2 text-xs text-slate-700">
-                    {validVoicePreviewGoals.length} of {voicePreviewGoals.length} parsed goal{voicePreviewGoals.length === 1 ? "" : "s"} can be added.
-                    {voicePreviewGoals.length > validVoicePreviewGoals.length ? " Some parsed items could not be matched to this fixture." : ""}
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button className="btn-secondary min-h-9 px-3 text-xs" disabled={!validVoicePreviewGoals.length} onClick={applyVoiceGoals} type="button">
-                    <Check className="h-3.5 w-3.5" />
-                    Add valid goals
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
       </div>
       <div className="grid gap-3">
         {resolvedGames.map((game, index) => {
@@ -806,146 +519,4 @@ function minutesBetween(start?: string | null, end?: string | null) {
   const endMinutes = parseTimeToMinutes(end);
   if (startMinutes == null || endMinutes == null) return 0;
   return Math.max(0, endMinutes - startMinutes);
-}
-
-function getAudioContextConstructor(): AudioContextConstructor | null {
-  if (typeof window === "undefined") return null;
-  const audioWindow = window as Window & { webkitAudioContext?: AudioContextConstructor };
-  return window.AudioContext ?? audioWindow.webkitAudioContext ?? null;
-}
-
-function audioFileExtension(mimeType: string) {
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("mp4")) return "mp4";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-  return "webm";
-}
-
-function encodeWav(chunks: Float32Array[], sampleRate: number) {
-  const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0);
-  const buffer = new ArrayBuffer(44 + sampleCount * 2);
-  const view = new DataView(buffer);
-  writeAscii(view, 0, "RIFF");
-  view.setUint32(4, 36 + sampleCount * 2, true);
-  writeAscii(view, 8, "WAVE");
-  writeAscii(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(view, 36, "data");
-  view.setUint32(40, sampleCount * 2, true);
-
-  let offset = 44;
-  for (const chunk of chunks) {
-    for (const sample of chunk) {
-      const clamped = Math.max(-1, Math.min(1, sample));
-      view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-      offset += 2;
-    }
-  }
-  return new Blob([buffer], { type: "audio/wav" });
-}
-
-function writeAscii(view: DataView, offset: number, value: string) {
-  for (let index = 0; index < value.length; index += 1) {
-    view.setUint8(offset + index, value.charCodeAt(index));
-  }
-}
-
-function voiceTranscriptionContext(
-  games: MatchInput[],
-  teams: TeamOption[],
-  playersByTeam: Map<string, Array<{ id: string; name: string }>>
-) {
-  const matchLines = games
-    .filter((game) => game.teamAId && game.teamBId)
-    .map((game) => {
-      const players = uniquePlayers([
-        ...playersForTeam(playersByTeam, game.teamAId),
-        ...playersForTeam(playersByTeam, game.teamBId)
-      ]).map((player) => player.name);
-      return `Game ${game.matchNumber}: ${teamDisplayName(teams, game, "a")} vs ${teamDisplayName(teams, game, "b")}. Players: ${players.join(", ")}.`;
-    });
-  return [
-    "Transcribe a soccer scoring command. Preserve player names and game numbers.",
-    "Common phrases: goal by, assist by, own goal by, game one, game two, G1, G2.",
-    ...matchLines
-  ].join("\n");
-}
-
-function buildVoicePreviewGoals(
-  goals: ParsedVoiceScoringGoal[],
-  games: MatchInput[],
-  teams: TeamOption[],
-  playersByTeam: Map<string, Array<{ id: string; name: string }>>
-): VoiceScoringPreviewGoal[] {
-  return goals.map((goal) => {
-    const game = games.find((item) => Number(item.matchNumber) === Number(goal.matchNumber));
-    if (!game) return { ...goal, error: `Game ${goal.matchNumber} does not exist.` };
-    const selectablePlayers = uniquePlayers([
-      ...playersForTeam(playersByTeam, game.teamAId),
-      ...playersForTeam(playersByTeam, game.teamBId)
-    ]);
-    const scorer = findPlayerByVoice(goal.scorerName, selectablePlayers);
-    if (!scorer) {
-      return {
-        ...goal,
-        error: `Could not match scorer "${goal.scorerName}" in ${teamName(teams, game.teamAId)} vs ${teamName(teams, game.teamBId)}.`
-      };
-    }
-    const assist = goal.assistName ? findPlayerByVoice(goal.assistName, selectablePlayers) : null;
-    if (goal.assistName && !assist) {
-      return {
-        ...goal,
-        error: `Could not match assist "${goal.assistName}" in ${teamName(teams, game.teamAId)} vs ${teamName(teams, game.teamBId)}.`,
-        gameKey: game.key,
-        scorerId: scorer.id
-      };
-    }
-    return {
-      ...goal,
-      assistName: assist?.name ?? goal.assistName,
-      assistPlayerId: assist?.id,
-      gameKey: game.key,
-      goalCount: Math.max(1, Number(goal.goalCount ?? 1) || 1),
-      goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
-      scorerId: scorer.id,
-      scorerName: scorer.name,
-      warning: goal.confidence === "low" ? "Low confidence match. Review before adding." : undefined
-    };
-  });
-}
-
-function findPlayerByVoice(text: string, players: Array<{ id: string; name: string }>) {
-  const normalizedText = ` ${normalizeVoiceText(text)} `;
-  const scoredPlayers = players
-    .map((player) => {
-      const normalizedName = normalizeVoiceText(player.name);
-      const nameParts = normalizedName.split(" ").filter(Boolean);
-      if (!normalizedName) return { player, score: 0 };
-      if (normalizedText.includes(` ${normalizedName} `)) return { player, score: 100 + normalizedName.length };
-      const matchingParts = nameParts.filter((part) => normalizedText.includes(` ${part} `));
-      if (matchingParts.length === nameParts.length && nameParts.length > 1) return { player, score: 80 + normalizedName.length };
-      if (matchingParts.length && nameParts.length === 1) return { player, score: 70 + normalizedName.length };
-      if (matchingParts.length) return { player, score: 40 + matchingParts.join("").length };
-      return { player, score: 0 };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score);
-
-  return scoredPlayers[0]?.player ?? null;
-}
-
-function normalizeVoiceText(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
 }

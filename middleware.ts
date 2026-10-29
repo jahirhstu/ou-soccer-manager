@@ -40,6 +40,8 @@ type DefaultRouteContext = {
 };
 
 export async function middleware(request: NextRequest) {
+  // This native endpoint authenticates its bearer token and program scope itself.
+  if (request.nextUrl.pathname === "/api/mobile/whatsapp") return NextResponse.next();
   const tenantSlug = getTenantSlugFromPathname(request.nextUrl.pathname);
   const programSlug = tenantSlug ? getProgramSlugFromPathname(request.nextUrl.pathname) : "";
   const pathname = tenantSlug ? stripTenantFromPathname(request.nextUrl.pathname) : request.nextUrl.pathname;

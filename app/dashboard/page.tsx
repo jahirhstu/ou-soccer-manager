@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ProductionRefresh } from '@/components/ProductionRefresh';
+import { refreshEnabled } from '@/lib/production-refresh';
 import { randomUUID } from "node:crypto";
 import { CalendarClock, CircleDollarSign, CreditCard, ExternalLink, ReceiptText, TrendingDown, Trophy, Upload, Users, WalletCards, type LucideIcon } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
@@ -25,6 +27,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const tenantSlug = await getRequestTenantSlug();
   const programSlug = await getRequestProgramSlug();
   const [program, profile] = await Promise.all([getCurrentProgram(), getCurrentProfile()]);
+  const { data: refreshMembership } = refreshEnabled() ? await supabase.from('organization_members')
+    .select('role').eq('organization_id', profile?.organization_id).eq('profile_id', profile?.id)
+    .eq('status', 'active').maybeSingle() : { data: null };
+  const canRefresh = refreshMembership && ['owner', 'admin'].includes(refreshMembership.role);
   let seasonQuery = supabase.from("seasons").select("*").eq("organization_id", profile?.organization_id)
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false, nullsFirst: false }).order("id");
@@ -32,7 +38,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const { data: seasons, error: seasonError } = await seasonQuery;
   if (seasonError) throw new Error(seasonError.message);
   const activeSeason = resolveDashboardSeason(seasons ?? [], filters.season);
-  if (!activeSeason) return <AppShell><h1 className="page-title">Dashboard</h1><p className="mt-4 text-sm text-slate-600">No seasons configured.</p></AppShell>;
+  if (!activeSeason) return <AppShell><div className="flex flex-wrap items-center justify-between gap-3"><h1 className="page-title">Dashboard</h1>{canRefresh && <ProductionRefresh organizationName={profile.organization_name} />}</div><p className="mt-4 text-sm text-slate-600">No seasons configured.</p></AppShell>;
   const dateParts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const part = (type: string) => dateParts.find((item) => item.type === type)?.value ?? "";
   const today = `${part("year")}-${part("month")}-${part("day")}`;
@@ -80,6 +86,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <p className="text-sm text-slate-500">Season: {activeSeason.name}{activeSeason.status === "active" ? " (Active)" : ""}</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            {canRefresh && <ProductionRefresh organizationName={profile.organization_name} />}
             <DashboardSeasonSelect seasons={seasons ?? []} selectedId={activeSeason.id} />
             <Link className="btn-secondary" href="/public/report" rel="noopener noreferrer" target="_blank"><ExternalLink className="h-4 w-4" /> Report Gallery</Link>
             <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
