@@ -41,7 +41,7 @@ export default async function CarryForwardPage({ searchParams }: { searchParams:
   return <AppShell><CarryForwardForm
     options={options}
     seasons={(seasons ?? []).filter((season) => Boolean(season.program_id))}
-    balances={(balances ?? []).map((row) => ({ playerId: row.player_id, seasonId: row.season_id, credit: String(row.credit_amount ?? 0), owes: String(row.owes_money ?? 0) }))}
+    balances={(balances ?? []).filter(row => seasonById.has(row.season_id)).map((row) => ({ playerId: row.player_id, seasonId: row.season_id, credit: String(row.credit_amount ?? 0), owes: String(row.owes_money ?? 0) }))}
     initialPlayerId={filters.player} initialSeasonId={filters.season} submissionId={randomUUID()} today={today}
   /></AppShell>;
 }

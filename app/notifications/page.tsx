@@ -7,12 +7,14 @@ import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/se
 import { money } from "@/lib/utils";
 import { AppShell } from "../(shell)";
 import { notificationList, notificationSorts, type NotificationRow } from "@/lib/notification-list";
+import { hasOrganizationAdminAuthority } from "@/lib/organization-access";
 
 export default async function NotificationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const profile = await getCurrentProfile();
   if (!hasPermission(profile?.role, "manage_all")) redirect("/public/report");
 
   const supabase = await createSupabaseServerClient();
+  if (!(await hasOrganizationAdminAuthority(supabase, profile?.organization_id))) redirect("/public/report");
   const params = Object.fromEntries(Object.entries(await searchParams).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]));
   const rows: NotificationRow[] = [];
   let error = null;
@@ -20,6 +22,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
   for (let offset = 0; ; offset += 500) {
     const result = await supabase.from("notifications")
       .select("id,amount,message,read_at,created_at,season_id,player:players(display_name),season:seasons(name)")
+      .eq("organization_id", profile.organization_id)
       .order("id").range(offset, offset + 499);
     if (result.error) { error = result.error; break; }
     const batch = (result.data ?? []) as NotificationRow[];

@@ -6,11 +6,11 @@ import { AppShell } from "../../(shell)";
 export default async function NewSeasonPage() {
   const supabase = await createSupabaseServerClient();
   const currentProgram = await getCurrentProgram();
-  const { data: programs } = await supabase.from("programs").select("*").eq("status", "active").order("name");
+  const { data: programs } = await supabase.from("programs").select("*").eq("id", currentProgram?.id ?? "").eq("status", "active");
   return (
     <AppShell>
       <Form title="New season" action={saveSeason}>
-        <ProgramSelect programs={programs ?? []} defaultValue={currentProgram?.id} emptyLabel="Organization default program" />
+        <ProgramSelect programs={programs ?? []} defaultValue={currentProgram?.id} emptyLabel="Select program" />
         <input className="input" name="name" placeholder="Season name" required />
         <input className="input" name="start_date" type="date" />
         <input className="input" name="end_date" type="date" />

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getScopedPath } from "../tenant-server";
 import { z } from "zod";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
@@ -37,7 +38,8 @@ export async function recordClubBalanceTransfer(_state: ClubTransferState, formD
   });
   if (error) return { error: error.message };
   revalidatePath("/dashboard");
-  redirect(`/dashboard?season=${parsed.data.source_season_id}&success=club_transfer_saved`);
+  revalidatePath(await getScopedPath("/dashboard"));
+  redirect(await getScopedPath(`/dashboard?season=${parsed.data.source_season_id}&success=club_transfer_saved`));
 }
 
 export async function reverseClubBalanceTransfer(formData: FormData) {
@@ -53,5 +55,6 @@ export async function reverseClubBalanceTransfer(formData: FormData) {
   });
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard");
-  redirect(`/dashboard?season=${seasonId}&success=club_transfer_reversed`);
+  revalidatePath(await getScopedPath("/dashboard"));
+  redirect(await getScopedPath(`/dashboard?season=${seasonId}&success=club_transfer_reversed`));
 }

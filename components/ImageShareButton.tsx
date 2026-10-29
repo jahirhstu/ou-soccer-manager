@@ -113,4 +113,3 @@ export function ImageShareButton({ children, title, filename, label = "Share", i
     </>
   );
 }
-

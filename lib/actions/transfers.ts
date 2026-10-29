@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getScopedPath } from "../tenant-server";
 import { z } from "zod";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
@@ -41,6 +42,9 @@ export async function carryForwardPlayerBalance(_state: TransferActionState, for
   });
   if (error) return { error: error.message };
 
-  for (const path of ["/payments", "/reports/payments", "/dashboard", "/public/report", `/players/${parsed.data.player_id}`, `/seasons/${parsed.data.source_season_id}`, `/seasons/${parsed.data.destination_season_id}`]) revalidatePath(path);
-  redirect("/payments?success=transfer_saved");
+  for (const path of ["/payments", "/reports/payments", "/dashboard", "/public/report", `/players/${parsed.data.player_id}`, `/seasons/${parsed.data.source_season_id}`, `/seasons/${parsed.data.destination_season_id}`]) {
+    revalidatePath(path);
+    revalidatePath(await getScopedPath(path));
+  }
+  redirect(await getScopedPath("/payments?success=transfer_saved"));
 }

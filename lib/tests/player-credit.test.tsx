@@ -1,3 +1,4 @@
+vi.mock("../tenant-server", () => ({ getScopedPath: async (path: string) => `/club/soccer${path}` }));
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { amountInCents, centsAmount, creditTransferPreview } from "@/lib/player-credit";
@@ -57,7 +58,7 @@ describe("transferPlayerCredit action", () => {
     await transferPlayerCredit(null, form({ amount: "0.29" }));
     expect(mocks.rpc).toHaveBeenCalledWith("transfer_player_credit", expect.objectContaining({ p_amount: "0.29", p_submission_id: submission, p_session_id: null }));
     for (const path of [`/players/${funding}`, `/players/${recipient}`, "/dashboard", "/public/report", "/reports/payments", "/payments/new"]) expect(mocks.revalidate).toHaveBeenCalledWith(path);
-    expect(mocks.redirect).toHaveBeenCalledWith("/payments?success=player_credit_transferred");
+    expect(mocks.redirect).toHaveBeenCalledWith("/club/soccer/payments?success=player_credit_transferred");
   });
   it("preserves idempotency keys and optional session context", async () => {
     await transferPlayerCredit(null, form({ session_id: season }));

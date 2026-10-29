@@ -23,7 +23,7 @@ export default async function NewPaymentPage({ searchParams }: { searchParams: P
     seasonsQuery,
     supabase.from("players").select("*").eq("organization_id", profile.organization_id).order("display_name"),
     sessionsQuery,
-    supabase.from("programs").select("*").eq("status", "active").order("name"),
+    supabase.from("programs").select("*").eq("id", currentProgram?.id ?? "").eq("status", "active"),
     supabase.from("player_season_payment_summary").select("player_id,season_id,credit_amount,owes_money")
   ]);
   if (balancesError) throw new Error(balancesError.message);
@@ -32,7 +32,7 @@ export default async function NewPaymentPage({ searchParams }: { searchParams: P
   return (
     <AppShell>
       <PaymentSourceForm initialSource={filters.source === "credit" ? "credit" : "external"} players={players ?? []} seasons={seasons ?? []} sessions={sessions ?? []}
-        balances={(balances ?? []).map(row => ({ playerId: row.player_id, seasonId: row.season_id, credit: String(row.credit_amount ?? 0), owes: String(row.owes_money ?? 0) }))}
+        balances={(balances ?? []).filter(row => (seasons ?? []).some(season => season.id === row.season_id)).map(row => ({ playerId: row.player_id, seasonId: row.season_id, credit: String(row.credit_amount ?? 0), owes: String(row.owes_money ?? 0) }))}
         submissionId={randomUUID()} today={today}>
       <form action={savePayment} className="panel grid max-w-xl gap-3 p-5">
         <h1 className="section-title">Record payment</h1>

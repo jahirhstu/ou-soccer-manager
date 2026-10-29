@@ -2,13 +2,26 @@
   "name": "ou-soccer-manager",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev",
+    "mobile:participant": "pnpm --filter @ou/participant start",
+    "mobile:management": "pnpm --filter @ou/management start",
+    "mobile:typecheck": "pnpm --filter './apps/*' --filter './packages/*' -r typecheck",
+    "mobile:export": "pnpm --filter './apps/*' -r export",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "seed": "tsx scripts/seed.ts"
+    "test:db": "supabase test db",
+    "test:auth-users": "tsx scripts/create-authorization-test-users.ts",
+    "seed": "tsx scripts/seed.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "db:inspect:dev": "tsx scripts/inspect-dev-database.ts",
+    "db:prepare:dev": "tsx scripts/prepare-dev-upgrade.ts",
+    "db:dev": "tsx scripts/dev-database.ts",
+    "db:rehearse": "tsx scripts/rehearse-production.ts",
+    "db:refresh-worker": "tsx scripts/refresh/worker.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -25,6 +38,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@expo/ngrok": "^4.1.3",
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
@@ -32,6 +46,7 @@
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.0.3",
     "postcss": "^8.4.49",
+    "postgres": "^3.4.9",
     "tailwindcss": "^3.4.16",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

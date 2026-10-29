@@ -1,7 +1,17 @@
 node_modules
+**/.expo/
+apps/*/android/
+apps/*/ios/
+apps/*/.env
+*.ipa
+*.aab
 .next
 .env
 .env*.local
 coverage
 dist
 *.tsbuildinfo
+.pnpm-store/
+seed-demo-manifest.local.json
+dev-database.local.json
+scripts/generated/*.local.json

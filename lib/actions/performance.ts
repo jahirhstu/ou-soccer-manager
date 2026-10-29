@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
+import { requireEnabledProgramModule } from "../program-access";
 
 function percentValue(value: FormDataEntryValue | null) {
   if (value == null || value === "") return null;
@@ -23,6 +24,7 @@ export async function savePlayerPerformanceRatings(_: unknown, formData: FormDat
     if (!programId) throw new Error("Choose a program before saving ratings.");
 
     const supabase = await createSupabaseServerClient();
+    await requireEnabledProgramModule(supabase, profile.organization_id, programId, "teams");
     const { data: program, error: programError } = await supabase
       .from("programs")
       .select("id,organization_id")

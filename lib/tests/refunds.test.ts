@@ -1,3 +1,4 @@
+vi.mock("../tenant-server", () => ({ getScopedPath: async (path: string) => `/club/soccer${path}` }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -51,8 +52,8 @@ describe("recordPlayerRefund", () => {
       p_reference: "TRANSFER-123",
       p_submission_id: submissionId
     }));
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
-    expect(mocks.redirect).toHaveBeenCalledWith("/payments?success=refund_saved");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/club/soccer/dashboard");
+    expect(mocks.redirect).toHaveBeenCalledWith("/club/soccer/payments?success=refund_saved");
   });
 
   it("allows the same workflow for an inactive player and another season", async () => {

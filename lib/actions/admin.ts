@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { hasPermission } from "../permissions";
 import { createSupabaseAdminClient } from "../supabase/admin";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
+import { requireOrganizationAdminAuthority } from "../organization-access";
 
-const orgRoles = ["owner", "admin", "captain", "player"] as const;
+const orgRoles = ["owner", "admin", "player"] as const;
+const membershipStatuses = ["pending", "active", "rejected", "suspended"] as const;
 
 const cleanupTables = [
   "whatsapp_imports",
@@ -33,16 +34,17 @@ const cleanupTables = [
 
 export async function updateOrganizationUser(formData: FormData) {
   const profile = await getCurrentProfile();
-  if (!hasPermission(profile?.role, "manage_all")) throw new Error("Unauthorized");
   if (!profile?.organization_id) throw new Error("No organization found for this account.");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
 
   const memberId = String(formData.get("member_id") ?? "");
   const role = String(formData.get("role") ?? "");
   const playerIdValue = String(formData.get("player_id") ?? "");
   const playerId = playerIdValue ? playerIdValue : null;
-  if (!memberId || !isOrgRole(role)) throw new Error("Invalid user update.");
+  const status = String(formData.get("status") ?? "active");
+  if (!memberId || !isOrgRole(role) || !membershipStatuses.includes(status as (typeof membershipStatuses)[number])) throw new Error("Invalid user update.");
 
-  const supabase = await createSupabaseServerClient();
   const { data: member, error: memberError } = await supabase
     .from("organization_members")
     .select("id,profile_id,role,organization_id")
@@ -50,31 +52,37 @@ export async function updateOrganizationUser(formData: FormData) {
     .eq("organization_id", profile.organization_id)
     .single();
   if (memberError) throw new Error(memberError.message);
+  const { data: actorMembership } = await supabase
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", profile.organization_id)
+    .eq("profile_id", profile.id)
+    .eq("status", "active")
+    .maybeSingle();
+  const actorCanManageOwners = actorMembership?.role === "owner";
+  if ((member.role === "owner" || role === "owner") && !actorCanManageOwners) {
+    throw new Error("Only an organization owner can create or modify another owner.");
+  }
 
-  if (member.role === "owner" && role !== "owner") {
+  if (member.role === "owner" && (role !== "owner" || status !== "active")) {
     const { count, error: ownerCountError } = await supabase
       .from("organization_members")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", profile.organization_id)
-      .eq("role", "owner");
+      .eq("role", "owner")
+      .eq("status", "active");
     if (ownerCountError) throw new Error(ownerCountError.message);
     if ((count ?? 0) <= 1) throw new Error("Every organization needs at least one owner.");
   }
 
   const { error: updateMemberError } = await supabase
     .from("organization_members")
-    .update({ player_id: playerId, role })
+    .update({ player_id: playerId, role, status })
     .eq("id", memberId)
     .eq("organization_id", profile.organization_id);
   if (updateMemberError) throw new Error(updateMemberError.message);
 
-  const { error: updateProfileError } = await supabase
-    .from("profiles")
-    .update({
-      player_id: playerId,
-      role: role === "owner" ? "admin" : role
-    })
-    .eq("id", member.profile_id);
+  const { error: updateProfileError } = await supabase.from("profiles").update({ player_id: playerId }).eq("id", member.profile_id);
   if (updateProfileError) throw new Error(updateProfileError.message);
 
   revalidatePath("/users");
@@ -82,8 +90,9 @@ export async function updateOrganizationUser(formData: FormData) {
 
 export async function updateOrganizationUserPassword(formData: FormData) {
   const profile = await getCurrentProfile();
-  if (!hasPermission(profile?.role, "manage_all")) throw new Error("Unauthorized");
   if (!profile?.organization_id) throw new Error("No organization found for this account.");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
 
   const memberId = String(formData.get("member_id") ?? "");
   const password = String(formData.get("password") ?? "");
@@ -91,7 +100,6 @@ export async function updateOrganizationUserPassword(formData: FormData) {
   if (!password.trim()) return;
   if (password.length < 6) throw new Error("Password must be at least 6 characters.");
 
-  const supabase = await createSupabaseServerClient();
   const { data: member, error: memberError } = await supabase
     .from("organization_members")
     .select("id,profile_id,organization_id")
@@ -110,15 +118,14 @@ export async function updateOrganizationUserPassword(formData: FormData) {
 
 export async function cleanupClubData(formData: FormData) {
   const profile = await getCurrentProfile();
-  if (!hasPermission(profile?.role, "manage_all")) throw new Error("Unauthorized");
   if (!profile?.organization_id) throw new Error("No organization found for this account.");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
 
   const confirmation = String(formData.get("confirmation") ?? "").trim();
   if (confirmation !== "CLEANUP") {
     redirect("/settings?cleanup=confirmation-required");
   }
-
-  const supabase = await createSupabaseServerClient();
 
   const { error: memberError } = await supabase
     .from("organization_members")
@@ -149,6 +156,60 @@ export async function cleanupClubData(formData: FormData) {
 
   revalidatePath("/");
   redirect("/settings?cleanup=success");
+}
+
+export async function updatePublicReportSettings(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile?.organization_id) throw new Error("Unauthorized");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
+  const reportsEnabled = formData.get("public_reports_enabled") === "on";
+  const balancesEnabled = formData.get("public_balances_enabled") === "on";
+  const paymentsEnabled = formData.get("public_payments_enabled") === "on";
+  const { error: organizationError } = await supabase.from("organizations").update({ public_reports_enabled: reportsEnabled }).eq("id", profile.organization_id);
+  if (organizationError) throw new Error(organizationError.message);
+  const { error: settingsError } = await supabase.from("organization_settings").upsert({
+    organization_id: profile.organization_id,
+    public_balances_enabled: balancesEnabled,
+    public_payments_enabled: paymentsEnabled
+  }, { onConflict: "organization_id" });
+  if (settingsError) throw new Error(settingsError.message);
+  revalidatePath("/settings");
+  revalidatePath("/public/report");
+}
+
+export async function setOrganizationDefaultProgram(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile?.organization_id) throw new Error("Unauthorized");
+  const programId = String(formData.get("program_id") ?? "");
+  if (!programId) throw new Error("Program is required.");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
+  const { error } = await supabase.rpc("set_organization_default_program", { p_program_id: programId });
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+
+export async function setProgramModule(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile?.organization_id) throw new Error("Unauthorized");
+  const programId = String(formData.get("program_id") ?? "");
+  const moduleKey = String(formData.get("module_key") ?? "");
+  const enabled = String(formData.get("enabled") ?? "false") === "true";
+  if (!programId || !/^[a-z0-9_]+$/.test(moduleKey)) throw new Error("Invalid module update.");
+  const supabase = await createSupabaseServerClient();
+  await requireOrganizationAdminAuthority(supabase, profile.organization_id);
+  const { data: program } = await supabase.from("programs").select("id").eq("id", programId).eq("organization_id", profile.organization_id).maybeSingle();
+  if (!program) throw new Error("Program not found.");
+  const { error } = await supabase.from("program_modules").upsert({
+    organization_id: profile.organization_id,
+    program_id: programId,
+    module_key: moduleKey,
+    enabled
+  }, { onConflict: "program_id,module_key" });
+  if (error) throw new Error(error.message);
+  revalidatePath("/programs");
 }
 
 function isOrgRole(value: string): value is typeof orgRoles[number] {

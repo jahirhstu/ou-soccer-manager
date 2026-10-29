@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "OU Manager",
+    "slug": "ou-management",
+    "scheme": "ou-management",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ousoccer.management"
+    },
+    "android": {
+      "package": "com.ousoccer.management"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

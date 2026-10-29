@@ -6,8 +6,10 @@ import { normalizeParsedJson } from "../parsers/llm-shared";
 const mocks = vi.hoisted(() => ({ from: vi.fn(), revalidatePath: vi.fn() }));
 vi.mock("../supabase/server", () => ({
   createSupabaseServerClient: async () => ({ from: mocks.from }),
-  getCurrentProfile: async () => ({ id: "admin", role: "admin" })
+  getCurrentProfile: async () => ({ id: "admin", role: "admin", organization_id: "org" }),
+  getCurrentProgram: async () => ({ id: "program" })
 }));
+vi.mock("../program-access", () => ({ requireEnabledProgramModule: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("../parsers", () => ({ whatsappParser: { parse: vi.fn() } }));
 vi.mock("../actions/session-usage", () => ({ applySessionUsage: vi.fn() }));
@@ -40,7 +42,7 @@ function form() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  records = { payments: [], ledger_entries: [], whatsapp_imports: [], audit_logs: [] };
+  records = { payments: [], ledger_entries: [], whatsapp_imports: [], audit_logs: [], seasons: [{ id: fall, organization_id: "org", program_id: "program" }] };
   mocks.from.mockImplementation((table: string) => {
     const filters: Record<string, unknown> = {};
     let mutation: any;
@@ -52,6 +54,7 @@ beforeEach(() => {
     };
     const query: any = {
       select: () => query,
+      maybeSingle: async () => { const response = result(); return { ...response, data: Array.isArray(response.data) ? response.data[0] ?? null : response.data }; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
       insert: (payload: any) => {
         const index = records[table]?.length ?? 0;
@@ -92,6 +95,15 @@ describe("signup payment amount validation", () => {
 });
 
 describe("Fall signup confirmation", () => {
+  it("blocks ambiguous names before creating any import or payment records", async () => {
+    records.player_aliases = [{ organization_id: "org", player_id: "player-1", alias_name: "Jahir", normalized_alias: "jahir" }];
+    const result = await confirmWhatsAppImport(null, form());
+    expect(result).toMatchObject({ error: expect.stringContaining("Select the correct player") });
+    expect(records.payments).toEqual([]);
+    expect(records.ledger_entries).toEqual([]);
+    expect(records.whatsapp_imports).toEqual([]);
+    expect(records.audit_logs).toEqual([]);
+  });
   it("parses the supplied message as 21 players, 19 payments, and no attendance", async () => {
     const parsed = await new RuleBasedWhatsAppParser().parse(rawText);
     expect(parsed.importType).toBe("season_signup");

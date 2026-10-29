@@ -5,6 +5,7 @@ import { GoalsAssistsShareImage, type GoalsAssistsRow } from "@/components/Goals
 import { imageFileName } from "@/lib/image-sharing";
 import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 type PublicSessionRow = {
   id: string;
@@ -22,9 +23,11 @@ export default async function PublicGoalsAssistsPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data, error }, { data: sessionsData }] = await Promise.all([
-    supabase.rpc("public_goals_assists", { p_session_id: filters.session || null }),
-    supabase.rpc("public_sessions")
+    supabase.rpc("scoped_public_goals_assists", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_session_id: filters.session || null }),
+    supabase.rpc("scoped_public_sessions", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null })
   ]);
   const allRows = (data ?? []) as GoalsAssistsRow[];
   const sessions = (sessionsData ?? []) as PublicSessionRow[];

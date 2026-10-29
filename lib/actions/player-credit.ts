@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getScopedPath } from "../tenant-server";
 import { z } from "zod";
 import { amountInCents } from "@/lib/player-credit";
 import { hasPermission } from "@/lib/permissions";
@@ -33,6 +34,9 @@ export async function transferPlayerCredit(_state: PlayerCreditState, formData: 
   if (error) return { error: error.message };
   for (const path of ["/payments", "/payments/new", "/reports/payments", "/dashboard", "/public/report", "/players",
     `/players/${data.funding_player_id}`, `/players/${data.recipient_player_id}`, `/seasons/${data.season_id}`,
-    ...(data.session_id ? [`/sessions/${data.session_id}`, `/public/sessions/${data.session_id}`] : [])]) revalidatePath(path);
-  redirect("/payments?success=player_credit_transferred");
+    ...(data.session_id ? [`/sessions/${data.session_id}`, `/public/sessions/${data.session_id}`] : [])]) {
+    revalidatePath(path);
+    revalidatePath(await getScopedPath(path));
+  }
+  redirect(await getScopedPath("/payments?success=player_credit_transferred"));
 }

@@ -9,7 +9,6 @@ import { updateOrganizationUser } from "@/lib/actions/admin";
 const roleOptions = [
   { value: "owner", label: "Owner" },
   { value: "admin", label: "Admin" },
-  { value: "captain", label: "Captain" },
   { value: "player", label: "Player" }
 ];
 
@@ -22,12 +21,16 @@ export function UserUpdateForm({
   memberId,
   playerId,
   players,
-  role
+  role,
+  status,
+  canManageOwners
 }: {
   memberId: string;
   playerId?: string | null;
   players: PlayerOption[];
   role: string;
+  status: string;
+  canManageOwners?: boolean;
 }) {
   const router = useRouter();
   const [selectedRole, setSelectedRole] = useState(role);
@@ -52,7 +55,13 @@ export function UserUpdateForm({
     <form className="grid gap-2" onSubmit={onSubmit}>
       <input name="member_id" type="hidden" value={memberId} />
       <select className="input min-h-9 px-2 text-sm" name="role" onChange={(event) => setSelectedRole(event.target.value)} value={selectedRole}>
-        {roleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {roleOptions.filter((option) => option.value !== "owner" || canManageOwners || role === "owner").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+      <select className="input min-h-9 px-2 text-sm" name="status" defaultValue={status}>
+        <option value="pending">Pending</option>
+        <option value="active">Active</option>
+        <option value="rejected">Rejected</option>
+        <option value="suspended">Suspended</option>
       </select>
       <select className="input min-h-9 px-2 text-sm" name="player_id" onChange={(event) => setSelectedPlayerId(event.target.value)} value={selectedPlayerId}>
         <option value="">No player mapping</option>

@@ -4,7 +4,7 @@ import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { compareText } from "@/lib/sorting";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 
 type SortKey = "name" | "status" | "position" | "email";
 
@@ -15,7 +15,14 @@ export default async function PlayersPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.from("players").select("*").order("display_name");
+  const program = await getCurrentProgram();
+  const { data: memberships } = program?.id
+    ? await supabase.from("program_members").select("player_id").eq("program_id", program.id).eq("status", "active").not("player_id", "is", null)
+    : { data: [] };
+  const playerIds = (memberships ?? []).map((membership) => membership.player_id).filter(Boolean) as string[];
+  const { data } = playerIds.length
+    ? await supabase.from("players").select("*").in("id", playerIds).order("display_name")
+    : { data: [] };
   const rows = sortRows(data ?? [], sortKey(filters.sort));
   return (
     <AppShell>

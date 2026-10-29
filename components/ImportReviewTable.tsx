@@ -6,6 +6,7 @@ import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import
 import type { ParsedWhatsAppImport, Player, PlayerAlias, Playground, Season, Session } from "@/lib/types";
 import { money } from "@/lib/utils";
 import { PlayerSelect } from "./FormControls";
+import { importIdentityCandidates } from "@/packages/contracts/src/import-identity";
 
 type SessionWithPlayground = Session & { playgrounds?: { name?: string | null } | null };
 type PlayerReportRow = {
@@ -330,21 +331,23 @@ export function ImportReviewTable({
               {[...parsed.players]
                 .sort((a, b) => matchPriority(a.name, players, playersByName, aliasesByName) - matchPriority(b.name, players, playersByName, aliasesByName))
                 .map((player) => {
-                  const exactPlayerId = playersByName.get(normalizeName(player.name));
+                  const candidates = importIdentityCandidates(player.name, players, aliases);
+                  const ambiguous = candidates.length > 1;
+                  const exactPlayerId = ambiguous ? undefined : playersByName.get(normalizeName(player.name));
                   const suggestion = getPlayerSuggestion(player.name, players, playersByName, aliasesByName);
-                  const matchedPlayerId = exactPlayerId ?? suggestion?.playerId;
+                  const matchedPlayerId = ambiguous ? undefined : exactPlayerId ?? suggestion?.playerId;
                   const suggestedPlayer = matchedPlayerId ? playersById.get(matchedPlayerId) : undefined;
                   const isSuggested = !exactPlayerId && Boolean(suggestion);
-                  const statusStyles = matchStatusStyles({ exactPlayerId, matchedPlayerId });
+                  const statusStyles = matchStatusStyles({ exactPlayerId, matchedPlayerId: ambiguous ? "review" : matchedPlayerId });
                   return (
                 <div className={`grid gap-2 rounded-md border p-3 text-sm ${statusStyles.card}`} key={player.name}>
                   <div className={`flex flex-wrap items-center justify-between gap-2 font-medium ${statusStyles.text}`}>
                     <span>{player.name}</span>
                     <span className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase ${statusStyles.badge}`}>
-                      {exactPlayerId ? "Good" : matchedPlayerId ? "Warning" : "Critical"}
+                      {ambiguous ? "Warning" : exactPlayerId ? "Good" : matchedPlayerId ? "Warning" : "Critical"}
                     </span>
                   </div>
-                  {isSuggested && suggestedPlayer ? (
+                  {ambiguous ? <p className="text-xs text-amber-800">Multiple possible players: {candidates.map(candidate => candidate.display_name).join(", ")}. Select the correct player or ignore this row.</p> : isSuggested && suggestedPlayer ? (
                     <p className="text-xs text-amber-800">
                       Suggested: {suggestedPlayer.display_name} {suggestion?.reason ? `(${suggestion.reason})` : ""}
                     </p>
@@ -354,15 +357,15 @@ export function ImportReviewTable({
                     <p className="text-xs text-emerald-700">Exact player name match found.</p>
                   )}
                   <PlayerSelect
-                    emptyLabel="Create new player if not matched"
+                    emptyLabel={ambiguous ? "Select a player to confirm identity" : "Create new player if not matched"}
                     includeIgnore
                     name={`match_${player.name}`}
                     onChange={(value) => setMatchSelections((current) => ({ ...current, [player.name]: value }))}
                     players={players}
-                    required={false}
+                    required={ambiguous}
                     value={matchSelections[player.name] ?? matchedPlayerId ?? ""}
                   />
-                  {!exactPlayerId ? (
+                  {!exactPlayerId && !ambiguous ? (
                     <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
                       <input className="h-4 w-4 rounded border-line" name={`update_name_${player.name}`} type="checkbox" value="yes" />
                       Update selected player's name to "{player.name}"
@@ -400,6 +403,7 @@ function matchPriority(
   playersByName: Map<string, string>,
   aliasesByName: Map<string, PlayerAlias>
 ) {
+  if (importIdentityCandidates(name, players, Array.from(aliasesByName.values())).length > 1) return 0;
   const exactPlayerId = playersByName.get(normalizeName(name));
   if (exactPlayerId) return 3;
   if (getPlayerSuggestion(name, players, playersByName, aliasesByName)) return 1;
@@ -880,6 +884,7 @@ function getDefaultMatchedPlayerId(
   playersByName: Map<string, string>,
   aliasesByName: Map<string, PlayerAlias>
 ) {
+  if (importIdentityCandidates(name, players, Array.from(aliasesByName.values())).length > 1) return undefined;
   return playersByName.get(normalizeName(name)) ?? getPlayerSuggestion(name, players, playersByName, aliasesByName)?.playerId;
 }
 
@@ -901,6 +906,7 @@ function resolvePreviewMatch(
 ) {
   const selected = matchSelections[name] ?? getDefaultMatchValue(name, players, playersByName, aliasesByName);
   if (selected === "__ignore__") return { ignored: true, createsNew: false, playerId: undefined };
+  if (!selected && importIdentityCandidates(name, players, Array.from(aliasesByName.values())).length > 1) return { ignored: false, createsNew: false, playerId: undefined };
   if (!selected) return { ignored: false, createsNew: true, playerId: undefined };
   return { ignored: false, createsNew: false, playerId: selected };
 }

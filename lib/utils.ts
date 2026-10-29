@@ -50,7 +50,7 @@ function monthNumber(month: string) {
 }
 
 export function detectPaymentIntent(input: string) {
-  return /\b(paid|sent|transfer|e-transfer|etransfer|cash|bank)\b/i.test(input);
+  return /\b(paid|sent|payment|transfer|e-transfer|etransfer|cash|bank)\b/i.test(input);
 }
 
 export function detectDropoutIntent(input: string) {

@@ -1,14 +1,18 @@
 import { AppShell } from "../../(shell)";
 import { saveLeague } from "@/lib/actions/leagues";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
 
 export default async function NewLeaguePage() {
   const supabase = await createSupabaseServerClient();
-  const { data: seasons } = await supabase.from("seasons").select("id,name").order("name");
+  const program = await getCurrentProgram();
+  const { data: seasons } = program?.id
+    ? await supabase.from("seasons").select("id,name").eq("program_id", program.id).order("name")
+    : { data: [] };
 
   return (
     <AppShell>
       <form action={saveLeague} className="panel grid max-w-xl gap-3 p-5">
+        <input name="program_id" type="hidden" value={program?.id ?? ""} />
         <h1 className="section-title">New league</h1>
         <input className="input" name="name" placeholder="League name" required />
         <select className="input" name="season_id">
@@ -31,7 +35,8 @@ export default async function NewLeaguePage() {
           <option value="archived">Archived</option>
         </select>
         <textarea className="input min-h-24" name="notes" placeholder="Notes" />
-        <button className="btn-primary w-fit">Save</button>
+        <button className="btn-primary w-fit" disabled={!program?.id}>Save</button>
+        {!program?.id ? <p className="text-sm text-rose-700">Open this page from a program URL before creating a league.</p> : null}
       </form>
     </AppShell>
   );

@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# ou-soccer-manager
-manage ou soccer
-=======
 # OU Soccer Manager
 
 Production-ready MVP for managing a recurring soccer season with Supabase, Next.js App Router, TypeScript, Tailwind CSS, manual payments, attendance, dropouts/replacements, ledger entries, stats, and WhatsApp paste imports.
@@ -195,4 +191,18 @@ Install Ollama, run `ollama pull qwen2.5:7b`, then restart `npm run dev`. If the
 ## Notes
 
 Payments are manually recorded by admins. Payment writes create ledger entries and audit logs. RLS enforces server/database permissions so client-side role checks are not the only protection.
->>>>>>> 399b4c3 (Initial OU Soccer Manager app)
+
+## Multi-Tenant Architecture
+
+- Platform owners create organizations at `/platform/organizations`.
+- Platform superadmins only manage organizations assigned to them.
+- Public enrollment uses `/{tenantSlug}/signup` or `/{tenantSlug}/{programSlug}/signup` and creates pending memberships.
+- Privileged membership uses single-use `/invite/{token}` links.
+- Global `/login` redirects one-membership users automatically and sends multi-membership users to `/select-context`.
+- The selected program is tenant-bound and remains active across organization-level pages until the user chooses Switch.
+- `program_templates` are global; `programs` remain organization-owned instances.
+- `organization_enabled_programs` controls which templates an organization may instantiate.
+- `program_modules` controls features and write availability inside a program.
+- Public reports use tenant/program-scoped RPCs. Financial values are private unless explicitly enabled.
+
+For a fresh development database, apply migrations through `supabase/migrations/090_import_program_scope.sql`. Existing development databases require migration-history reconciliation first; see [the branch integration notes](docs/develop-main-integration.md). The existing seed command bootstraps its admin as the platform owner; a comprehensive architecture-aware dataset is a separate follow-up.

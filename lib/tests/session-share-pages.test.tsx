@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), profile: vi.fn() }));
+vi.mock("@/lib/tenant-server", () => ({ getRequestTenantSlug: async () => "ou-soccer", getRequestProgramSlug: async () => "football" }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ rpc: mocks.rpc }), getCurrentProfile: mocks.profile }));
 vi.mock("@/components/PublicShell", () => ({ PublicShell: ({ children }: any) => <main>{children}</main> }));
 vi.mock("@/components/TeamBuilder", () => ({ TeamBuilder: () => <div>Team builder</div> }));

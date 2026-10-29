@@ -48,8 +48,30 @@ async function main() {
     player_id: null
   });
   if (error) throw error;
+  await ensurePlatformOwner(adminId);
 
   console.log(`Seed complete. Admin login: ${adminEmail} / ${adminPassword}`);
+}
+
+async function ensurePlatformOwner(adminId: string) {
+  const { data: organization, error: organizationError } = await supabase
+    .from("organizations")
+    .select("id")
+    .eq("slug", "ou-soccer")
+    .single();
+  if (organizationError) throw organizationError;
+  const { error: membershipError } = await supabase.from("organization_members").upsert({
+    organization_id: organization.id,
+    profile_id: adminId,
+    role: "owner",
+    status: "active"
+  }, { onConflict: "organization_id,profile_id" });
+  if (membershipError) throw membershipError;
+  const { error: platformError } = await supabase.from("platform_accounts").upsert({
+    profile_id: adminId,
+    role: "platform_owner"
+  });
+  if (platformError) throw platformError;
 }
 
 async function resolveAdminEmail() {

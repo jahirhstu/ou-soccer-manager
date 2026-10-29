@@ -37,12 +37,13 @@ export async function createSupabaseServerClient() {
 export async function getCurrentProfile(): Promise<any> {
   const supabase = await createSupabaseServerClient();
   const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError) return { authError: authError.message };
   if (!auth.user) return null;
   const { data, error } = await supabase.from("profiles").select("*").eq("id", auth.user.id).maybeSingle();
   if (error) return { authUserEmail: auth.user.email, profileError: error.message };
-  if (data) return withCurrentOrganization(supabase, data, tenantSlug);
+  if (data) return withCurrentOrganization(supabase, data, tenantSlug, programSlug);
 
   const displayName =
     typeof auth.user.user_metadata?.display_name === "string"
@@ -66,62 +67,56 @@ export async function getCurrentProfile(): Promise<any> {
     };
   }
 
-  await supabase.rpc("ensure_default_membership", {
-    p_player_id: null,
-    p_profile_id: auth.user.id,
-    p_role: "player"
-  });
-
-  return withCurrentOrganization(supabase, created, tenantSlug);
+  return withCurrentOrganization(supabase, created, tenantSlug, programSlug);
 }
 
 async function withCurrentOrganization(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   profile: any,
-  tenantSlug: string
+  tenantSlug: string,
+  programSlug: string
 ) {
   let memberQuery = supabase
     .from("organization_members")
     .select(tenantSlug ? "organization_id,role,player_id,organizations!inner(name,slug)" : "organization_id,role,player_id,organizations(name,slug)")
-    .eq("profile_id", profile.id);
+    .eq("profile_id", profile.id)
+    .eq("status", "active");
 
   if (tenantSlug) memberQuery = memberQuery.eq("organizations.slug", tenantSlug);
 
   let { data: member } = await memberQuery.order("created_at").limit(1).maybeSingle();
 
   if (!member && tenantSlug) {
-    const { data: fallbackMember } = await supabase
-      .from("organization_members")
-      .select("organization_id,role,player_id,organizations(name,slug)")
-      .eq("profile_id", profile.id)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
-    member = fallbackMember;
+    const { data: organization } = await supabase.from("organizations").select("id,name,slug").eq("slug", tenantSlug).maybeSingle();
+    if (organization) {
+      const { data: platformAccess } = await supabase.rpc("has_platform_organization_access", { p_organization_id: organization.id });
+      if (platformAccess === true) member = {
+        organization_id: organization.id,
+        role: "admin",
+        player_id: null,
+        organizations: organization
+      } as any;
+    }
   }
 
-  if (!member) {
-    await supabase.rpc("ensure_default_membership", {
-      p_player_id: profile.player_id,
-      p_profile_id: profile.id,
-      p_role: profile.role ?? "player"
-    });
-    const { data: createdMember } = await supabase
-      .from("organization_members")
-      .select("organization_id,role,player_id,organizations(name,slug)")
-      .eq("profile_id", profile.id)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
-    return attachOrganization(profile, createdMember);
-  }
-
-  return attachOrganization(profile, member);
+  const attached = attachOrganization(profile, member);
+  if (!programSlug || !attached.organization_id) return attached;
+  const { data: programMembership } = await supabase
+    .from("program_members")
+    .select("role,programs!inner(slug)")
+    .eq("profile_id", profile.id)
+    .eq("organization_id", attached.organization_id)
+    .eq("status", "active")
+    .eq("programs.slug", programSlug)
+    .maybeSingle();
+  if (!programMembership || attached.role === "admin") return attached;
+  const programRole = programMembership.role === "manager" ? "admin" : programMembership.role === "member" ? "player" : programMembership.role;
+  return { ...attached, role: programRole, program_role: programMembership.role };
 }
 
 function attachOrganization(profile: any, member: any) {
   const organization = Array.isArray(member?.organizations) ? member.organizations[0] : member?.organizations;
-  const role = profile.role === "admin" ? "admin" : member?.role === "owner" ? "admin" : member?.role ?? profile.role;
+  const role = member?.role === "owner" ? "admin" : member?.role ?? "player";
   return {
     ...profile,
     role,

@@ -4,12 +4,15 @@ import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
-import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
 
 export default async function LeaguesPage() {
   const supabase = await createSupabaseServerClient();
+  const program = await getCurrentProgram();
+  let leaguesQuery = supabase.from("leagues").select("*,league_teams(id),league_matches(id)").order("created_at", { ascending: false });
+  if (program?.id) leaguesQuery = leaguesQuery.eq("program_id", program.id);
   const [{ data: leagues }, profile] = await Promise.all([
-    supabase.from("leagues").select("*,league_teams(id),league_matches(id)").order("created_at", { ascending: false }),
+    leaguesQuery,
     getCurrentProfile()
   ]);
   const canManage = hasPermission(profile?.role, "manage_all");

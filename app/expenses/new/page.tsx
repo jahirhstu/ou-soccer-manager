@@ -19,7 +19,7 @@ export default async function NewExpensePage() {
   const [{ data: seasons }, { data: sessions }, { data: programs }] = await Promise.all([
     seasonsQuery,
     sessionsQuery,
-    supabase.from("programs").select("*").eq("status", "active").order("name")
+    supabase.from("programs").select("*").eq("id", currentProgram?.id ?? "").eq("status", "active")
   ]);
 
   return (

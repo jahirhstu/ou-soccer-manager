@@ -1,3 +1,4 @@
+vi.mock("../tenant-server", () => ({ getScopedPath: async (path: string) => `/club/soccer${path}` }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), getCurrentProfile: vi.fn(), revalidatePath: vi.fn(), redirect: vi.fn() }));
@@ -31,8 +32,8 @@ describe("carryForwardPlayerBalance", () => {
       p_player_id: playerId, p_source_season_id: sourceId, p_destination_season_id: destinationId,
       p_amount: amount, p_submission_id: submissionId, p_transfer_kind: "credit"
     }));
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
-    expect(mocks.redirect).toHaveBeenCalledWith("/payments?success=transfer_saved");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/club/soccer/dashboard");
+    expect(mocks.redirect).toHaveBeenCalledWith("/club/soccer/payments?success=transfer_saved");
   });
 
   it("preserves the submission ID on retry", async () => {

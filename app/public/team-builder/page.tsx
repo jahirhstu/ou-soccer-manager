@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 
 type PublicSessionRow = {
   id: string;
@@ -9,7 +10,9 @@ type PublicSessionRow = {
 
 export default async function PublicTeamBuilderRedirectPage() {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.rpc("public_sessions");
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
+  const { data } = await supabase.rpc("scoped_public_sessions", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null });
   const sessions = ((data ?? []) as PublicSessionRow[]).filter((session) => session.status !== "cancelled");
   const today = currentTorontoDate();
   const upcoming = sessions

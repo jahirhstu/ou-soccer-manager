@@ -1,3 +1,4 @@
+vi.mock("../tenant-server", () => ({ getScopedPath: async (path: string) => `/club/soccer${path}` }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), getCurrentProfile: vi.fn(), revalidatePath: vi.fn(), redirect: vi.fn() }));
@@ -32,8 +33,8 @@ describe("club balance transfer actions", () => {
       p_source_season_id: source, p_destination_season_id: destination,
       p_amount: amount, p_submission_id: submission
     }));
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
-    expect(mocks.redirect).toHaveBeenCalledWith(`/dashboard?season=${source}&success=club_transfer_saved`);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/club/soccer/dashboard");
+    expect(mocks.redirect).toHaveBeenCalledWith(`/club/soccer/dashboard?season=${source}&success=club_transfer_saved`);
   });
 
   it("returns database rejections and requires admin confirmation", async () => {
@@ -53,6 +54,6 @@ describe("club balance transfer actions", () => {
     expect(mocks.rpc).toHaveBeenCalledWith("reverse_club_balance_transfer", {
       p_transfer_id: transferId, p_submission_id: submission
     });
-    expect(mocks.redirect).toHaveBeenCalledWith(`/dashboard?season=${source}&success=club_transfer_reversed`);
+    expect(mocks.redirect).toHaveBeenCalledWith(`/club/soccer/dashboard?season=${source}&success=club_transfer_reversed`);
   });
 });

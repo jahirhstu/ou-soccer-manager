@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "OU Sports",
+    "slug": "ou-participant",
+    "scheme": "ou-participant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ousoccer.participant"
+    },
+    "android": {
+      "package": "com.ousoccer.participant"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose your player photo.",
+          "cameraPermission": "Take your player photo.",
+          "microphonePermission": false
+        }
+      ]
+    ]
+  }
+}

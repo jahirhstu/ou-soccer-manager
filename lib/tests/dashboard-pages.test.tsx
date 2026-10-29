@@ -31,7 +31,7 @@ beforeEach(() => {
   mocks.tenant.mockResolvedValue("ou-soccer"); mocks.program.mockResolvedValue("football");
   mocks.rpc.mockImplementation(async (name, args) => {
     if (name === "public_report_season") return { data: [{ season_id: "summer", season_name: "Summer" }], error: null };
-    if (name === "public_player_report") return { data: reportRows, error: null };
+    if (["scoped_public_player_report", "internal_scoped_player_report"].includes(name)) return { data: reportRows, error: null };
     if (name === "admin_dashboard_season_finance") return { data: [{ signup_collected: 120, drop_in_collected: 24, total_collected: 144, total_expenses: 20, total_refunded: 12, club_balance: 112, total_player_credit: 25, net_club_balance: 87, total_waived: args.p_season_id === "summer" ? 48 : 0, player_count: 2 }], error: null };
     if (name === "admin_club_transfer_summary") return { data: [{ season_result: 87, carried_in: 0, carried_out: 0, balance_remaining: 87 }], error: null };
     return { data: [], error: null };
@@ -75,8 +75,8 @@ describe("public active-season report", () => {
     const html = renderToStaticMarkup(await PublicReport({ searchParams: Promise.resolve({ season: "fall" }) }));
     expect(html).toContain("Laith"); expect(html).not.toContain("Zayan");
     expect(html).not.toContain('name="season"');
-    for (const name of ["public_dashboard_highlights", "public_longest_winning_streaks", "public_latest_winning_streaks"]) {
-      expect(mocks.rpc).toHaveBeenCalledWith(name, { p_season_id: "summer" });
+    for (const name of ["scoped_public_dashboard_highlights", "scoped_public_longest_winning_streaks", "scoped_public_latest_winning_streaks"]) {
+      expect(mocks.rpc).toHaveBeenCalledWith(name, { p_organization_slug: "ou-soccer", p_program_slug: "football", p_season_id: "summer" });
     }
   });
 
@@ -90,7 +90,7 @@ describe("public active-season report", () => {
     mocks.rpc.mockResolvedValue({ data: [], error: null });
     const html = renderToStaticMarkup(await PublicReport({ searchParams: Promise.resolve({}) }));
     expect(html).toContain("No seasons configured");
-    expect(mocks.rpc).not.toHaveBeenCalledWith("public_dashboard_highlights", expect.anything());
-    expect(mocks.rpc).not.toHaveBeenCalledWith("public_player_report");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("scoped_public_dashboard_highlights", expect.anything());
+    expect(mocks.rpc).not.toHaveBeenCalledWith("scoped_public_player_report", expect.anything());
   });
 });

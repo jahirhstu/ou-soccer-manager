@@ -5,8 +5,8 @@ import { PaymentSentButton } from "@/components/PaymentSentButton";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberDesc, compareText, numberValue } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
-import { cn, money } from "@/lib/utils";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
+import { cn, money } from "@/lib/utils";
 
 type PublicPlayerReportRow = {
   player_id: string;
@@ -68,7 +68,7 @@ export default async function PublicPlayerReportPage({
   const supabase = await createSupabaseServerClient();
   const [tenantSlug, programSlug] = await Promise.all([getRequestTenantSlug(), getRequestProgramSlug()]);
   const { data: reportSeasons, error: seasonError } = await supabase.rpc("public_report_season", {
-    p_organization_slug: tenantSlug || "ou-soccer",
+    p_organization_slug: tenantSlug,
     p_program_slug: programSlug || null
   });
   if (seasonError) throw new Error(seasonError.message);
@@ -83,11 +83,11 @@ export default async function PublicPlayerReportPage({
     { data: notificationKeys },
     profile
   ] = await Promise.all([
-    seasonId ? supabase.rpc("public_player_report") : emptyResult,
-    seasonId ? supabase.rpc("public_dashboard_highlights", { p_season_id: seasonId }) : emptyResult,
-    seasonId ? supabase.rpc("public_longest_winning_streaks", { p_season_id: seasonId }) : emptyResult,
-    seasonId ? supabase.rpc("public_latest_winning_streaks", { p_season_id: seasonId }) : emptyResult,
-    seasonId ? supabase.rpc("public_payment_notification_keys") : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_player_report", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }) : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_dashboard_highlights", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_longest_winning_streaks", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_latest_winning_streaks", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_payment_notification_keys", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }) : emptyResult,
     getCurrentProfile()
   ]);
   const rows = sortRows(((data ?? []) as PublicPlayerReportRow[]).filter((row) => {
@@ -95,6 +95,8 @@ export default async function PublicPlayerReportPage({
     if (row.season_id !== seasonId) return false;
     return true;
   }), sortKey(filters.sort));
+  const showBalances = ((data ?? []) as PublicPlayerReportRow[]).some((row) => row.balance_amount != null);
+  const showPayments = ((data ?? []) as PublicPlayerReportRow[]).some((row) => row.total_paid_amount != null);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
   const highlights = ((highlightsData ?? []) as PublicHighlightRow[]).reduce((map, row) => map.set(row.metric, row), new Map<PublicHighlightRow["metric"], PublicHighlightRow>());
   const topScorer = highlights.get("top_scorer");
@@ -184,9 +186,9 @@ export default async function PublicPlayerReportPage({
                     <p className="mt-1 truncate text-xs font-medium text-slate-500">{row.season_name ?? "Season"}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                    <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
+                    {showBalances ? <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", status.badgeClass)}>
                       {status.label}
-                    </span>
+                    </span> : null}
                     {owedAmount > 0 ? (
                       <PaymentSentButton
                         amount={money(owedAmount)}
@@ -198,14 +200,14 @@ export default async function PublicPlayerReportPage({
                     ) : null}
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <StatBox label="Balance" value={money(Math.abs(numberValue(row.balance_amount)))} tone={status.tone} />
+                <div className={cn("mt-4 grid gap-2", showBalances ? "grid-cols-3" : "grid-cols-2")}>
+                  {showBalances ? <StatBox label="Balance" value={money(Math.abs(numberValue(row.balance_amount)))} tone={status.tone} /> : null}
                   <StatBox label="Goals" value={String(row.goals ?? 0)} />
                   <StatBox label="Assists" value={String(row.assists ?? 0)} />
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                  <MiniMetric label="Paid" value={money(numberValue(row.total_paid_amount))} />
-                  <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} />
+                  {showPayments ? <MiniMetric label="Paid" value={money(numberValue(row.total_paid_amount))} /> : null}
+                  {showBalances ? <MiniMetric label="Used" value={money(numberValue(row.estimated_used_amount))} /> : null}
                   <MiniMetric label="Played" value={String(row.appearances ?? row.total_played_sessions ?? 0)} />
                   <MiniMetric label="Confirmed" value={String(numberValue(row.confirmed_sessions))} />
                 </div>

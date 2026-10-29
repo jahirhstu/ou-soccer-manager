@@ -4,6 +4,7 @@ import { GoalsAssistsShareImage, type GoalsAssistsRow } from "@/components/Goals
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), pathname: "/public/goals-assists", shares: [] as any[] }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ rpc: mocks.rpc }) }));
+vi.mock("@/lib/tenant-server", () => ({ getRequestTenantSlug: async () => "ou-soccer", getRequestProgramSlug: async () => "football" }));
 vi.mock("@/components/PublicShell", () => ({ PublicShell: ({ children }: any) => <main>{children}</main> }));
 vi.mock("@/components/ImageShareButton", () => ({ ImageShareButton: (props: any) => { mocks.shares.push(props); return <div data-share-export><button>{props.label}</button>{props.children}</div>; } }));
 vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }));
@@ -15,7 +16,7 @@ const makeRow = (player_name: string, season_id = "fall", goals = 4): GoalsAssis
 beforeEach(() => {
   mocks.shares.length = 0;
   mocks.pathname = "/public/goals-assists";
-  mocks.rpc.mockImplementation(async (name: string) => name === "public_sessions" ? { data: [{ id: "session", name: "Sunday football", session_date: "2026-10-04", season_name: "Fall 2026" }], error: null } : { data: [makeRow("Jahir"), makeRow("Shaiful", "fall", 6), makeRow("Jahir", "summer", 8)], error: null });
+  mocks.rpc.mockImplementation(async (name: string) => name === "scoped_public_sessions" ? { data: [{ id: "session", name: "Sunday football", session_date: "2026-10-04", season_name: "Fall 2026" }], error: null } : { data: [makeRow("Jahir"), makeRow("Shaiful", "fall", 6), makeRow("Jahir", "summer", 8)], error: null });
 });
 
 describe("Goals & Assists admin navigation", () => {
@@ -36,7 +37,7 @@ describe("Goals & Assists admin navigation", () => {
 describe("filtered Goals & Assists sharing", () => {
   it("shares only applied player/season results and includes all metrics and filter context", async () => {
     const html = renderToStaticMarkup(await GoalsAssistsPage({ searchParams: Promise.resolve({ player: "JAH", season: "fall", session: "session" }) }));
-    expect(mocks.rpc).toHaveBeenCalledWith("public_goals_assists", { p_session_id: "session" });
+    expect(mocks.rpc).toHaveBeenCalledWith("scoped_public_goals_assists", { p_organization_slug: "ou-soccer", p_program_slug: "football", p_session_id: "session" });
     expect(mocks.shares).toHaveLength(1);
     const share = mocks.shares[0];
     expect(share.children.props.rows).toEqual([makeRow("Jahir")]);
@@ -53,7 +54,7 @@ describe("filtered Goals & Assists sharing", () => {
   });
   it("shares every unfiltered row in the existing report order", async () => {
     renderToStaticMarkup(await GoalsAssistsPage({ searchParams: Promise.resolve({}) }));
-    expect(mocks.rpc).toHaveBeenCalledWith("public_goals_assists", { p_session_id: null });
+    expect(mocks.rpc).toHaveBeenCalledWith("scoped_public_goals_assists", { p_organization_slug: "ou-soccer", p_program_slug: "football", p_session_id: null });
     expect(mocks.shares[0].children.props.rows.map((row: GoalsAssistsRow) => `${row.player_name}:${row.season_id}`)).toEqual(["Jahir:summer", "Shaiful:fall", "Jahir:fall"]);
     expect(mocks.shares[0].children.props.seasonLabel).toBe("All seasons");
     expect(mocks.shares[0].children.props.sessionLabel).toBe("All sessions");

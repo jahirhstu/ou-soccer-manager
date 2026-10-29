@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getScopedPath } from "../tenant-server";
 import { z } from "zod";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
@@ -42,10 +43,16 @@ export async function recordPlayerRefund(_state: RefundActionState, formData: Fo
   if (error) return { error: error.message };
 
   revalidatePath("/payments");
+  revalidatePath(await getScopedPath("/payments"));
   revalidatePath("/reports/payments");
+  revalidatePath(await getScopedPath("/reports/payments"));
   revalidatePath("/dashboard");
+  revalidatePath(await getScopedPath("/dashboard"));
   revalidatePath("/public/report");
+  revalidatePath(await getScopedPath("/public/report"));
   revalidatePath(`/players/${parsed.data.player_id}`);
+  revalidatePath(await getScopedPath(`/players/${parsed.data.player_id}`));
   revalidatePath(`/seasons/${parsed.data.season_id}`);
-  redirect("/payments?success=refund_saved");
+  revalidatePath(await getScopedPath(`/seasons/${parsed.data.season_id}`));
+  redirect(await getScopedPath("/payments?success=refund_saved"));
 }

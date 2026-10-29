@@ -4,9 +4,9 @@ import { BarChart3, LogOut, Menu } from "lucide-react";
 import { AdminNav } from "@/components/AdminNav";
 import { PublicNav } from "@/components/PublicNav";
 import { logoutAction } from "@/lib/actions/auth";
-import { getCurrentProfile } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { tenantPath } from "@/lib/tenant";
-import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
+import { getActiveProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import type { UserRole } from "@/lib/types";
 
 export async function PublicShell({
@@ -20,7 +20,12 @@ export async function PublicShell({
 }) {
   const profile = await getCurrentProfile();
   const tenantSlug = await getRequestTenantSlug();
-  const programSlug = await getRequestProgramSlug();
+  const programSlug = await getActiveProgramSlug();
+  const supabase = await createSupabaseServerClient();
+  const { data: modules } = programSlug
+    ? await supabase.rpc("scoped_public_modules", { p_organization_slug: tenantSlug, p_program_slug: programSlug })
+    : { data: null };
+  const enabledModules = modules ?? null;
   const isLoggedIn = profile?.role === "admin" || profile?.role === "captain" || profile?.role === "player";
   const useAppNav = profile?.role === "admin" || profile?.role === "captain";
   const homeHref = tenantPath(roleHomeHref(profile?.role), tenantSlug, programSlug);
@@ -45,7 +50,7 @@ export async function PublicShell({
               </button>
             </form>
           ) : (
-            <Link className="btn-primary min-h-9 px-3 text-xs sm:text-sm" href={tenantPath("/login", tenantSlug, programSlug)}>
+            <Link className="btn-primary min-h-9 px-3 text-xs sm:text-sm" href="/login">
               Login
             </Link>
           )}
@@ -61,7 +66,7 @@ export async function PublicShell({
             <span className="text-xs font-medium text-slate-500 group-open:hidden">Open</span>
             <span className="hidden text-xs font-medium text-slate-500 group-open:inline">Close</span>
           </summary>
-          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} />}
+          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />}
         </details>
         <aside className="panel hidden p-2 md:sticky md:top-20 md:block md:self-start">
           {!useAppNav ? (
@@ -70,7 +75,7 @@ export async function PublicShell({
               Report Gallery
             </div>
           ) : null}
-          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} />}
+          {useAppNav ? <AdminNav role={profile.role} tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} /> : <PublicNav tenantSlug={tenantSlug} programSlug={programSlug} enabledModules={enabledModules} />}
         </aside>
         <main className="min-w-0">{children}</main>
       </div>

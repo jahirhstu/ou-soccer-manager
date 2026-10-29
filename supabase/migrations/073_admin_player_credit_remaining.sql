@@ -138,4 +138,3 @@ comment on view public.player_available_credit_summary is
 
 comment on function public.admin_total_player_credit_remaining(uuid) is
   'Sums positive player credit without allowing balances owed by other players to reduce the total.';
-

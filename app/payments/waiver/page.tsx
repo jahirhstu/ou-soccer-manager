@@ -16,7 +16,7 @@ export default async function RecordWaiverPage() {
     seasonsQuery,
     supabase.from("players").select("*").order("display_name"),
     sessionsQuery,
-    supabase.from("programs").select("*").eq("status", "active").order("name")
+    supabase.from("programs").select("*").eq("id", currentProgram?.id ?? "").eq("status", "active")
   ]);
 
   return (

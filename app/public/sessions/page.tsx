@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
 import { compareNumberAsc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { money } from "@/lib/utils";
 
 type PublicSessionRow = {
@@ -28,8 +29,10 @@ export default async function PublicSessionsPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
+  const tenantSlug = await getRequestTenantSlug();
+  const programSlug = await getRequestProgramSlug();
   const [{ data, error }, profile] = await Promise.all([
-    supabase.rpc("public_sessions"),
+    supabase.rpc("scoped_public_sessions", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }),
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");

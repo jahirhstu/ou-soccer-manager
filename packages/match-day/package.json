@@ -1,0 +1,25 @@
+{
+  "name": "@ou/match-day",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo-crypto": "~58.0.7",
+    "lucide-react-native": "^1.61.0",
+    "@ou/contracts": "workspace:*",
+    "@ou/mobile-core": "workspace:*",
+    "@ou/mobile-ui": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-native": "0.88.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~5.9.2"
+  }
+}

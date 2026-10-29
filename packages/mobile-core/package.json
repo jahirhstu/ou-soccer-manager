@@ -1,0 +1,25 @@
+{
+  "name": "@ou/mobile-core",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ou/mobile-ui": "workspace:*",
+    "@ou/contracts": "workspace:*",
+    "@supabase/supabase-js": "^2.46.1",
+    "expo-secure-store": "~58.0.2",
+    "expo-linking": "~58.0.14"
+  },
+  "peerDependencies": {
+    "react": "19.3.0",
+    "react-native": "0.88.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~5.9.2"
+  }
+}

@@ -6,9 +6,8 @@ const optionalNumber = z.preprocess(
 );
 
 export const programSchema = z.object({
+  program_template_id: z.string().uuid(),
   name: z.string().min(2),
-  category: z.enum(["sport", "event", "social", "generic"]).default("sport"),
-  activity_type: z.string().min(2),
   status: z.enum(["active", "archived"]).default("active"),
   notes: z.string().optional().nullable()
 });
@@ -85,6 +84,7 @@ export const attendanceSchema = z.object({
 });
 
 export const leagueSchema = z.object({
+  program_id: z.string().uuid(),
   season_id: z.preprocess((value) => (value === "" || value == null ? undefined : value), z.string().uuid().optional()),
   name: z.string().min(2),
   status: z.enum(["draft", "active", "completed", "archived"]).default("draft"),
