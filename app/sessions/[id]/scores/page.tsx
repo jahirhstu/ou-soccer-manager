@@ -9,7 +9,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   const supabase = await createSupabaseServerClient();
   const profile = await getCurrentProfile();
   const canEdit = hasPermission(profile?.role, "manage_attendance");
-  const [{ data: session }, { data: teams }, { data: matches }, { data: goals }] = await Promise.all([
+  const [{ data: session }, { data: teams }, { data: matches }, { data: goals }, { data: performance }] = await Promise.all([
     supabase.from("sessions").select("id,name,session_date,start_time,end_time,status").eq("id", id).single(),
     supabase
       .from("session_teams")
@@ -23,9 +23,10 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
       .order("match_number"),
     supabase
       .from("goals")
-      .select("id,match_id,scorer_id,assist_player_id,goal_type,goal_count")
+      .select("id,match_id,scorer_id,assist_player_id,conceded_goalkeeper_id,goal_type,goal_count")
       .eq("session_id", id)
-      .not("match_id", "is", null)
+      .not("match_id", "is", null),
+    supabase.rpc("session_performance", { p_session_id: id })
   ]);
   const readOnly = isSessionScoreReadOnly(profile?.role, session, currentTorontoDate());
   const teamOptions = (teams ?? []).map((team: any) => ({
@@ -55,6 +56,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,
+      concededGoalkeeperId: goal.conceded_goalkeeper_id ?? "",
       assistPlayerId: goal.assist_player_id ?? "",
       goalType: goal.goal_type === "own_goal" ? "own_goal" as const : "goal" as const,
       goalCount: goal.goal_count ?? 1
@@ -64,6 +66,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
   return (
     <AppShell>
       <div className="grid gap-5">
+        <Link className="btn-secondary justify-self-start" href={`/sessions/${id}/performance`}>Match positions and performance</Link>
         {!canEdit ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Only captains and admins can edit game scores.</div>
         ) : teamOptions.length < 2 ? (
@@ -76,6 +79,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
         ) : (
           <MiniGameScoresForm
             existingGames={existingGames}
+            positions={performance?.positions ?? []}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason="Scores are read-only because this session is completed or past its date."

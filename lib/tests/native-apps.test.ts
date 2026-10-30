@@ -47,6 +47,28 @@ async function operationsSession() {
   return id;
 }
 
+it("handles an empty pooled authorization context when renaming and assigning teams", async () => {
+  await asUser("owner", async () => {
+    const sessionId = await operationsSession();
+    await q("select set_config('app.authorized_program_id','',true)");
+    await q("select organization_role(organization_id) from sessions where id=$1", [sessionId]);
+    const teams = [{ id: "", name: "Team Sadat", captainPlayerId: "", playerIds: [player] },
+      { id: "", name: "Team 2", captainPlayerId: "", playerIds: [] }];
+    await q("select save_program_team_builder_draft($1,$2,7,'manual',0,'[]',0)", [sessionId, JSON.stringify(teams)]);
+    await q("select save_program_team_builder($1,$2,7)", [sessionId, JSON.stringify(teams)]);
+    const saved = await q("select id,name from session_teams where session_id=$1 order by name", [sessionId]);
+    expect(saved.map((t) => t.name)).toEqual(["Team 2", "Team Sadat"]);
+    expect((await q("select session_team_id from session_team_players where session_id=$1 and player_id=$2", [sessionId, player]))[0].session_team_id).toBe(saved[1].id);
+    await q("select set_config('app.authorized_program_id','',true)");
+    await q("select save_program_team_builder($1,$2,7)", [sessionId, JSON.stringify([
+      { ...teams[0], id: saved[1].id, name: "Team Renamed", playerIds: [] },
+      { ...teams[1], id: saved[0].id, playerIds: [player] },
+    ])]);
+    expect((await q("select session_team_id from session_team_players where session_id=$1 and player_id=$2", [sessionId, player]))[0].session_team_id).toBe(saved[0].id);
+    expect((await q("select name from session_teams where id=$1", [saved[1].id]))[0].name).toBe("Team Renamed");
+  });
+});
+
 it("generates alternating fixtures atomically and protects duplicate submissions", async () => {
   await asUser("owner", async () => {
     const sessionId = await operationsSession();

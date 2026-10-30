@@ -7,6 +7,7 @@ import { requireEnabledProgramModule } from "../program-access";
 
 type MiniGameGoalInput = {
   scorerId?: string;
+  concededGoalkeeperId?: string;
   assistPlayerId?: string;
   goalCount?: number;
   goalType?: "goal" | "own_goal";
@@ -59,110 +60,11 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError };
 
-    const seenMatchNumbers = new Set<number>();
-    const requestedMatchNumbers = games
-      .map((game) => Number(game.matchNumber))
-      .filter((matchNumber) => Number.isFinite(matchNumber) && matchNumber > 0);
-
-    const { data: existingMatches, error: existingError } = await supabase
-      .from("session_matches")
-      .select("id,match_number")
-      .eq("session_id", sessionId);
-    if (existingError) throw new Error(existingError.message);
-
-    const { data: teamPlayers, error: teamPlayersError } = await supabase
-      .from("session_team_players")
-      .select("session_team_id,player_id")
-      .eq("session_id", sessionId);
-    if (teamPlayersError) throw new Error(teamPlayersError.message);
-
-    const playerTeamIds = new Map((teamPlayers ?? []).map((row) => [String(row.player_id), String(row.session_team_id)]));
-    let savedGames = 0;
-
-    const { error: orphanGoalError } = await supabase
-      .from("goals")
-      .delete()
-      .eq("session_id", sessionId)
-      .is("match_id", null)
-      .is("session_team_id", null);
-    if (orphanGoalError) throw new Error(orphanGoalError.message);
-
-    const removedMatchIds = (existingMatches ?? [])
-      .filter((match) => !requestedMatchNumbers.includes(Number(match.match_number)))
-      .map((match) => match.id);
-    if (removedMatchIds.length) {
-      const { error: deleteGoalError } = await supabase.from("goals").delete().in("match_id", removedMatchIds);
-      if (deleteGoalError) throw new Error(deleteGoalError.message);
-      const { error: deleteMatchError } = await supabase.from("session_matches").delete().in("id", removedMatchIds);
-      if (deleteMatchError) throw new Error(deleteMatchError.message);
-    }
-
-    for (const game of games) {
-      const matchNumber = Number(game.matchNumber);
-      if (!Number.isFinite(matchNumber) || matchNumber <= 0) continue;
-      if (!game.teamAId || !game.teamBId || game.teamAId === game.teamBId) continue;
-      if (seenMatchNumbers.has(matchNumber)) continue;
-      seenMatchNumbers.add(matchNumber);
-      const awayTeamId = game.awayTeamId === game.teamAId || game.awayTeamId === game.teamBId ? game.awayTeamId : null;
-
-      const normalizedGoals = normalizeMiniGameGoals(game, playerTeamIds);
-      const resultStatus = game.resultStatus === "played" || normalizedGoals.length > 0 ? "played" : "scheduled";
-      const teamAScore = normalizedGoals
-        .filter((goal) => goal.session_team_id === game.teamAId)
-        .reduce((total, goal) => total + goal.goal_count, 0);
-      const teamBScore = normalizedGoals
-        .filter((goal) => goal.session_team_id === game.teamBId)
-        .reduce((total, goal) => total + goal.goal_count, 0);
-
-      const { data: match, error } = await supabase
-        .from("session_matches")
-        .upsert(
-          {
-            session_id: sessionId,
-            match_number: matchNumber,
-            display_order: Number.isFinite(Number(game.displayOrder)) && Number(game.displayOrder) > 0 ? Number(game.displayOrder) : matchNumber,
-            match_type: game.matchType === "final" ? "final" : "regular",
-            team_a_id: game.teamAId,
-            team_b_id: game.teamBId,
-            team_a_source: game.teamASource === "standings_rank_1" ? "standings_rank_1" : null,
-            team_b_source: game.teamBSource === "standings_rank_2" ? "standings_rank_2" : null,
-            away_team_id: awayTeamId,
-            scheduled_start_time: validTimeOrNull(game.scheduledStartTime),
-            scheduled_end_time: validTimeOrNull(game.scheduledEndTime),
-            result_status: resultStatus,
-            team_a_score: teamAScore,
-            team_b_score: teamBScore,
-            created_by: profile.id
-          },
-          { onConflict: "session_id,match_number" }
-        )
-        .select("id")
-        .single();
-      if (error) throw new Error(error.message);
-
-      const { error: deleteError } = await supabase.from("goals").delete().eq("session_id", sessionId).eq("match_id", match.id);
-      if (deleteError) throw new Error(deleteError.message);
-
-      const goalRows = normalizedGoals
-        .map((goal) => ({
-          session_id: sessionId,
-          match_id: match.id,
-          scorer_id: goal.scorerId,
-          assist_player_id: goal.assist_player_id,
-          session_team_id: goal.session_team_id,
-          goal_type: goal.goal_type,
-          goal_count: goal.goal_count,
-          notes: goal.goal_type === "own_goal" ? "Own goal" : null,
-          created_by: profile.id
-        }));
-      if (goalRows.length) {
-        const { error: goalError } = await supabase.from("goals").insert(goalRows);
-        if (goalError) throw new Error(goalError.message);
-      }
-      savedGames += 1;
-    }
-
-    if (!savedGames) return { error: "No valid games were saved. Select two different teams for at least one game." };
+    const { data, error } = await supabase.rpc("save_program_game_scores", {
+      p_session_id: sessionId, p_games: games
+    });
+    if (error) throw new Error(error.message);
+    if (data?.error) return { error: String(data.error) };
 
     revalidateSessionViews(sessionId);
     return { success: true, message: "Game scores saved." };

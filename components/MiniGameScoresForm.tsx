@@ -32,6 +32,7 @@ export type MatchInput = {
 
 type GoalInput = {
   key: string;
+  concededGoalkeeperId?: string;
   scorerId: string;
   assistPlayerId: string;
   goalType: "goal" | "own_goal";
@@ -46,7 +47,8 @@ export function MiniGameScoresForm({
   saveAction = saveMiniGameScores,
   sessionId,
   sessionLabel = "Session",
-  teams
+  teams,
+  positions = []
 }: {
   existingGames: MatchInput[];
   heading?: string;
@@ -56,6 +58,7 @@ export function MiniGameScoresForm({
   sessionId: string;
   sessionLabel?: string;
   teams: TeamOption[];
+  positions?: Array<{ match_id: string; player_id: string; session_team_id: string; position: string | null; participated: boolean }>;
 }) {
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -88,6 +91,7 @@ export function MiniGameScoresForm({
       .filter((goal) => goal.scorerId)
       .map((goal) => ({
         scorerId: goal.scorerId,
+        concededGoalkeeperId: goal.concededGoalkeeperId || undefined,
         assistPlayerId: goal.goalType === "own_goal" ? undefined : goal.assistPlayerId || undefined,
         sessionTeamId: inferScoringTeamId(goal, game, teamByPlayer),
         goalCount: goal.goalCount,
@@ -320,21 +324,32 @@ export function MiniGameScoresForm({
                 </div>
                 {game.goals.map((goal) => {
                   const scorerTeamId = teamByPlayer.get(goal.scorerId) ?? "";
+                  const keeperOptions = (scorerId: string, type: GoalInput["goalType"]) => {
+                    const scoringTeam = teamByPlayer.get(scorerId);
+                    const concededTeam = type === "own_goal" ? scoringTeam : scoringTeam === game.teamAId ? game.teamBId : game.teamAId;
+                    const ids = new Set(positions.filter((p) => p.match_id === game.key && p.session_team_id === concededTeam && p.position === "goalkeeper" && p.participated).map((p) => p.player_id));
+                    return selectablePlayers.filter((p) => ids.has(p.id));
+                  };
+                  const suggestKeeper = (scorer: string, type: GoalInput["goalType"]) => {
+                    const options = keeperOptions(scorer, type);
+                    return options.length === 1 ? options[0].id : "";
+                  };
                   const assistPlayers = goal.scorerId && scorerTeamId ? playersForTeam(playersByTeam, scorerTeamId) : selectablePlayers;
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
                       <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
-                        <GoalTypeSelect disabled={readOnly} onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
+                        <GoalTypeSelect disabled={readOnly} onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, concededGoalkeeperId: suggestKeeper(goal.scorerId, value), assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
                         <PlayerSelect
                           disabled={readOnly || !game.teamAId || !game.teamBId}
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
-                          onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, assistPlayerId: "" })}
+                          onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, assistPlayerId: "", concededGoalkeeperId: suggestKeeper(value, goal.goalType) })}
                           players={selectablePlayers}
                           value={goal.scorerId}
                         />
                         <PlayerSelect disabled={readOnly || goal.goalType === "own_goal"} label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={assistPlayers} value={goal.assistPlayerId} optional />
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
+                        <PlayerSelect disabled={readOnly} label="Goalkeeper conceded" players={keeperOptions(goal.scorerId, goal.goalType)} value={goal.concededGoalkeeperId ?? ""} onChange={(value) => updateGoal(game.key, goal.key, { concededGoalkeeperId: value })} />
                         <label className="grid w-20 shrink-0 gap-1 text-xs font-semibold uppercase text-slate-500">
                           Count
                           <input className="input min-h-9 w-full px-2 text-center text-sm font-semibold disabled:bg-slate-100 disabled:text-slate-400" disabled={readOnly} min="1" onChange={(event) => updateGoal(game.key, goal.key, { goalCount: Number(event.target.value) })} type="number" value={goal.goalCount} />
