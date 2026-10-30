@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+vi.mock("@/components/PerformanceOverview", () => ({ PerformanceOverview: () => <section>Player performance</section> }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn(), replace: vi.fn(), tenant: vi.fn(), program: vi.fn() }));

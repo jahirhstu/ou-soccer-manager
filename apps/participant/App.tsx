@@ -7,7 +7,7 @@ import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { AccountGate, MobileProvider, ProgramContext, RecordPreview, Records, saveProfilePhoto, useMobile, WorkspaceMenu } from "@ou/mobile-core";
-import { MatchDay, SessionOperations } from "@ou/match-day";
+import { MatchDay, SessionOperations, PerformanceHub } from "@ou/match-day";
 import { accountLoadError, type Resource } from "@ou/contracts";
 import { Avatar, Badge, BottomTabs, Button, Columns, Row, Screen, Section, Segments, Shortcuts, colors, styles, type TabItem } from "@ou/mobile-ui";
 
@@ -34,6 +34,7 @@ function ParticipantWorkspace() {
   const [finance, setFinance] = useState("myBalances");
   const [session, setSession] = useState<string | null>(null);
   const [operations, setOperations] = useState(false);
+  const [performance, setPerformance] = useState(false);
   const items: TabItem[] = [{ key: "home", label: "Home" },
     ...(workspace!.modules.activities !== false ? [{ key: "sessions" as const, label: "Sessions" }] : []),
     ...(workspace!.modules.scores !== false ? [{ key: "statistics" as const, label: "Statistics" }] : []),
@@ -41,13 +42,14 @@ function ParticipantWorkspace() {
   const active = items.some((item) => item.key === tab) ? tab : "home";
   const selectSession = workspace!.modules.scores !== false && workspace!.modules.teams !== false ? setSession : undefined;
   if (operations) return <View style={styles.screen}><ProgramContext /><SessionOperations onBack={() => setOperations(false)} /></View>;
+  if (performance) return <View style={styles.screen}><ProgramContext /><PerformanceHub onBack={() => setPerformance(false)} /></View>;
   if (session) return <View style={styles.screen}><ProgramContext /><MatchDay sessionId={session} onBack={() => setSession(null)} /></View>;
   let content;
-  if (active === "account") content = <Profile onOperations={() => setOperations(true)} />;
+  if (active === "account") content = <Profile onOperations={() => setOperations(true)} onPerformance={() => setPerformance(true)} />;
   else if (active === "sessions") content = <Records key={sessions} resource={sessions as Resource} title="Sessions" onSelect={selectSession}
     header={<Segments options={[{ value: "upcomingSessions", label: "Upcoming" }, { value: "sessions", label: "All" }, { value: "mySessions", label: "Played" }]} value={sessions} onChange={setSessions} />} />;
   else if (active === "statistics") content = <Records key={statistics} resource={statistics as Resource} title="Statistics"
-    header={<Segments options={[{ value: "myStatistics", label: "My statistics" }, { value: "statistics", label: "Program leaders" }]} value={statistics} onChange={setStatistics} />} />;
+    header={<><Button secondary onPress={() => setPerformance(true)}>Match ratings & position leaderboards</Button><Segments options={[{ value: "myStatistics", label: "My statistics" }, { value: "statistics", label: "Program leaders" }]} value={statistics} onChange={setStatistics} /></>} />;
   else if (active === "finances") content = <Records key={finance} resource={finance as Resource} title="My finances"
     header={<Segments options={[{ value: "myBalances", label: "Season balances" }, { value: "myPayments", label: "Transactions" }]} value={finance} onChange={setFinance} />} />;
   else content = <Screen title="OU Sports">
@@ -60,7 +62,7 @@ function ParticipantWorkspace() {
   </Screen>;
   return <View style={styles.screen}><ProgramContext /><View style={{ flex: 1 }}>{content}</View><BottomTabs items={items} value={active} onChange={setTab} /></View>;
 }
-function Profile({ onBack, onOperations }: { onBack?: () => void; onOperations?: () => void }) {
+function Profile({ onBack, onOperations, onPerformance }: { onBack?: () => void; onOperations?: () => void; onPerformance?: () => void }) {
   const { client, context, reload, workspace, signOut } = useMobile();
   const [pending, setPending] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -107,6 +109,7 @@ function Profile({ onBack, onOperations }: { onBack?: () => void; onOperations?:
     </Columns>
     {error ? <Text style={styles.error}>{error}</Text> : null}
     <Section>MEMBERSHIP</Section>
+    {onPerformance && workspace?.modules.scores !== false ? <Button secondary onPress={onPerformance}>My performance history</Button> : null}
     <WorkspaceMenu />
     <Badge label={workspace?.role ?? "member"} />
     <Text style={styles.muted}>Active program membership</Text>

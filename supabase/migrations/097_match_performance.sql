@@ -26,7 +26,7 @@ create table public.captain_performance_votes (
   primary key(session_id,captain_team_id,category)
 );
 create table public.performance_changes (
-  id bigint generated always as identity primary key,
+  id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions(id) on delete cascade,
   actor_id uuid not null references public.profiles(id),
   action text not null,
@@ -42,7 +42,7 @@ alter table public.performance_changes enable row level security;
 
 create function public.performance_access(p_program uuid) returns boolean
 language sql stable security definer set search_path=public as $$
-  select auth.uid() is not null and (public.mobile_program_access(p_program)
+  select auth.uid() is not null and public.is_program_module_enabled(p_program,'scores') and (public.mobile_program_access(p_program)
     or coalesce(public.program_role(p_program)='manager',false));
 $$;
 create policy performance_position_read on public.match_player_positions for select to authenticated
@@ -75,6 +75,7 @@ begin
     where p.match_id=new.match_id and p.player_id=new.conceded_goalkeeper_id
       and p.position='goalkeeper' and p.participated
       and p.session_team_id in (m.team_a_id,m.team_b_id) and p.session_team_id<>new.session_team_id
+      and exists(select 1 from public.session_team_players roster where roster.session_id=m.session_id and roster.player_id=p.player_id and roster.session_team_id=p.session_team_id)
   ) then raise exception 'Select a confirmed opposing goalkeeper for this match'; end if;
   return new;
 end;
@@ -86,11 +87,12 @@ create function public.confirm_match_positions(p_match_id uuid,p_players jsonb) 
 language plpgsql security definer set search_path=public as $$
 declare m public.session_matches; s public.sessions; item jsonb; pid uuid; tid uuid; pos text;
 begin
-  select * into m from public.session_matches where id=p_match_id for update;
+  select * into m from public.session_matches where id=p_match_id;
   select * into s from public.sessions where id=m.session_id for update;
+  select * into m from public.session_matches where id=p_match_id for update;
   if not coalesce(public.performance_access(s.program_id) and public.program_role(s.program_id) in ('manager','captain')
     and public.is_program_module_enabled(s.program_id,'scores'),false) then raise exception 'Score management access required'; end if;
-  if jsonb_typeof(p_players)<>'array' or jsonb_array_length(p_players)=0 then raise exception 'Provide match participants'; end if;
+  if jsonb_typeof(p_players) is distinct from 'array' or jsonb_array_length(p_players)=0 then raise exception 'Provide match participants'; end if;
   if (select count(*)<>count(distinct value->>'playerId') from jsonb_array_elements(p_players)) then raise exception 'Duplicate player'; end if;
   for item in select value from jsonb_array_elements(p_players) loop
     pid:=(item->>'playerId')::uuid; pos:=nullif(item->>'position','');
@@ -114,18 +116,18 @@ create view public.match_performance_detail as
 with facts as (
   select s.id session_id,s.season_id,s.program_id,m.id match_id,m.match_number,p.player_id,
     pl.display_name player_name,p.session_team_id,p.position,
-    coalesce(gf.n,0)::integer goals_for,coalesce(ga.n,0)::integer goals_against,
+    case when p.session_team_id=m.team_a_id then m.team_a_score else m.team_b_score end goals_for,
+    case when p.session_team_id=m.team_a_id then m.team_b_score else m.team_a_score end goals_against,
     coalesce(ind.g,0)::integer goals,coalesce(ind.a,0)::integer assists,
-    case when p.position='goalkeeper' and coalesce(ga.unknown,0)=0 then coalesce(k.n,0)::integer end keeper_conceded,
-    p.position='goalkeeper' and coalesce(ga.n,0)=0 clean_sheet,
-    coalesce(ga.unknown,0)>0 and p.position='goalkeeper' keeper_attribution_incomplete
+    case when p.position='goalkeeper' and coalesce(ga.attributed,0)=case when p.session_team_id=m.team_a_id then m.team_b_score else m.team_a_score end then coalesce(k.n,0)::integer end keeper_conceded,
+    p.position='goalkeeper' and (case when p.session_team_id=m.team_a_id then m.team_b_score else m.team_a_score end)=0 clean_sheet,
+    coalesce(ga.attributed,0)<>(case when p.session_team_id=m.team_a_id then m.team_b_score else m.team_a_score end) and p.position='goalkeeper' keeper_attribution_incomplete
   from public.match_player_positions p
   join public.session_matches m on m.id=p.match_id and m.result_status='played'
   join public.sessions s on s.id=m.session_id
   join public.players pl on pl.id=p.player_id
   join public.session_team_players roster on roster.session_id=s.id and roster.player_id=p.player_id and roster.session_team_id=p.session_team_id
-  left join lateral(select sum(goal_count) n from public.goals where match_id=m.id and session_team_id=p.session_team_id) gf on true
-  left join lateral(select sum(goal_count) n,sum(goal_count) filter(where conceded_goalkeeper_id is null) unknown from public.goals where match_id=m.id and session_team_id<>p.session_team_id) ga on true
+  left join lateral(select sum(goal_count) filter(where conceded_goalkeeper_id is not null) attributed from public.goals where match_id=m.id and session_team_id<>p.session_team_id) ga on true
   left join lateral(select sum(goal_count) filter(where scorer_id=p.player_id and goal_type='goal') g,
     sum(goal_count) filter(where assist_player_id=p.player_id and goal_type='goal') a from public.goals where match_id=m.id) ind on true
   left join lateral(select sum(goal_count) n from public.goals where match_id=m.id and conceded_goalkeeper_id=p.player_id) k on true
@@ -225,9 +227,15 @@ declare program uuid;
 begin
   select program_id into program from public.seasons where id=p_season_id;
   if not coalesce(public.performance_access(program),false) then raise exception 'Program access required'; end if;
-  return coalesce((select jsonb_agg(to_jsonb(r) order by position,average_match_rating desc,player_name) from (
+  return coalesce((select jsonb_agg(to_jsonb(r) order by position,average_session_rating desc,player_name) from (
     select d.player_id,d.player_name,d.position,count(*) matches_played,count(distinct d.session_id) sessions_played,
       round(avg((d.breakdown->>'rating')::numeric),2) average_match_rating,
+      (select round(avg(position_session.points),2) from (
+        select avg((pm.breakdown->>'rating')::numeric)*4 + least(60,30*(select count(*) from public.valid_performance_votes v
+          where v.session_id=pm.session_id and v.player_id=pm.player_id and v.category=pm.position)) points
+        from public.match_performance_detail pm where pm.season_id=p_season_id and pm.player_id=d.player_id and pm.position=d.position
+        group by pm.session_id,pm.player_id,pm.position
+      ) position_session) average_session_rating,
       (select count(*) from public.valid_performance_votes v join public.sessions s on s.id=v.session_id
         where s.season_id=p_season_id and v.player_id=d.player_id and v.category=d.position) nominations
     from public.match_performance_detail d where d.season_id=p_season_id and d.position is not null
@@ -240,3 +248,16 @@ revoke all on public.match_player_positions,public.session_performance_voting,pu
 grant select on public.match_player_positions to authenticated;
 revoke all on function public.confirm_match_positions(uuid,jsonb),public.nominate_session_player(uuid,uuid,text,uuid),public.close_performance_voting(uuid,boolean),public.session_performance(uuid),public.season_performance(uuid) from public,anon;
 grant execute on function public.confirm_match_positions(uuid,jsonb),public.nominate_session_player(uuid,uuid,text,uuid),public.close_performance_voting(uuid,boolean),public.session_performance(uuid),public.season_performance(uuid) to authenticated;
+
+create function public.player_performance_history(p_program_id uuid,p_player_id uuid) returns jsonb
+language plpgsql stable security definer set search_path=public as $$
+begin
+  if not coalesce(public.performance_access(p_program_id),false) then raise exception 'Program access required'; end if;
+  return coalesce((select jsonb_agg(to_jsonb(r) order by session_date desc) from (
+    select p.*,s.session_date,s.name session_name from public.session_performance_results p
+    join public.sessions s on s.id=p.session_id where p.program_id=p_program_id and p.player_id=p_player_id
+  ) r),'[]');
+end;
+$$;
+revoke all on function public.player_performance_history(uuid,uuid) from public,anon;
+grant execute on function public.player_performance_history(uuid,uuid) to authenticated;

@@ -83,6 +83,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link> : null}
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/performance`}>Performance & voting</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
               {isAdmin ? (
                 <form action={completeSession}>
@@ -99,6 +100,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>View fixture</Link> : null}
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
+              <Link className="btn-secondary" href={`/sessions/${id}/performance`}>Performance & voting</Link>
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             </div>
           )}

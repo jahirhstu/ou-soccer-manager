@@ -32,7 +32,9 @@ function ManagementWorkspace() {
   const [member, setMember] = useState<string | null>(null);
   const [operations, setOperations] = useState(false);
   const [whatsapp, setWhatsapp] = useState(false);
+  const [performance, setPerformance] = useState(false);
   const wrap = (content: React.ReactNode) => <View style={styles.screen}><ProgramContext />{content}</View>;
+  if (performance) return wrap(<PerformanceHub onBack={() => setPerformance(false)} />);
   if (whatsapp) return wrap(<WhatsappImport onBack={() => setWhatsapp(false)} />);
   if (operations) return wrap(<SessionOperations onBack={() => setOperations(false)} />);
   if (member) return wrap(<Member id={member} onBack={() => setMember(null)} />);
@@ -54,6 +56,7 @@ function ManagementWorkspace() {
     content = <Screen title={active === "home" ? "OU Manager" : active === "finances" ? "Finance" : "Program"}>
       {active === "home" ? <><Text style={styles.heading}>{workspace!.programName}</Text><Badge label={workspace!.role} />{workspace!.modules.activities !== false ? <RecordPreview resource="upcomingSessions" title="NEXT SESSION" onSelect={selectSession} /> : null}</> : null}
       <Section>{active === "finances" ? "FINANCIAL RECORDS" : "PROGRAM ACCESS"}</Section>
+      {active !== "finances" && workspace!.modules.scores !== false ? <Button secondary onPress={() => setPerformance(true)}>Position leaderboards & match ratings</Button> : null}
       {active === "program" && workspace!.role === "manager" && workspace!.modules.whatsapp_import !== false ? <Button secondary onPress={() => setWhatsapp(true)}>WhatsApp import</Button> : null}
       {active === "program" && workspace!.modules.activities !== false && workspace!.modules.attendance !== false ? <Button secondary onPress={() => setOperations(true)}>Attendance and completion</Button> : null}
       <Shortcuts items={resources.filter((entry) => workspace!.modules[resourceModule(entry)] !== false).map((entry) => ({ title: labels[entry] ?? entry, icon: entry === "sessions" || entry === "seasons" ? CalendarDays : entry === "members" || entry === "players" ? Users : entry === "statistics" ? Trophy : entry === "balances" ? Wallet : ReceiptText, onPress: () => setScreen(entry) }))} />
@@ -64,3 +67,4 @@ function ManagementWorkspace() {
   return <View style={styles.screen}><ProgramContext /><View style={{ flex: 1 }}>{content}</View><BottomTabs items={items} value={active} onChange={(value) => { setTab(value); setScreen("home"); }} /></View>;
 }
 const labels: Partial<Record<Resource, string>> = { sessions: "Sessions", seasons: "Seasons", players: "Players", members: "Members", balances: "Player balances", payments: "Transactions", expenses: "Expenses", statistics: "Scorers and assists" };
+import { PerformanceHub } from "@ou/match-day";

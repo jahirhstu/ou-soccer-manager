@@ -4,22 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Trophy } from "lucide-react";
 import { updatePerformance } from "@/lib/actions/performance";
+import { previousMatchPositions } from "../packages/contracts/src/performance";
 
 const positions = ["goalkeeper", "defender", "midfielder", "forward"] as const;
-type Player = { id: string; name: string };
-type Position = { match_id: string; player_id: string; position: string | null; participated: boolean };
-type Detail = { player_id: string; player_name: string; match_number: number; position: string | null; keeper_conceded: number | null; clean_sheet: boolean; breakdown: Record<string, number | null> };
-export type PerformanceData = {
-  session: { id: string; name: string; status: string; seasonId: string };
-  canManage: boolean; canClose: boolean; closed: boolean;
-  teams: { id: string; name: string; canVote: boolean; players: Player[] }[];
-  matches: { id: string; number: number; teamAId: string; teamBId: string; status: string }[];
-  positions: Position[];
-  details: Detail[];
-  votes: { captain_team_id: string; category: string; player_id: string }[];
-  awards: { category: string; player_id: string; player_name: string; nominations: number }[];
-  results: { player_id: string; player_name: string; matches_played: number; rated_matches: number; positions: string[]; match_points: number; captain_points: number; final_rating: number; incomplete: boolean }[];
-};
+import type { PerformanceData } from "../packages/contracts/src/performance";
+export type { PerformanceData } from "../packages/contracts/src/performance";
 
 export function SessionPerformance({ data }: { data: PerformanceData }) {
   const router = useRouter();
@@ -61,6 +50,7 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="section-title">Match positions & participation</h2>
         <label className="flex items-center gap-2 text-sm">Match<select className="input" value={matchId} onChange={(e) => setMatchId(e.target.value)}>{data.matches.map((m) => <option key={m.id} value={m.id}>G{m.number} · {m.status}</option>)}</select></label>
       </div>
+      {data.canManage && Object.keys(previousMatchPositions(data, matchId)).length > 0 && <button className="btn-secondary mt-3" disabled={busy} onClick={() => setEdited(old => ({ ...old, ...previousMatchPositions(data, matchId) }))}>Copy previous match positions</button>}
       <div className="mt-3 grid gap-4 md:grid-cols-2">{teams.map((team) => <div key={team.id}>
         <h3 className="border-b border-line py-2 font-semibold">{team.name}</h3>
         {team.players.map((player) => {

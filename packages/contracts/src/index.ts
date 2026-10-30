@@ -75,3 +75,4 @@ export function money(value: string, currency: string) {
   const [whole, fraction = ""] = value.replace(/^-/, "").split(".");
   return `${negative ? "-" : ""}${currency} ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction.padEnd(2, "0").slice(0, 2)}`;
 }
+export * from "./performance";

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PerformanceOverview } from "@/components/PerformanceOverview";
 import { ProductionRefresh } from '@/components/ProductionRefresh';
 import { refreshEnabled } from '@/lib/production-refresh';
 import { randomUUID } from "node:crypto";
@@ -92,6 +93,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <Link className="btn-primary" href="/import-whatsapp"><Upload className="h-4 w-4" /> Import WhatsApp</Link>
           </div>
         </div>
+        <PerformanceOverview seasonId={activeSeason.id} />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={Users} label="Players" value={finance.player_count ?? 0} />
           <Metric icon={CalendarClock} label="Sessions" value={sessionCount ?? 0} />

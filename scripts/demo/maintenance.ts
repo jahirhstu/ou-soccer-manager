@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { schemaQueries } from "./schema";
 
-export const upgradeVersions = ["049","068","070","071","072","073","074","075","076","077","078","079","080","088","089","090","091","092","093","094","095"];
+export const upgradeVersions = ["049","068","070","071","072","073","074","075","076","077","078","079","080","088","089","090","091","092","093","094","095","096","097","098"];
 export const normalizeSchema = (value: unknown) => JSON.stringify(value, (key,v)=>
   key === 'acl' ? undefined : typeof v === 'string' ? v.replace(/\s+/g,' ').trim() : v);
 export const fingerprint = (schema: Record<string,unknown>) => createHash('sha256').update(

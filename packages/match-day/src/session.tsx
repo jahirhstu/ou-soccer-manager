@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from "react-native";
 import { Plus, Minus, Trash2, Save, Users, CalendarDays, ClipboardCheck, ChartNoAxesColumn, LayoutGrid, Settings2, ChevronDown, ChevronUp, Trophy } from "lucide-react-native";
-import { accountLoadError, canScore, sessionSummary } from "@ou/contracts";
+import { accountLoadError, canScore, sessionSummary, type MatchPosition } from "@ou/contracts";
+import { MatchPerformance } from "./performance";
 import { useMobile } from "@ou/mobile-core";
 import { Avatar, Badge, Button, Busy, Choices, Metrics, Row, Screen, Section, Segments, Shortcuts, styles, colors } from "@ou/mobile-ui";
 import { Attendance } from "./operations";
@@ -13,14 +14,14 @@ import { TeamBuilder } from "./team-builder";
 
 type Player = { id: string; name: string };
 type Team = { id: string; name: string; players: Player[] };
-type Goal = { id?: string; scorerId: string; assistPlayerId?: string; goalCount: number; goalType: "goal" | "own_goal" };
+type Goal = { id?: string; scorerId: string; assistPlayerId?: string; concededGoalkeeperId?: string; goalCount: number; goalType: "goal" | "own_goal" };
 type Game = {
   id?: string; matchNumber: number; displayOrder?: number; teamAId?: string; teamBId?: string;
   teamASource?: string; teamBSource?: string; matchType?: string; awayTeamId?: string; resultStatus: "scheduled" | "played";
   scheduledStartTime?: string; scheduledEndTime?: string; goals: Goal[];
 };
 type Payload = { session: { name: string; sessionDate: string; status: string }; teams: Team[]; matches: Game[] };
-type Picker = { game: number; goal: number; field: "scorerId" | "assistPlayerId" };
+type Picker = { game: number; goal: number; field: "scorerId" | "assistPlayerId" | "concededGoalkeeperId" };
 export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): void }) {
   const { client, workspace } = useMobile();
   const { fontScale } = useWindowDimensions();
@@ -34,7 +35,18 @@ export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): v
   const [editing, setEditing] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [reload, setReload] = useState(0);
-  const [operation, setOperation] = useState<"attendance" | "ratings" | "lineup" | "fixture" | "builder" | null>(null);
+  const [operation, setOperation] = useState<"attendance" | "ratings" | "lineup" | "fixture" | "builder" | "performance" | null>(null);
+  const [positions, setPositions] = useState<MatchPosition[]>([]);
+  useEffect(() => {
+    let active = true;
+    setPositions([]);
+    void Promise.resolve(client.rpc("session_performance", { p_session_id: sessionId })).then(result => {
+      if (!active) return;
+      if (result.error) setError(result.error.message);
+      else setPositions(result.data?.positions ?? []);
+    }).catch(cause => { if (active) setError(accountLoadError(cause)); });
+    return () => { active = false; };
+  }, [client, sessionId, workspace?.programId, reload]);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [standingDetail, setStandingDetail] = useState<string | null>(null);
   const [expandedGame, setExpandedGame] = useState<number | null>(null);
@@ -58,7 +70,17 @@ export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): v
     setGames((current) => current.map((game, i) => i === index ? change(game) : game)); setDirty(true);
   }
   function goalUpdate(game: number, goal: number, patch: Partial<Goal>) {
+    if (patch.scorerId !== undefined || patch.goalType !== undefined) {
+      const next = { ...games[game].goals[goal], ...patch };
+      const options = keepers(games[game], next);
+      patch = { ...patch, concededGoalkeeperId: options.length === 1 ? options[0].player_id : "" };
+    }
     update(game, (entry) => ({ ...entry, resultStatus: "played", goals: entry.goals.map((value, i) => i === goal ? { ...value, ...patch } : value) }));
+  }
+  function keepers(game: Game, goal: Goal) {
+    const scorerTeam = data?.teams.find(t => t.players.some(p => p.id === goal.scorerId))?.id;
+    const concedingTeam = goal.goalType === "own_goal" ? scorerTeam : scorerTeam === game.teamAId ? game.teamBId : game.teamAId;
+    return positions.filter(p => p.match_id === game.id && p.session_team_id === concedingTeam && p.position === "goalkeeper" && p.participated);
   }
   async function save() {
     if (saving || !writable) return;
@@ -82,14 +104,16 @@ export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): v
   const lineupTeams = data.teams.filter(team => team.players.some(player => player.id === workspace?.playerId));
   const canGenerate = operator && workspace?.modules.fixtures !== false && data.session.status === "scheduled" && !data.matches.some(game => game.resultStatus === "played" || game.goals.length);
   const canBuild = operator && workspace?.modules.teams !== false && data.session.status === "scheduled";
+  if (operation === "performance") return <MatchPerformance sessionId={sessionId} onBack={closeOperation} />;
   if (operation === "builder" && canBuild) return <TeamBuilder sessionId={sessionId} onBack={closeOperation} />;
   if (operation === "fixture" && canGenerate) return <FixtureGenerator sessionId={sessionId} teams={data.teams} onBack={closeOperation} />;
   if (operation === "lineup" && lineupTeams.length && workspace?.modules.teams !== false) return <LineupEditor sessionId={sessionId} teams={lineupTeams} onBack={closeOperation} />;
   if (operation === "attendance" && operator && workspace?.modules.attendance !== false) return <Attendance sessionId={sessionId} onBack={closeOperation} />;
   if (operation === "ratings" && operator && workspace?.modules.teams !== false) return <PerformanceRatings players={Array.from(new Map(data.teams.flatMap(team => team.players).map(player => [player.id, player])).values())} onBack={closeOperation} />;
   const actions = [
+    {title:"Match ratings & votes",icon:Trophy,onPress:()=>setOperation("performance")},
     ...(operator && workspace?.modules.attendance !== false ? [{title:"Attendance",icon:ClipboardCheck,onPress:()=>setOperation("attendance")}] : []),
-    ...(operator && workspace?.modules.teams !== false ? [{title:"Performance",icon:ChartNoAxesColumn,onPress:()=>setOperation("ratings")}] : []),
+    ...(operator && workspace?.modules.teams !== false ? [{title:"Draft skill ratings",icon:ChartNoAxesColumn,onPress:()=>setOperation("ratings")}] : []),
     ...(lineupTeams.length && workspace?.modules.teams !== false ? [{title:"Team lineup",icon:LayoutGrid,onPress:()=>setOperation("lineup")}] : []),
     ...(canGenerate ? [{title:"Generate fixture",icon:CalendarDays,onPress:()=>setOperation("fixture")}] : []),
     ...(canBuild ? [{title:"Build teams",icon:Users,onPress:()=>setOperation("builder")}] : [])
@@ -129,6 +153,7 @@ export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): v
         </View> : <View key={goal.id ?? g} style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, gap: 10 }}>
           <Row title={playerName(goal.scorerId) ?? "Select scorer"} subtitle="Scorer" onPress={writable && !saving ? () => setPicker({ game: index, goal: g, field: "scorerId" }) : undefined} />
           <Row title={playerName(goal.assistPlayerId) ?? "No assist"} subtitle="Assist" onPress={writable && !saving && goal.goalType !== "own_goal" ? () => setPicker({ game: index, goal: g, field: "assistPlayerId" }) : undefined} />
+          <Row title={playerName(goal.concededGoalkeeperId) ?? "Unknown goalkeeper"} subtitle="Goalkeeper conceded" onPress={!saving ? () => setPicker({ game: index, goal: g, field: "concededGoalkeeperId" }) : undefined} />
           <View style={[styles.horizontal, { flexWrap: "wrap" }]}>
             <Icon label="Decrease goals" disabled={!writable || saving} onPress={() => goalUpdate(index, g, { goalCount: Math.max(1, goal.goalCount - 1) })}><Minus color={colors.ink} /></Icon>
             <Text style={styles.title}>{goal.goalCount}</Text>
@@ -149,7 +174,9 @@ export function MatchDay({ sessionId, onBack }: { sessionId: string; onBack(): v
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: 60 }]}>
         <Button secondary onPress={() => setPicker(null)}>Close</Button>
         {picker?.field === "assistPlayerId" ? <Row title="No assist" onPress={() => { goalUpdate(picker.game, picker.goal, { assistPlayerId: "" }); setPicker(null); }} /> : null}
+        {picker?.field === "concededGoalkeeperId" ? <Row title="Unknown goalkeeper" onPress={() => { goalUpdate(picker.game, picker.goal, { concededGoalkeeperId: "" }); setPicker(null); }} /> : null}
         {pickerPlayers.filter((player) => {
+          if (picker?.field === "concededGoalkeeperId") return keepers(games[picker.game], games[picker.game].goals[picker.goal]).some(p => p.player_id === player.id);
           if (!picker || picker.field !== "assistPlayerId") return true;
           const scorerId = games[picker.game].goals[picker.goal].scorerId;
           return player.id !== scorerId && data.teams.some((team) => team.players.some((entry) => entry.id === scorerId) && team.players.some((entry) => entry.id === player.id));

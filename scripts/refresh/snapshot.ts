@@ -15,7 +15,11 @@ export async function inventory(q: Query) {
   if (names.some(name => !known.has(name))) fail('Unreviewed application tables found. Update the refresh manifest first.');
   const output: Omit<TableData, 'json' | 'count'>[] = [];
   for (const name of refreshTables) {
-    if (!names.includes(name)) fail(`Required table is missing: ${name}`);
+    if (!names.includes(name)) {
+      // Older production sources do not yet contain the additive performance tables.
+      if (['match_player_positions','session_performance_voting','captain_performance_votes','performance_changes'].includes(name)) continue;
+      fail(`Required table is missing: ${name}`);
+    }
     const columns = await q(`select a.attname name,format_type(a.atttypid,a.atttypmod) type,a.attnotnull required,
       pg_get_expr(d.adbin,d.adrelid) default_value from pg_attribute a
       left join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum
@@ -31,6 +35,8 @@ export async function inventory(q: Query) {
 function scope(table: Pick<TableData, 'name' | 'columns'>) {
   if (table.columns.some(c => c.name === 'organization_id')) return 't.organization_id=$1::uuid';
   if (table.name === 'session_team_update_events') return 'exists(select 1 from public.sessions s where s.id=t.session_id and s.organization_id=$1::uuid)';
+  if (['session_performance_voting','captain_performance_votes','performance_changes'].includes(table.name)) return 'exists(select 1 from public.sessions s where s.id=t.session_id and s.organization_id=$1::uuid)';
+  if (table.name === 'match_player_positions') return 'exists(select 1 from public.session_matches m join public.sessions s on s.id=m.session_id where m.id=t.match_id and s.organization_id=$1::uuid)';
   return fail(`No reviewed organization scope: ${table.name}`);
 }
 

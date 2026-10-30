@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+vi.mock("@/components/PerformanceOverview", () => ({ PlayerPerformanceHistory: () => <section>Match performance history</section> }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({ selects: [] as string[], profile: { role: "admin", organization_id: "org" } as any }));

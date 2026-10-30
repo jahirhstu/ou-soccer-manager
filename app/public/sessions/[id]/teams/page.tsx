@@ -76,7 +76,7 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
         ) : null}
 
         {report?.session ? (
-          <TeamBuilder canEdit={canEdit} data={report} sessionId={id} />
+          <><TeamBuilder canEdit={canEdit} data={report} sessionId={id} />{canEdit && savedTeams.length > 0 && <Link className="btn-secondary justify-self-start" href={`/sessions/${id}/performance`}>Confirm match positions</Link>}</>
         ) : !error ? (
           <div className="panel border-dashed p-10 text-center text-sm text-slate-500">Session not found.</div>
         ) : null}
@@ -84,3 +84,4 @@ export default async function PublicSessionTeamsPage({ params }: { params: Promi
     </PublicShell>
   );
 }
+import Link from "next/link";

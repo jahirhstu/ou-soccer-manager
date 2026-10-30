@@ -15,7 +15,8 @@ export const refreshTables = [
   'goals', 'session_team_lineups', 'whatsapp_imports', 'audit_logs', 'leagues',
   'league_teams', 'league_team_players', 'league_matches', 'club_expenses',
   'session_team_builder_drafts', 'player_performance_ratings', 'notifications',
-  'club_balance_transfers'
+  'club_balance_transfers', 'match_player_positions', 'session_performance_voting',
+  'captain_performance_votes', 'performance_changes'
 ] as const;
 
 export const preservedTables = [

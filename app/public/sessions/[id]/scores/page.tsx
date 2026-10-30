@@ -37,6 +37,7 @@ type PublicScoreData = {
       id: string;
       scorerId: string;
       assistPlayerId: string | null;
+      concededGoalkeeperId?: string | null;
       goalType: "goal" | "own_goal";
       goalCount: number;
     }>;
@@ -53,6 +54,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
+  const { data: performance } = profile?.id ? await supabase.rpc("session_performance", { p_session_id: id }) : { data: null };
   const isAdmin = profile?.role === "admin";
   const canManageSessionActivity = hasPermission(profile?.role, "manage_attendance");
   const scoreData = (data ?? {}) as PublicScoreData;
@@ -77,6 +79,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
         key: goal.id,
         scorerId: goal.scorerId,
         assistPlayerId: goal.assistPlayerId ?? "",
+        concededGoalkeeperId: goal.concededGoalkeeperId ?? "",
         goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
         goalCount: goal.goalCount ?? 1
       }))
@@ -85,6 +88,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
+        {performance?.canManage && <Link className="btn-secondary justify-self-start" href={`/sessions/${id}/performance`}>Match positions & performance</Link>}
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
             Public game scores are not ready yet. Run the latest database migration, then refresh this page.
@@ -99,6 +103,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
         ) : (
           <MiniGameScoresForm
             existingGames={existingGames}
+            positions={performance?.positions ?? []}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason={canManageSessionActivity ? "Scores are read-only because this session is completed or past its date." : "Sign in as a program manager or captain to edit scores."}

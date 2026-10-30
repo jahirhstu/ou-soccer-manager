@@ -1,4 +1,4 @@
--- Preserve match IDs (and confirmed positions) across atomic score corrections.
+-- Preserve match IDs and positions on atomic score correction.
 create or replace function public.public_save_game_scores(p_session_id uuid, p_games jsonb)
 returns jsonb
 language plpgsql
@@ -301,6 +301,7 @@ as $$
                 'id', goals.id,
                 'scorerId', goals.scorer_id,
                 'assistPlayerId', goals.assist_player_id,
+                'concededGoalkeeperId', goals.conceded_goalkeeper_id,
                 'goalType', goals.goal_type,
                 'goalCount', goals.goal_count
               )

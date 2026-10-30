@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PerformanceOverview } from "@/components/PerformanceOverview";
 import Link from "next/link";
 import { Award, CalendarDays, Medal, ShieldCheck, Trophy } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
@@ -121,6 +122,7 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
+        {profile?.id && <PerformanceOverview sessionId={id} />}
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
             Public session details are not ready yet. Run the latest database migration, then refresh this page.

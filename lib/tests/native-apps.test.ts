@@ -47,6 +47,175 @@ async function operationsSession() {
   return id;
 }
 
+async function performanceFixture(rounds = 1, threeTeams = false) {
+  const sessionId = await operationsSession();
+  const count = threeTeams ? 3 : 2;
+  const players = await q("select id from players where organization_id=(select organization_id from sessions where id=$1) order by id limit 21", [sessionId]);
+  const teams: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const [team] = await q("insert into session_teams(session_id,organization_id,program_id,name,label,captain_player_id) select id,organization_id,program_id,$2,$2,$3 from sessions where id=$1 returning id", [sessionId, `Team ${i}`, players[i * 7].id]);
+    teams.push(team.id);
+    for (const p of players.slice(i * 7, i * 7 + 7)) await q("insert into session_team_players(session_id,session_team_id,player_id,organization_id,program_id) select id,$2,$3,organization_id,program_id from sessions where id=$1", [sessionId, team.id, p.id]);
+  }
+  let number = 0;
+  const matches: string[] = [];
+  for (let r = 0; r < rounds; r++) for (let a = 0; a < count; a++) for (let b = a + 1; b < count; b++) {
+    const [match] = await q("insert into session_matches(session_id,organization_id,program_id,match_number,team_a_id,team_b_id,result_status) select id,organization_id,program_id,$2,$3,$4,'played' from sessions where id=$1 returning id", [sessionId, ++number, teams[a], teams[b]]);
+    matches.push(match.id);
+    await q("select confirm_match_positions($1,$2)", [match.id, JSON.stringify([a, b].flatMap(t => players.slice(t * 7, t * 7 + 7).map((p, n) => ({ playerId: p.id, participated: true, position: n === 0 ? "goalkeeper" : n < 3 ? "defender" : n < 5 ? "midfielder" : "forward" }))))]);
+  }
+  return { sessionId, teams, matches, players };
+}
+
+for (const count of [1, 2, 4]) it(`normalizes ${count} actual matches to the same session quality rating`, async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(count);
+    const [{ result }] = await q("select session_performance($1) result", [f.sessionId]);
+    expect(result.results).toHaveLength(14);
+    const keeper = result.results.find((r: any) => r.player_id === f.players[0].id);
+    expect(keeper.matches_played).toBe(count);
+    expect(keeper.match_points).toBe(28);
+    expect(keeper.captain_points).toBe(0);
+    expect(result.details.filter((d: any) => d.player_id === f.players[0].id).every((d: any) => d.clean_sheet && d.keeper_conceded === 0)).toBe(true);
+  });
+});
+
+it("counts four appearances each in a three-team seven-a-side six-match session", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(2, true);
+    const [{ result }] = await q("select session_performance($1) result", [f.sessionId]);
+    expect(result.matches).toHaveLength(6);
+    expect(result.results).toHaveLength(21);
+    expect(result.results.every((r: any) => r.matches_played === 4 && r.final_rating <= 40)).toBe(true);
+  });
+});
+
+it("preserves match positions and keeper attribution across atomic score corrections", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture();
+    const games = [{ matchNumber: 1, teamAId: f.teams[0], teamBId: f.teams[1], resultStatus: "played", goals: [{ scorerId: f.players[5].id, assistPlayerId: f.players[3].id, concededGoalkeeperId: f.players[7].id, goalType: "goal", goalCount: 2 }] }];
+    await q("select save_program_game_scores($1,$2)", [f.sessionId, JSON.stringify(games)]);
+    let result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.matches[0].id).toBe(f.matches[0]);
+    expect(result.details.find((d: any) => d.player_id === f.players[7].id).keeper_conceded).toBe(2);
+    expect(result.results.find((d: any) => d.player_id === f.players[5].id).goals).toBe(2);
+    const editor = (await q("select mobile_session($1,$2) result", [soccer, f.sessionId]))[0].result;
+    expect(editor.matches[0].goals[0].concededGoalkeeperId).toBe(f.players[7].id);
+    games[0].goals[0].concededGoalkeeperId = f.players[0].id;
+    await db.exec("savepoint invalid_keeper");
+    await expect(q("select save_program_game_scores($1,$2)", [f.sessionId, JSON.stringify(games)])).rejects.toThrow("opposing goalkeeper");
+    await db.exec("rollback to savepoint invalid_keeper");
+    expect((await q("select session_performance($1) result", [f.sessionId]))[0].result.results).toEqual(result.results);
+    games[0].goals = [];
+    await q("select save_program_game_scores($1,$2)", [f.sessionId, JSON.stringify(games)]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.details.find((d: any) => d.player_id === f.players[7].id).clean_sheet).toBe(true);
+    expect(result.positions).toHaveLength(14);
+  });
+});
+
+it("does not invent historical keeper attribution or positions; counts partial participation", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(2);
+    await q("update session_matches set team_a_score=3 where id=$1", [f.matches[0]]);
+    await q("select confirm_match_positions($1,$2)", [f.matches[1], JSON.stringify([{ playerId: f.players[7].id, position: "", participated: false }, { playerId: f.players[0].id, position: "", participated: true }])]);
+    const result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    const keeper = result.details.find((d: any) => d.player_id === f.players[7].id);
+    expect(keeper.keeper_conceded).toBeNull();
+    expect(keeper.clean_sheet).toBe(false);
+    expect(result.results.find((d: any) => d.player_id === f.players[7].id).matches_played).toBe(1);
+    const unknown = result.results.find((d: any) => d.player_id === f.players[0].id);
+    expect(unknown.rated_matches).toBe(1);
+    expect(unknown.incomplete).toBe(true);
+  });
+});
+
+it("caps ratings and applies position-specific clean-sheet weights", async () => {
+  for (const [position, clean] of [["goalkeeper", 7], ["defender", 6], ["midfielder", 4], ["forward", 3]] as const) {
+    expect((await q("select match_performance_points_v1($1,0,0,0,0,0) r", [position]))[0].r.rating).toBe(clean);
+    const high = (await q("select match_performance_points_v1($1,99,0,99,99,0) r", [position]))[0].r;
+    expect(high.rating).toBeLessThanOrEqual(10);
+    expect(high.individual).toBe(4);
+  }
+});
+
+it("supports captain edits, ties, 30/60 points, closed ballots and correction-driven eligibility", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(1, true);
+    await q("update sessions set status='completed' where id=$1", [f.sessionId]);
+    await db.exec("reset role");
+    await q("delete from program_members where program_id=$1 and profile_id is null", [soccer]);
+    await q("update program_members set player_id=null where program_id=$1", [soccer]);
+    await db.exec("set local role authenticated");
+    // The owner account is explicitly linked to the captain of each team in turn.
+    const link = async (team: number) => {
+      await db.exec("reset role");
+      await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.owner, f.players[team * 7].id, soccer]);
+      await db.exec("set local role authenticated");
+    };
+    await link(0);
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[7].id]);
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[7].id]);
+    let result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.votes).toHaveLength(1);
+    expect(result.results.find((r: any) => r.player_id === f.players[7].id).captain_points).toBe(30);
+    await q("select close_performance_voting($1,true)", [f.sessionId]);
+    await db.exec("savepoint closed_vote");
+    await expect(q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[14].id])).rejects.toThrow("closed");
+    await db.exec("rollback to savepoint closed_vote");
+    await q("select close_performance_voting($1,false)", [f.sessionId]);
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[14].id]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.results.find((r: any) => r.player_id === f.players[7].id).captain_points).toBe(0);
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(30);
+    await db.exec("savepoint own_vote");
+    await expect(q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[0].id])).rejects.toThrow("another team");
+    await db.exec("rollback to savepoint own_vote");
+    // Retain distinct captain accounts for simultaneous valid ballots.
+    await db.exec("reset role");
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.captain, f.players[7].id, soccer]);
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.captain]);
+    await db.exec("set local role authenticated");
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[1], f.players[14].id]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(60);
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[1], f.players[0].id]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.awards).toHaveLength(2);
+    for (const m of result.matches.filter((m: any) => [m.teamAId, m.teamBId].includes(f.teams[2]))) await q("select confirm_match_positions($1,$2)", [m.id, JSON.stringify([{ playerId: f.players[14].id, position: "forward", participated: true }])]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(0);
+    expect(result.awards).toHaveLength(1);
+    const ranks = (await q("select season_performance($1) result", [season]))[0].result;
+    expect(ranks.find((r: any) => r.player_id === f.players[0].id && r.position === "goalkeeper").average_session_rating).toBe(58);
+    expect(ranks.find((r: any) => r.player_id === f.players[14].id && r.position === "forward").nominations).toBe(0);
+  });
+});
+
+it("rejects member edits, forged captain ballots, cross-organization reads and anonymous access", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture();
+    await q("update sessions set status='completed' where id=$1", [f.sessionId]);
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.member]);
+    for (const [sql, args, message] of [
+      ["select confirm_match_positions($1,$2)", [f.matches[0], JSON.stringify([{ playerId: f.players[0].id, position: "forward", participated: true }])], "Score management"],
+      ["select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[7].id], "Only this team captain"],
+      ["select close_performance_voting($1,true)", [f.sessionId], "Manager access"],
+      ["insert into captain_performance_votes(session_id,captain_team_id,category,player_id,voter_id) values($1,$2,'goalkeeper',$3,$4)", [f.sessionId, f.teams[0], f.players[7].id, ids.member], "permission denied"],
+    ] as const) {
+      await db.exec("savepoint denied");
+      await expect(q(sql, [...args])).rejects.toThrow(message);
+      await db.exec("rollback to savepoint denied");
+    }
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.outsider]);
+    await db.exec("savepoint outsider");
+    await expect(q("select session_performance($1)", [f.sessionId])).rejects.toThrow("Program access");
+    await db.exec("rollback to savepoint outsider");
+    await db.exec("set local role anon");
+    await expect(q("select session_performance($1)", [f.sessionId])).rejects.toThrow("permission denied");
+  });
+});
+
 it("handles an empty pooled authorization context when renaming and assigning teams", async () => {
   await asUser("owner", async () => {
     const sessionId = await operationsSession();

@@ -7,10 +7,12 @@ import { AppShell } from "../../(shell)";
 import Link from "next/link";
 import { ArrowRightLeft, Pencil, Undo2 } from "lucide-react";
 import { hasPermission } from "@/lib/permissions";
-import { getCurrentProfile } from "@/lib/supabase/server";
+import { getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
+import { PlayerPerformanceHistory } from "@/components/PerformanceOverview";
 
 export default async function PlayerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const program = await getCurrentProgram();
   const supabase = await createSupabaseServerClient();
   const [{ data: player }, { data: payments }, { data: waivers }, { data: attendance }, { data: ledger }, { data: goals }, { data: summary }, profile] = await Promise.all([
     supabase.from("players").select("*").eq("id", id).single(),
@@ -56,6 +58,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
           </div>
         </section>
         <section className="grid gap-3">
+          {program?.id && <PlayerPerformanceHistory programId={program.id} playerId={id} />}
           <h2 className="section-title">Balance summary</h2>
           <DataTable rows={summary ?? []} columns={[
             { header: "Season", cell: (row) => row.season_name ?? "-" },
