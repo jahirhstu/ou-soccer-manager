@@ -128,4 +128,54 @@ describe("integrated migration chain", () => {
     const scope = await db.query<{ program_id: string }>("select * from resolve_enabled_public_scope('integration-a',null)");
     expect(scope.rows.map(row => row.program_id)).toEqual([otherProgram]);
   });
+  it("resolves match positions by performance, score, lineup, then profile priority", async () => {
+    const session = id(31), teamA = id(32), teamB = id(33), match = id(34);
+    await db.query("update players set preferred_position='forward' where id=$1",[player]);
+    await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date) values ($1,$2,$3,$4,'Position priority','2020-06-02')",
+      [session,org,program,season]);
+    await db.query("insert into session_teams(id,session_id,name) values ($1,$3,'A'),($2,$3,'B')",[teamA,teamB,session]);
+    await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3),($1,$4,$5)",
+      [session,teamA,player,teamB,guest]);
+    await db.query("insert into session_team_lineups(session_id,session_team_id,organization_id,player_count,positions) values ($1,$2,$3,1,$4)",
+      [session,teamA,org,JSON.stringify([{playerId:player,position:"defender"}])]);
+    await db.query("insert into session_matches(id,session_id,match_number,team_a_id,team_b_id) values ($1,$2,1,$3,$4)",
+      [match,session,teamA,teamB]);
+    await db.query("update session_matches set result_status='played',team_a_score=1,team_b_score=0 where id=$1",[match]);
+    const resolved = async () => (await db.query<{ position: string }>(
+      "select resolved_match_player_position($1,$2) position",[match,player]
+    )).rows[0].position;
+    const ratedPosition = async () => (await db.query<{ position: string; rating: string }>(
+      "select position,breakdown->>'rating' rating from match_performance_detail where match_id=$1 and player_id=$2",
+      [match,player]
+    )).rows[0];
+    expect(await resolved()).toBe("defender");
+    expect((await ratedPosition()).position).toBe("defender");
+    await db.query("insert into match_score_positions(match_id,player_id,position) values ($1,$2,'midfielder')",[match,player]);
+    expect(await resolved()).toBe("midfielder");
+    expect((await ratedPosition()).position).toBe("midfielder");
+    await db.query("insert into match_player_positions(match_id,player_id,session_team_id,position,confirmed_by) values ($1,$2,$3,'goalkeeper',$4)",
+      [match,player,teamA,manager]);
+    expect(await resolved()).toBe("goalkeeper");
+    expect((await ratedPosition()).position).toBe("goalkeeper");
+    await db.query("delete from match_player_positions where match_id=$1 and player_id=$2",[match,player]);
+    expect(await resolved()).toBe("midfielder");
+    await db.query("delete from match_score_positions where match_id=$1 and player_id=$2",[match,player]);
+    expect(await resolved()).toBe("defender");
+    await db.query("delete from session_team_lineups where session_team_id=$1",[teamA]);
+    expect(await resolved()).toBe("forward");
+    await db.query("select set_config('app.allow_manual_goalkeeper','true',true)");
+    await db.query("insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
+      [session,match,player,teamA,guest]);
+    await db.query("select set_config('app.allow_manual_goalkeeper','',true)");
+    await expect(db.query(
+      "insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
+      [session,match,player,teamA,player]
+    )).rejects.toThrow("opposing team");
+    await asUser(manager);
+    const performance = await db.query<{
+      data: { positions: { player_id: string; position: string | null; confirmed_position: string | null }[] };
+    }>("select session_performance($1) data", [session]);
+    const reported = performance.rows[0].data.positions.find(item => item.player_id === player);
+    expect(reported).toMatchObject({ position: "forward", confirmed_position: null });
+  });
 });

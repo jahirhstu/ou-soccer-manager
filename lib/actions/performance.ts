@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { hasPermission } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { requireEnabledProgramModule } from "../program-access";
+import { revalidatePerformanceViews } from "../performance-cache";
 
 function percentValue(value: FormDataEntryValue | null) {
   if (value == null || value === "") return null;
@@ -97,8 +98,6 @@ export async function updatePerformance(sessionId: string, operation: "positions
   if (!request) return { error: "Unknown operation" };
   const { error } = await db.rpc(request.name, request.args);
   if (error) return { error: error.message };
-  revalidatePath(`/sessions/${sessionId}/performance`);
-  revalidatePath(`/sessions/${sessionId}/scores`);
-  revalidatePath("/dashboard");
+  revalidatePerformanceViews(sessionId);
   return { success: true };
 }

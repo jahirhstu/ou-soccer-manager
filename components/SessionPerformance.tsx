@@ -20,7 +20,7 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
   const teams = data.teams.filter((t) => t.id === match?.teamAId || t.id === match?.teamBId);
   const readPosition = (id: string) => edited[`${matchId}:${id}`] ?? (() => {
     const p = data.positions.find((p) => p.match_id === matchId && p.player_id === id);
-    return { position: p?.position ?? "", participated: p?.participated ?? true };
+    return { position: p?.confirmed_position ?? "", participated: p?.participated ?? true };
   })();
   const submit = (operation: "positions" | "vote" | "close", payload: Record<string, unknown>) => start(async () => {
     setMessage("");
@@ -55,11 +55,12 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
         <h3 className="border-b border-line py-2 font-semibold">{team.name}</h3>
         {team.players.map((player) => {
           const value = readPosition(player.id);
+          const resolvedPosition = data.positions.find((p) => p.match_id === matchId && p.player_id === player.id)?.position;
           const update = (change: Partial<typeof value>) => setEdited((old) => ({ ...old, [`${matchId}:${player.id}`]: { ...value, ...change } }));
           return <div key={player.id} className="grid grid-cols-[minmax(0,1fr)_minmax(100px,140px)] items-center gap-2 border-b border-line py-2 text-sm">
             <span className="break-words font-medium">{player.name}</span>
             <select aria-label={`${player.name} position`} className="input min-w-0 text-sm" value={value.position} onChange={(e) => update({ position: e.target.value })}>
-              <option value="">Unknown</option>{positions.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+              <option value="">{resolvedPosition ? `Use resolved position (${resolvedPosition})` : "Unknown"}</option>{positions.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
             </select>
           </div>;
         })}

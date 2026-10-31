@@ -56,7 +56,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,
-      position: performance?.positions?.find((position: any) => position.match_id === match.id && position.player_id === goal.scorer_id)?.position ?? "",
+      position: performance?.positions?.find((position: any) => position.match_id === match.id && position.player_id === goal.scorer_id)?.score_position ?? undefined,
       concededGoalkeeperId: goal.conceded_goalkeeper_id ?? "",
       assistPlayerId: goal.assist_player_id ?? "",
       goalType: goal.goal_type === "own_goal" ? "own_goal" as const : "goal" as const,

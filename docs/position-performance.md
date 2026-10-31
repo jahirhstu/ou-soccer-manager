@@ -2,9 +2,10 @@
 
 ## Availability
 
-Implemented on the website and in the shared Match Day package used by OU Sports
-and OU Manager. Existing draft skill percentages, goals/assists rankings, payments,
-attendance and team formation remain separate and unchanged.
+The website implements match position confirmation, scoring, performance ratings,
+and captain voting. Existing draft skill percentages, goals/assists rankings,
+payments, attendance and team formation remain separate and unchanged.
+The fixes documented here are website-only; mobile clients are unchanged.
 
 - Website: Session > Performance & voting; score entry links to match positions.
 - Public Dashboard: top goalkeeper, defender, and midfielder cards use the existing
@@ -18,10 +19,10 @@ attendance and team formation remain separate and unchanged.
 
 1. Set a player's global default position on the player record.
 2. Optionally override that position for the session in the website Lineup Builder.
-3. During website score entry, match positions are prefilled from match, session,
-   then player defaults, in that precedence order. A scorer's position and opposing
-   goalkeeper can be adjusted for that match; a unique opposing goalkeeper is
-   suggested when available.
+3. During website score entry, a scorer's position may be explicitly selected.
+   The Goalkeeper Conceded picker lists the full opposing roster, sorted by name;
+   it suggests the first participating player whose resolved position is goalkeeper.
+   If no goalkeeper position is known, select the player manually.
 4. On Session Details > Performance & voting, review or override match positions.
    Players assigned to a participating team count as participating by default.
 5. Mark scoreless games played using the existing scoring control.
@@ -66,6 +67,16 @@ and retain a maximum of 40. Players who switch positions may receive nominations
 only for non-forward positions they actually played; their combined captain bonus
 remains capped at 60 across categories.
 
+For every match, the resolved position priority is:
+
+1. Performance & Voting match-specific position.
+2. Position explicitly selected during website goal scoring.
+3. Session Lineup Builder position.
+4. Player profile default.
+
+Website score saves store explicit score positions separately; fallback values are
+not copied into match-specific performance overrides.
+
 Season position leaderboards rank mean position-specific session ratings, not raw
 appearance totals. Each position/session is normalized to 40 and receives only that
 category's nomination points. Match averages, appearances, sessions and nomination
@@ -88,16 +99,18 @@ counts are shown separately. Forward rankings have a 40-point maximum.
   ballot edits, not the underlying corrected match facts.
 
 All writes validate scope in database functions. New tables have RLS and no direct
-authenticated write grants. Results are authenticated, program-scoped reads, not new
-anonymous public endpoints. UI permissions do not replace database checks.
+authenticated write grants. Website score entry permits manual goalkeeper attribution
+only to a participating player on the opposing team; other score-writing paths retain
+the confirmed-goalkeeper validation. Results are authenticated, program-scoped reads,
+not new anonymous public endpoints. UI permissions do not replace database checks.
 
 ## Recalculation and Safety
 
 Ratings are live SQL views, not incremented totals. Goal, assist, result, position,
-keeper and vote corrections are reflected on the next read. Website and mobile
-scoring use the same atomic save path. Match IDs survive score corrections so
-positions are retained. An invalid goalkeeper rejects the whole save. Change a
-goal's keeper assignment before removing that keeper's confirmed position.
+keeper and vote corrections are reflected on the next read. Match IDs survive score
+corrections. Performance overrides and score-selected positions have distinct storage,
+so changing a lower-priority source updates ratings unless a higher-priority override
+is present.
 
 ## Deployment
 
@@ -106,6 +119,16 @@ New migrations, in order:
 1. `096_empty_program_context_uuid.sql`: pooled authorization-setting UUID fix.
 2. `097_match_performance.sql`: positions, votes, scoped APIs, audit and calculations.
 3. `098_performance_goal_entry.sql`: atomic score save preserving match IDs and keeper round-trip.
+4. `099_website_performance_position_workflow.sql`: website score positions and
+   performance workflow.
+5. `100_match_position_priority.sql`: distinct score-position storage and shared
+   position resolution.
+
+Migration 100 restores match positions from the Performance & Voting audit. Older
+score saves wrote fallback positions into the same table without recording their
+source; those unaudited rows are removed rather than promoted to stale overrides.
+An intentional old score-entry choice cannot be recovered separately from a copied
+fallback because the old database did not record that distinction.
 
 There must be only one migration numbered 096. The duplicate earlier draft was
 removed during conflict resolution. If any environment has already recorded a
@@ -114,7 +137,9 @@ both versions blindly.
 
 These changes have not been applied to production. Back up the target database,
 apply migrations before deploying the updated clients, then verify a test session.
-There is no automatic historical backfill. Financial data is not modified.
+Historical position repair is limited to the audit-based recovery described above.
+Ambiguous legacy score-entry choices cannot be recovered separately. Financial data
+is not modified.
 
 `scripts/generated/dev-upgrade.sql` and `dev-cleanup.sql` were regenerated locally.
 The cleanup script remains destructive and development-only. Do not use it to deploy
@@ -131,7 +156,10 @@ Database tests cover 1/2/4 matches per player; three seven-player teams with six
 matches; scoreless games; partial/unknown participation; position changes; keeper
 attribution; correction rollback; captain edits, ties, 30/60 points and closed voting;
 season averages; and unauthorized writes/reads. UI tests cover eligibility, tied
-awards, point breakdowns, empty results and closed/read-only controls.
+awards, point breakdowns, empty results and closed/read-only controls. Regression
+tests also cover player-list pagination, unpositioned players, goalkeeper suggestions,
+manual opposing-roster selection, score-position source tracking, and the four-level
+position priority.
 
 Physical-device checks remain necessary for both apps: open a saved session, confirm
 positions, select a keeper, save scores, complete the session, submit/edit a ballot,

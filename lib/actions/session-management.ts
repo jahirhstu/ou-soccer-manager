@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { hasPermission, isSessionScoreReadOnly } from "../permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "../supabase/server";
 import { requireEnabledProgramModule } from "../program-access";
+import { revalidatePerformanceViews } from "../performance-cache";
 
 type MiniGameGoalInput = {
   scorerId?: string;
@@ -303,7 +304,7 @@ function validTimeOrNull(value?: string | null) {
 function revalidateSessionViews(sessionId: string) {
   revalidatePath(`/sessions/${sessionId}`);
   revalidatePath(`/sessions/${sessionId}/fixture`);
-  revalidatePath(`/sessions/${sessionId}/scores`);
+  revalidatePerformanceViews(sessionId);
   revalidatePath(`/public/sessions/${sessionId}`);
   revalidatePath(`/public/sessions/${sessionId}/summary`);
   revalidatePath(`/public/sessions/${sessionId}/scores`);

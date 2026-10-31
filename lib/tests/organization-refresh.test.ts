@@ -167,10 +167,7 @@ it('resolves website performance positions by match, session, then player defaul
     expect(resolved(sessionOverride)).toBe("defender");
     expect(resolved(globalDefault)).toBe("goalkeeper");
 
-    const positions = performance.positions.filter((row: any) => row.match_id === match.id)
-      .map((row: any) => ({ playerId: row.player_id, position: row.position, participated: row.participated }));
-    const selectedOverride = positions.find((row: any) => row.playerId === matchOverride);
-    selectedOverride.position = "midfielder";
+    const positions = [{ playerId: matchOverride, position: "midfielder" }];
     await q("select public.save_website_game_scores($1,$2)", [match.session_id, JSON.stringify([{
       matchNumber: match.match_number,
       teamAId: match.team_a_id,
@@ -183,11 +180,22 @@ it('resolves website performance positions by match, session, then player defaul
       "select position,keeper_conceded from public.match_performance_detail where match_id=$1 and player_id=$2",
       [match.id, matchOverride]
     );
+    const [{ position: scorePosition }] = await q(
+      "select position from public.match_score_positions where match_id=$1 and player_id=$2",
+      [match.id, matchOverride]
+    );
+    expect(savedPosition).toBe("forward");
+    expect(scorePosition).toBe("midfielder");
+    await q("delete from public.match_player_positions where match_id=$1 and player_id=$2", [match.id, matchOverride]);
+    const [{ position: resolvedScorePosition }] = await q(
+      "select position from public.match_performance_detail where match_id=$1 and player_id=$2",
+      [match.id, matchOverride]
+    );
     const [{ keeper_conceded: keeperConceded }] = await q(
       "select keeper_conceded from public.match_performance_detail where match_id=$1 and player_id=$2",
       [match.id, keeper]
     );
-    expect(savedPosition).toBe("midfielder");
+    expect(resolvedScorePosition).toBe("midfielder");
     expect(keeperConceded).toBe(1);
   } finally { await db.exec('rollback'); }
 }, 120000);

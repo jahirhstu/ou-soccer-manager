@@ -1,5 +1,5 @@
 type Player = { id: string; name: string };
-export type MatchPosition = { match_id: string; player_id: string; session_team_id: string; position: string | null; participated: boolean };
+export type MatchPosition = { match_id: string; player_id: string; session_team_id: string; position: string | null; confirmed_position?: string | null; score_position?: string | null; participated: boolean };
 type Detail = { player_id: string; player_name: string; match_number: number; position: string | null; keeper_conceded: number | null; clean_sheet: boolean; breakdown: Record<string, number | null> };
 export type PerformanceData = {
   session: { id: string; name: string; status: string; seasonId: string };

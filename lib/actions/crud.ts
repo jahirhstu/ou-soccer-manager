@@ -9,6 +9,7 @@ import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from
 import { applySessionUsage } from "./session-usage";
 import { requireEnabledProgramModule } from "../program-access";
 import { requireOrganizationAdminAuthority } from "../organization-access";
+import { revalidatePerformanceViews } from "../performance-cache";
 
 async function requirePermission(permission: Parameters<typeof hasPermission>[1]) {
   const profile = await getCurrentProfile();
@@ -135,6 +136,7 @@ export async function updatePlayer(formData: FormData) {
   });
   revalidatePath("/players");
   revalidatePath(`/players/${playerId}`);
+  revalidatePerformanceViews();
   redirect(`/players/${playerId}`);
 }
 
@@ -165,6 +167,7 @@ export async function updatePlayerField(playerId: string, field: "phone" | "emai
   if (error) throw new Error(error.message);
   revalidatePath("/players");
   revalidatePath(`/players/${player.id}`);
+  if (field === "preferred_position") revalidatePerformanceViews();
   return { success: true };
 }
 

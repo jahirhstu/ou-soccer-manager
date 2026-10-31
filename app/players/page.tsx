@@ -4,9 +4,10 @@ import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { compareText } from "@/lib/sorting";
-import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { hasPermission } from "@/lib/permissions";
 import { EditablePlayerField } from "@/components/EditablePlayerField";
+import type { Player } from "@/lib/types";
 
 type SortKey = "name" | "status" | "position" | "email";
 
@@ -16,16 +17,27 @@ export default async function PlayersPage({
   searchParams: Promise<{ sort?: string }>;
 }) {
   const filters = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const [program, profile] = await Promise.all([getCurrentProgram(), getCurrentProfile()]);
-  const { data: memberships } = program?.id
-    ? await supabase.from("program_members").select("player_id").eq("program_id", program.id).eq("status", "active").not("player_id", "is", null)
-    : { data: [] };
-  const playerIds = (memberships ?? []).map((membership) => membership.player_id).filter(Boolean) as string[];
-  const { data } = playerIds.length
-    ? await supabase.from("players").select("*").in("id", playerIds).order("display_name")
-    : { data: [] };
-  const rows = sortRows(data ?? [], sortKey(filters.sort));
+  const [supabase, profile] = await Promise.all([createSupabaseServerClient(), getCurrentProfile()]);
+  const data: Player[] = [];
+  let loadError: string | null = null;
+  if (!profile?.organization_id) {
+    loadError = "No organization found for this account.";
+  } else {
+    for (let offset = 0; ; offset += 500) {
+      const result = await supabase.from("players").select("*")
+        .eq("organization_id", profile.organization_id)
+        .order("display_name").order("id")
+        .range(offset, offset + 499);
+      if (result.error) {
+        loadError = result.error.message;
+        break;
+      }
+      const batch = (result.data ?? []) as Player[];
+      data.push(...batch);
+      if (batch.length < 500) break;
+    }
+  }
+  const rows = sortRows(loadError ? [] : data, sortKey(filters.sort));
   const canEdit = hasPermission(profile?.role, "manage_finance");
   return (
     <AppShell>
@@ -33,7 +45,8 @@ export default async function PlayersPage({
         <h1 className="page-title">Players</h1>
         <Link className="btn-primary" href="/players/new"><Plus className="h-4 w-4" /> New player</Link>
       </div>
-      <DataTable rows={rows} columns={[
+      {loadError ? <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">Could not load players: {loadError}</p> : null}
+      <DataTable empty={loadError ? "Could not load players." : "No players found in this organization."} rows={rows} columns={[
         { header: "Name", cell: (row) => <Link className="font-medium text-pitch" href={`/players/${row.id}`}>{row.display_name}</Link> },
         { header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
         { header: "Phone", cell: (row) => <EditablePlayerField canEdit={canEdit} field="phone" playerId={row.id} playerName={row.display_name} value={row.phone} /> },
@@ -49,7 +62,7 @@ function sortKey(value: string | undefined): SortKey {
   return "name";
 }
 
-function sortRows(rows: any[], key: SortKey) {
+function sortRows(rows: Player[], key: SortKey) {
   return [...rows].sort((left, right) => {
     if (key === "status") return compareText(left.status, right.status) || compareText(left.display_name, right.display_name);
     if (key === "position") return compareText(left.preferred_position, right.preferred_position) || compareText(left.display_name, right.display_name);
