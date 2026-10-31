@@ -14,7 +14,7 @@ const data: PerformanceData = {
     { id: "a", name: "Team Sadat", canVote: true, players: [{ id: "a1", name: "Own Goalkeeper" }, { id: "a2", name: "Own Defender" }] },
     { id: "b", name: "Team Jahir", canVote: false, players: [{ id: "b1", name: "Visiting Goalkeeper" }, { id: "b2", name: "Visiting Midfielder" }] },
   ],
-  matches: [{ id: "g1", number: 1, teamAId: "a", teamBId: "b", status: "played" }],
+  matches: [{ id: "g1", number: 1, teamAId: "a", teamBId: "b", teamAName: "Team Sadat", teamBName: "Team Jahir", status: "played" }],
   positions: [], votes: [],
   awards: [{ category: "goalkeeper", player_id: "a1", player_name: "Own Goalkeeper", nominations: 1 }, { category: "goalkeeper", player_id: "b1", player_name: "Visiting Goalkeeper", nominations: 1 }],
   details: [
@@ -34,6 +34,8 @@ it("renders tied awards, point breakdowns and only opposing eligible nominees", 
   expect(html).not.toContain('checked=""');
   expect(html).toContain("Own Goalkeeper");
   expect(html).toContain("Visiting Goalkeeper");
+  expect(html).toContain("Team Sadat vs Team Jahir");
+  expect(html).not.toContain("Played</label>");
   if (process.env.OU_RENDER_PERFORMANCE === "1") {
     const css = readdirSync(".next/static/css").filter(f => f.endsWith(".css")).map(f => readFileSync(`.next/static/css/${f}`, "utf8")).join("\n");
     writeFileSync("/tmp/ou-performance-preview.html", `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main style="max-width:1100px;margin:auto;padding:16px"><h1 class="page-title">Player performance</h1>${html}</main></body></html>`);

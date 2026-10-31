@@ -5,7 +5,7 @@ export type PerformanceData = {
   session: { id: string; name: string; status: string; seasonId: string };
   canManage: boolean; canClose: boolean; closed: boolean;
   teams: { id: string; name: string; canVote: boolean; players: Player[] }[];
-  matches: { id: string; number: number; teamAId: string; teamBId: string; status: string }[];
+  matches: { id: string; number: number; teamAId: string; teamBId: string; teamAName: string; teamBName: string; status: string }[];
   positions: MatchPosition[];
   details: Detail[];
   votes: { captain_team_id: string; category: string; player_id: string }[];

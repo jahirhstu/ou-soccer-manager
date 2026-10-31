@@ -19,7 +19,16 @@ export default async function EditPlayerPage({ params }: { params: Promise<{ id:
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-        <input className="input" defaultValue={player?.preferred_position ?? ""} name="preferred_position" placeholder="Preferred position" />
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Default position
+          <select className="input" defaultValue={player?.preferred_position?.toLowerCase() ?? ""} name="preferred_position">
+            <option value="">No default position</option>
+            <option value="goalkeeper">Goalkeeper</option>
+            <option value="defender">Defender</option>
+            <option value="midfielder">Midfielder</option>
+            <option value="forward">Forward</option>
+          </select>
+        </label>
         <textarea className="input min-h-24" defaultValue={player?.notes ?? ""} name="notes" placeholder="Notes" />
         <button className="btn-primary w-fit">Save changes</button>
       </form>

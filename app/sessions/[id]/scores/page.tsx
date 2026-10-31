@@ -13,7 +13,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     supabase.from("sessions").select("id,name,session_date,start_time,end_time,status").eq("id", id).single(),
     supabase
       .from("session_teams")
-      .select("id,name,session_team_players(players(id,display_name))")
+      .select("id,name,session_team_players(players(id,display_name,preferred_position))")
       .eq("session_id", id)
       .order("name"),
     supabase
@@ -33,8 +33,8 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     id: team.id,
     name: team.name,
     players: (team.session_team_players ?? [])
-      .map((row: any) => row.players ? { id: row.players.id, name: row.players.display_name } : null)
-      .filter((player: { id: string; name: string } | null): player is { id: string; name: string } => Boolean(player))
+      .map((row: any) => row.players ? { id: row.players.id, name: row.players.display_name, preferredPosition: row.players.preferred_position } : null)
+      .filter((player: { id: string; name: string; preferredPosition: string | null } | null): player is { id: string; name: string; preferredPosition: string | null } => Boolean(player))
   }));
   const goalsByMatch = new Map<string, any[]>();
   for (const goal of goals ?? []) {
@@ -56,6 +56,7 @@ export default async function MiniGameScoresPage({ params }: { params: Promise<{
     goals: (goalsByMatch.get(match.id) ?? []).map((goal) => ({
       key: goal.id,
       scorerId: goal.scorer_id,
+      position: performance?.positions?.find((position: any) => position.match_id === match.id && position.player_id === goal.scorer_id)?.position ?? "",
       concededGoalkeeperId: goal.conceded_goalkeeper_id ?? "",
       assistPlayerId: goal.assist_player_id ?? "",
       goalType: goal.goal_type === "own_goal" ? "own_goal" as const : "goal" as const,

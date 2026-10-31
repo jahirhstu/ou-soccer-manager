@@ -20,7 +20,7 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
   const teams = data.teams.filter((t) => t.id === match?.teamAId || t.id === match?.teamBId);
   const readPosition = (id: string) => edited[`${matchId}:${id}`] ?? (() => {
     const p = data.positions.find((p) => p.match_id === matchId && p.player_id === id);
-    return { position: p?.position ?? "", participated: p?.participated ?? false };
+    return { position: p?.position ?? "", participated: p?.participated ?? true };
   })();
   const submit = (operation: "positions" | "vote" | "close", payload: Record<string, unknown>) => start(async () => {
     setMessage("");
@@ -48,7 +48,7 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
     </section>
     {data.canManage && <section className="border-b border-line pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="section-title">Match positions & participation</h2>
-        <label className="flex items-center gap-2 text-sm">Match<select className="input" value={matchId} onChange={(e) => setMatchId(e.target.value)}>{data.matches.map((m) => <option key={m.id} value={m.id}>G{m.number} · {m.status}</option>)}</select></label>
+        <label className="flex items-center gap-2 text-sm">Match<select className="input" value={matchId} onChange={(e) => setMatchId(e.target.value)}>{data.matches.map((m) => <option key={m.id} value={m.id}>{m.teamAName} vs {m.teamBName} · Match {m.number}</option>)}</select></label>
       </div>
       {data.canManage && Object.keys(previousMatchPositions(data, matchId)).length > 0 && <button className="btn-secondary mt-3" disabled={busy} onClick={() => setEdited(old => ({ ...old, ...previousMatchPositions(data, matchId) }))}>Copy previous match positions</button>}
       <div className="mt-3 grid gap-4 md:grid-cols-2">{teams.map((team) => <div key={team.id}>
@@ -56,16 +56,15 @@ export function SessionPerformance({ data }: { data: PerformanceData }) {
         {team.players.map((player) => {
           const value = readPosition(player.id);
           const update = (change: Partial<typeof value>) => setEdited((old) => ({ ...old, [`${matchId}:${player.id}`]: { ...value, ...change } }));
-          return <div key={player.id} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(100px,140px)] items-center gap-2 border-b border-line py-2 text-sm">
+          return <div key={player.id} className="grid grid-cols-[minmax(0,1fr)_minmax(100px,140px)] items-center gap-2 border-b border-line py-2 text-sm">
             <span className="break-words font-medium">{player.name}</span>
-            <label className="flex items-center gap-1"><input type="checkbox" checked={value.participated} onChange={(e) => update({ participated: e.target.checked })} />Played</label>
             <select aria-label={`${player.name} position`} className="input min-w-0 text-sm" value={value.position} onChange={(e) => update({ position: e.target.value })}>
               <option value="">Unknown</option>{positions.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
             </select>
           </div>;
         })}
       </div>)}</div>
-      <button disabled={busy || !match} className="btn-primary mt-3" onClick={() => submit("positions", { matchId, players: teams.flatMap((t) => t.players.map((p) => ({ playerId: p.id, ...readPosition(p.id) }))) })}><Check className="h-4 w-4" />Confirm match participation</button>
+      <button disabled={busy || !match} className="btn-primary mt-3" onClick={() => submit("positions", { matchId, players: teams.flatMap((t) => t.players.map((p) => ({ playerId: p.id, ...readPosition(p.id), participated: readPosition(p.id).participated ?? true }))) })}><Check className="h-4 w-4" />Save match positions</button>
     </section>}
     {data.session.status === "completed" && !data.closed && data.teams.filter((t) => t.canVote).map((team) => <section key={team.id} className="border-b border-line pb-5">
       <h2 className="section-title">Captain nominations · {team.name}</h2>

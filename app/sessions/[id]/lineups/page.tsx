@@ -14,7 +14,11 @@ export default async function SessionLineupsPage({ params }: { params: Promise<{
   const teamOptions = (teams ?? []).map((team: any) => ({
     id: team.id,
     name: team.name,
-    players: Array.isArray(team.players) ? team.players : []
+    players: Array.isArray(team.players) ? team.players.map((player: any) => ({
+      id: player.id,
+      name: player.name,
+      preferredPosition: player.preferredPosition ?? null
+    })) : []
   }));
   const lineupRows = (lineups ?? [])
     .map((lineup: any) => ({

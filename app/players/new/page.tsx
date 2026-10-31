@@ -10,7 +10,16 @@ export default function NewPlayerPage() {
         <input className="input" name="phone" placeholder="Phone" />
         <input className="input" name="email" placeholder="Email" type="email" />
         <select className="input" name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
-        <input className="input" name="preferred_position" placeholder="Preferred position" />
+        <label className="grid gap-1 text-sm font-medium text-slate-700">
+          Default position
+          <select className="input" defaultValue="" name="preferred_position">
+            <option value="">No default position</option>
+            <option value="goalkeeper">Goalkeeper</option>
+            <option value="defender">Defender</option>
+            <option value="midfielder">Midfielder</option>
+            <option value="forward">Forward</option>
+          </select>
+        </label>
         <textarea className="input min-h-24" name="notes" placeholder="Notes" />
         <button className="btn-primary w-fit">Save</button>
       </form>

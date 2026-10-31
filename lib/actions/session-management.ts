@@ -13,6 +13,12 @@ type MiniGameGoalInput = {
   goalType?: "goal" | "own_goal";
 };
 
+type MiniGamePositionInput = {
+  playerId: string;
+  position: string | null;
+  participated?: boolean;
+};
+
 type MiniGameInput = {
   matchNumber: number;
   displayOrder?: number;
@@ -25,6 +31,7 @@ type MiniGameInput = {
   resultStatus?: "scheduled" | "played";
   scheduledStartTime?: string;
   scheduledEndTime?: string;
+  positions?: MiniGamePositionInput[];
   goals?: MiniGameGoalInput[];
 };
 
@@ -60,7 +67,7 @@ export async function saveMiniGameScores(_: unknown, formData: FormData) {
     const lockError = await lockedSessionError(supabase, sessionId, profile?.role);
     if (lockError) return { error: lockError };
 
-    const { data, error } = await supabase.rpc("save_program_game_scores", {
+    const { data, error } = await supabase.rpc("save_website_game_scores", {
       p_session_id: sessionId, p_games: games
     });
     if (error) throw new Error(error.message);

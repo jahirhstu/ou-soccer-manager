@@ -51,6 +51,15 @@ type PublicPlayerStreakRow = {
 
 type PublicWinningStreakRow = Omit<PublicPlayerStreakRow, "streak_type">;
 
+type PublicPositionLeader = {
+  player_id: string;
+  player_name: string;
+  position: string;
+  average_session_rating: number | string;
+  matches_played: number;
+  sessions_played: number;
+};
+
 type PaymentNotificationKey = {
   player_id: string;
   season_id: string;
@@ -80,6 +89,7 @@ export default async function PublicPlayerReportPage({
     { data: highlightsData, error: highlightsError },
     { data: longestWinningStreakData, error: longestWinningStreakError },
     { data: latestWinningStreakData, error: latestWinningStreakError },
+    { data: positionLeadersData, error: positionLeadersError },
     { data: notificationKeys },
     profile
   ] = await Promise.all([
@@ -87,6 +97,7 @@ export default async function PublicPlayerReportPage({
     seasonId ? supabase.rpc("scoped_public_dashboard_highlights", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
     seasonId ? supabase.rpc("scoped_public_longest_winning_streaks", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
     seasonId ? supabase.rpc("scoped_public_latest_winning_streaks", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
+    seasonId ? supabase.rpc("scoped_public_position_leaderboards", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_season_id: seasonId }) : emptyResult,
     seasonId ? supabase.rpc("scoped_public_payment_notification_keys", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null }) : emptyResult,
     getCurrentProfile()
   ]);
@@ -107,6 +118,7 @@ export default async function PublicPlayerReportPage({
   const longestWinningStreakSeasons = [...new Set(longestWinningStreakRows.map((row) => row.season_name ?? "Season"))].join(", ");
   const latestWinningStreakRows = (latestWinningStreakData ?? []) as PublicWinningStreakRow[];
   const latestWinningStreak = latestWinningStreakRows[0];
+  const positionLeaders = (positionLeadersData ?? {}) as Record<string, PublicPositionLeader[]>;
   const notifiedBalances = new Set(((notificationKeys ?? []) as PaymentNotificationKey[]).filter((row) => row.season_id === seasonId).map(notificationKey));
 
   return (
@@ -121,7 +133,7 @@ export default async function PublicPlayerReportPage({
               </span>
               <span className="max-w-full break-words text-sm text-slate-600">{reportSeason?.season_name ?? "No seasons configured"}</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <SummaryCard
                 icon={<Trophy className="h-5 w-5 text-amber-600" />}
                 label={topScorer?.score === "joint_top_scorer" ? "Joint top scorer" : "Top scorer"}
@@ -154,6 +166,20 @@ export default async function PublicPlayerReportPage({
                 value={latestWinningStreakRows.length ? latestWinningStreakRows.map((row) => row.player_name ?? "-").join(", ") : "-"}
                 wrapValue
               />
+              {(["goalkeeper", "defender", "midfielder"] as const).map((position) => {
+                const leaders = positionLeaders[position] ?? [];
+                const leader = leaders[0];
+                return <SummaryCard
+                  key={position}
+                  icon={<ShieldCheck className="h-5 w-5 text-emerald-600" />}
+                  label={`Top ${position[0].toUpperCase()}${position.slice(1)}`}
+                  subLabel={positionLeadersError ? "Run latest migration" : leader
+                    ? `${Number(leader.average_session_rating).toFixed(2)} rating | ${leader.sessions_played} sessions`
+                    : "No rated performances"}
+                  value={leaders.length ? leaders.map((row) => row.player_name).join(", ") : "-"}
+                  wrapValue
+                />;
+              })}
             </div>
           </div>
         </header>

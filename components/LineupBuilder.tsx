@@ -20,18 +20,20 @@ type LineupPosition = {
   x: number;
   y: number;
   playerId?: string;
+  position?: string;
   jerseyColor?: string;
 };
 
 type TeamOption = {
   id: string;
   name: string;
-  players: Array<{ id: string; name: string }>;
+  players: Array<{ id: string; name: string; preferredPosition?: string | null }>;
 };
 
 const playerCounts = [5, 6, 7, 8, 9, 10, 11];
 const formationOptions = ["2-1-1", "2-2-1", "2-2-2", "3-3-1", "3-3-2", "3-3-3", "4-3-3"];
 const jerseyColors = ["#059669", "#dc2626", "#2563eb", "#f59e0b", "#111827", "#ffffff"];
+const positionOptions = ["goalkeeper", "defender", "midfielder", "forward"] as const;
 
 export function LineupBuilder({
   lineups,
@@ -71,7 +73,11 @@ export function LineupBuilder({
     setPositions(nextLineup?.positions?.length ? nextLineup.positions : []);
   }, [lineups, selectedTeamId, teams]);
 
-  const savePositions = positions.map((position) => ({ ...position, jerseyColor }));
+  const savePositions = positions.map((position) => ({
+    ...position,
+    jerseyColor,
+    position: position.position ?? selectedTeam?.players.find((player) => player.id === position.playerId)?.preferredPosition?.toLowerCase() ?? ""
+  }));
 
   function changePlayerCount(count: number) {
     setPlayerCount(count);
@@ -130,8 +136,13 @@ export function LineupBuilder({
         return current.map((position, index) => index === existingIndex ? { ...position, x, y } : position);
       }
       if (current.filter((position) => position.playerId).length >= playerCount) return current;
-      return [...current, { slot: `custom-${playerId}`, label: "", x, y, playerId }];
+      const player = selectedTeam?.players.find((item) => item.id === playerId);
+      return [...current, { slot: `custom-${playerId}`, label: "", x, y, playerId, position: player?.preferredPosition?.toLowerCase() ?? "" }];
     });
+  }
+
+  function updatePlayerPosition(playerId: string, position: string) {
+    setPositions((current) => current.map((item) => item.playerId === playerId ? { ...item, position } : item));
   }
 
   function removeFromField(playerId: string) {
@@ -238,6 +249,21 @@ export function LineupBuilder({
               </span>
             ))}
             {!availablePlayers.length ? <p className="text-sm text-slate-500">Every selected-team player is in the lineup.</p> : null}
+          </div>
+          <div className="grid gap-2 border-t border-line pt-3">
+            <h3 className="text-sm font-semibold">Session positions</h3>
+            {positions.filter((item) => item.playerId).map((item) => {
+              const player = selectedTeam?.players.find((candidate) => candidate.id === item.playerId);
+              if (!player) return null;
+              const value = item.position ?? player.preferredPosition?.toLowerCase() ?? "";
+              return <label className="grid grid-cols-[minmax(0,1fr)_minmax(120px,1fr)] items-center gap-2 text-sm" key={player.id}>
+                <span className="truncate">{player.name}</span>
+                <select aria-label={`${player.name} session position`} className="input min-w-0" onChange={(event) => updatePlayerPosition(player.id, event.target.value)} value={value}>
+                  <option value="">Use global default</option>
+                  {positionOptions.map((position) => <option key={position} value={position}>{position[0].toUpperCase() + position.slice(1)}</option>)}
+                </select>
+              </label>;
+            })}
           </div>
           <button className={cn("btn-primary mt-2 w-fit", !selectedTeamId && "opacity-50")} disabled={pending || !selectedTeamId}>
             <Save className="h-4 w-4" />

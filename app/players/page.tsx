@@ -4,7 +4,9 @@ import { AppShell } from "../(shell)";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { compareText } from "@/lib/sorting";
-import { createSupabaseServerClient, getCurrentProgram } from "@/lib/supabase/server";
+import { createSupabaseServerClient, getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
+import { hasPermission } from "@/lib/permissions";
+import { EditablePlayerField } from "@/components/EditablePlayerField";
 
 type SortKey = "name" | "status" | "position" | "email";
 
@@ -15,7 +17,7 @@ export default async function PlayersPage({
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const program = await getCurrentProgram();
+  const [program, profile] = await Promise.all([getCurrentProgram(), getCurrentProfile()]);
   const { data: memberships } = program?.id
     ? await supabase.from("program_members").select("player_id").eq("program_id", program.id).eq("status", "active").not("player_id", "is", null)
     : { data: [] };
@@ -24,6 +26,7 @@ export default async function PlayersPage({
     ? await supabase.from("players").select("*").in("id", playerIds).order("display_name")
     : { data: [] };
   const rows = sortRows(data ?? [], sortKey(filters.sort));
+  const canEdit = hasPermission(profile?.role, "manage_finance");
   return (
     <AppShell>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -33,9 +36,9 @@ export default async function PlayersPage({
       <DataTable rows={rows} columns={[
         { header: "Name", cell: (row) => <Link className="font-medium text-pitch" href={`/players/${row.id}`}>{row.display_name}</Link> },
         { header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
-        { header: "Phone", cell: (row) => row.phone ?? "-" },
-        { header: "Email", cell: (row) => row.email ?? "-" },
-        { header: "Position", cell: (row) => row.preferred_position ?? "-" }
+        { header: "Phone", cell: (row) => <EditablePlayerField canEdit={canEdit} field="phone" playerId={row.id} playerName={row.display_name} value={row.phone} /> },
+        { header: "Email", cell: (row) => <EditablePlayerField canEdit={canEdit} field="email" playerId={row.id} playerName={row.display_name} value={row.email} /> },
+        { header: "Default position", cell: (row) => <EditablePlayerField canEdit={canEdit} field="preferred_position" playerId={row.id} playerName={row.display_name} value={row.preferred_position} /> }
       ]} />
     </AppShell>
   );

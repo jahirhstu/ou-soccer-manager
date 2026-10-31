@@ -7,7 +7,8 @@ and OU Manager. Existing draft skill percentages, goals/assists rankings, paymen
 attendance and team formation remain separate and unchanged.
 
 - Website: Session > Performance & voting; score entry links to match positions.
-- Dashboard: latest completed session awards and position leaderboard link.
+- Public Dashboard: top goalkeeper, defender, and midfielder cards use the existing
+  season performance ratings and public-report scope.
 - Player page: performance and position history, with session breakdown links.
 - OU Sports / OU Manager: Session actions > Match ratings & votes.
 - OU Sports: Statistics and Account > performance history.
@@ -15,20 +16,20 @@ attendance and team formation remain separate and unchanged.
 
 ## Match Workflow
 
-1. Save teams and fixtures using the existing workflows.
-2. Confirm participation and position for each match. Positions are not permanent.
-   Copy previous match positions pre-fills only earlier confirmed entries for players
-   in the current match; review and confirm before saving.
-3. Record scorer, assist, and opposing goalkeeper. A unique confirmed opposing
-   goalkeeper is suggested; multiple keepers require an explicit choice.
-4. Mark scoreless games played using the existing scoring control.
-5. Complete the session. Its actual team captains can submit nominations.
+1. Set a player's global default position on the player record.
+2. Optionally override that position for the session in the website Lineup Builder.
+3. During website score entry, match positions are prefilled from match, session,
+   then player defaults, in that precedence order. A scorer's position and opposing
+   goalkeeper can be adjusted for that match; a unique opposing goalkeeper is
+   suggested when available.
+4. On Session Details > Performance & voting, review or override match positions.
+   Players assigned to a participating team count as participating by default.
+5. Mark scoreless games played using the existing scoring control.
+6. Complete the session. Its actual team captains can submit nominations.
 
-No historical positions or participation are inferred. An unconfirmed roster
-member has no performance appearance. A confirmed participant with unknown position
-counts as an appearance but contributes zero to the session numerator and is marked
-incomplete. Non-participants do not enter the denominator. This deliberately avoids
-inflating ratings by discarding unknown appearances.
+Unknown positions still count as appearances but contribute zero to the session
+numerator and are marked incomplete. Explicitly excluded participants do not enter
+the denominator. This avoids inflating ratings by discarding unknown appearances.
 
 Goalkeeper attribution is nullable. Missing attribution is not reported as zero
 conceded. Historical match scores remain authoritative even without goal events.

@@ -7,11 +7,12 @@ import { saveMiniGameScores } from "@/lib/actions/session-management";
 
 type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+const matchPositionOptions = ["goalkeeper", "defender", "midfielder", "forward"] as const;
 
 export type TeamOption = {
   id: string;
   name: string;
-  players: Array<{ id: string; name: string }>;
+  players: Array<{ id: string; name: string; preferredPosition?: string | null }>;
 };
 
 export type MatchInput = {
@@ -34,6 +35,7 @@ type GoalInput = {
   key: string;
   concededGoalkeeperId?: string;
   scorerId: string;
+  position?: string;
   assistPlayerId: string;
   goalType: "goal" | "own_goal";
   goalCount: number;
@@ -96,7 +98,15 @@ export function MiniGameScoresForm({
         sessionTeamId: inferScoringTeamId(goal, game, teamByPlayer),
         goalCount: goal.goalCount,
         goalType: goal.goalType
-      }))
+      })),
+    positions: positions.filter((position) => position.match_id === game.key).map((position) => {
+      const selectedPosition = game.goals.find((goal) => goal.scorerId === position.player_id && goal.position !== undefined)?.position;
+      return {
+        playerId: position.player_id,
+        position: selectedPosition ?? position.position ?? "",
+        participated: position.participated
+      };
+    })
   }));
   const payloadJson = JSON.stringify(payload);
 
@@ -181,6 +191,13 @@ export function MiniGameScoresForm({
           : game
       )
     );
+  }
+
+  function updatePlayerGoalPosition(game: MatchInput, playerId: string, position: string) {
+    setGames((current) => current.map((item) => item.key === game.key ? {
+      ...item,
+      goals: item.goals.map((goal) => goal.scorerId === playerId ? { ...goal, position } : goal)
+    } : item));
   }
 
   function deleteGoal(game: MatchInput, goalKey: string) {
@@ -335,17 +352,31 @@ export function MiniGameScoresForm({
                     return options.length === 1 ? options[0].id : "";
                   };
                   const assistPlayers = goal.scorerId && scorerTeamId ? playersForTeam(playersByTeam, scorerTeamId) : selectablePlayers;
+                  const scorerPosition = goal.position ?? positionForPlayer(positions, game.key, goal.scorerId, teams);
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
-                      <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
+                      <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(130px,0.7fr)_minmax(0,1fr)] lg:items-end">
                         <GoalTypeSelect disabled={readOnly} onChange={(value) => updateGoal(game.key, goal.key, { goalType: value, concededGoalkeeperId: suggestKeeper(goal.scorerId, value), assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId })} value={goal.goalType} />
                         <PlayerSelect
                           disabled={readOnly || !game.teamAId || !game.teamBId}
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
-                          onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, assistPlayerId: "", concededGoalkeeperId: suggestKeeper(value, goal.goalType) })}
+                          onChange={(value) => updateGoal(game.key, goal.key, { scorerId: value, position: positionForPlayer(positions, game.key, value, teams), assistPlayerId: "", concededGoalkeeperId: suggestKeeper(value, goal.goalType) })}
                           players={selectablePlayers}
                           value={goal.scorerId}
                         />
+                        <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+                          Player position
+                          <select
+                            aria-label={`${goal.scorerId ? selectablePlayers.find((player) => player.id === goal.scorerId)?.name ?? "Scorer" : "Scorer"} match position`}
+                            className="input min-h-9 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                            disabled={readOnly || !goal.scorerId}
+                            onChange={(event) => updatePlayerGoalPosition(game, goal.scorerId, event.target.value)}
+                            value={scorerPosition}
+                          >
+                            <option value="">Unknown</option>
+                            {matchPositionOptions.map((position) => <option key={position} value={position}>{capitalize(position)}</option>)}
+                          </select>
+                        </label>
                         <PlayerSelect disabled={readOnly || goal.goalType === "own_goal"} label="Assist" onChange={(value) => updateGoal(game.key, goal.key, { assistPlayerId: value })} players={assistPlayers} value={goal.assistPlayerId} optional />
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
@@ -411,6 +442,22 @@ function uniquePlayers(players: Array<{ id: string; name: string }>) {
 
 function playersForTeam(playersByTeam: Map<string, Array<{ id: string; name: string }>>, teamId?: string) {
   return teamId ? playersByTeam.get(teamId) ?? [] : [];
+}
+
+function positionForPlayer(
+  positions: Array<{ match_id: string; player_id: string; position: string | null }>,
+  matchId: string,
+  playerId: string,
+  teams: TeamOption[]
+) {
+  const saved = positions.find((position) => position.match_id === matchId && position.player_id === playerId)?.position;
+  if (saved) return saved;
+  const playerDefault = teams.flatMap((team) => team.players).find((player) => player.id === playerId)?.preferredPosition?.toLowerCase();
+  return matchPositionOptions.find((position) => position === playerDefault) ?? "";
+}
+
+function capitalize(value: string) {
+  return value[0].toUpperCase() + value.slice(1);
 }
 
 function randomKey(prefix: string) {

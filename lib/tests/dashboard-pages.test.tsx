@@ -32,6 +32,11 @@ beforeEach(() => {
   mocks.tenant.mockResolvedValue("ou-soccer"); mocks.program.mockResolvedValue("football");
   mocks.rpc.mockImplementation(async (name, args) => {
     if (name === "public_report_season") return { data: [{ season_id: "summer", season_name: "Summer" }], error: null };
+    if (name === "scoped_public_position_leaderboards") return { data: {
+      goalkeeper: [{ player_id: "keeper", player_name: "Goalkeeper One", average_session_rating: 87, matches_played: 4, sessions_played: 2 }],
+      defender: [{ player_id: "defender", player_name: "Defender One", average_session_rating: 82, matches_played: 3, sessions_played: 2 }],
+      midfielder: [{ player_id: "midfielder", player_name: "Midfielder One", average_session_rating: 79, matches_played: 5, sessions_played: 3 }]
+    }, error: null };
     if (["scoped_public_player_report", "internal_scoped_player_report"].includes(name)) return { data: reportRows, error: null };
     if (name === "admin_dashboard_season_finance") return { data: [{ signup_collected: 120, drop_in_collected: 24, total_collected: 144, total_expenses: 20, total_refunded: 12, club_balance: 112, total_player_credit: 25, net_club_balance: 87, total_waived: args.p_season_id === "summer" ? 48 : 0, player_count: 2 }], error: null };
     if (name === "admin_club_transfer_summary") return { data: [{ season_result: 87, carried_in: 0, carried_out: 0, balance_remaining: 87 }], error: null };
@@ -79,6 +84,11 @@ describe("public active-season report", () => {
     for (const name of ["scoped_public_dashboard_highlights", "scoped_public_longest_winning_streaks", "scoped_public_latest_winning_streaks"]) {
       expect(mocks.rpc).toHaveBeenCalledWith(name, { p_organization_slug: "ou-soccer", p_program_slug: "football", p_season_id: "summer" });
     }
+    expect(mocks.rpc).toHaveBeenCalledWith("scoped_public_position_leaderboards", { p_organization_slug: "ou-soccer", p_program_slug: "football", p_season_id: "summer" });
+    expect(html).toContain("Top Goalkeeper");
+    expect(html).toContain("Goalkeeper One");
+    expect(html).toContain("Top Defender");
+    expect(html).toContain("Top Midfielder");
   });
 
   it("keeps player search within the resolved season", async () => {

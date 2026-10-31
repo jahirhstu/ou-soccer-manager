@@ -136,3 +136,58 @@ it('requires organization admin membership, opt-in, a preview, and one active jo
     expect((await q('select id from development_refresh_jobs')).length).toBe(0);
   } finally { await db.exec('rollback'); }
 }, 120000);
+
+it('resolves website performance positions by match, session, then player default', async () => {
+  await db.exec('begin');
+  try {
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.admin]);
+    const [match] = await q(`select m.id,m.session_id,m.match_number,m.team_a_id,m.team_b_id,s.season_id
+      from public.session_matches m join public.sessions s on s.id=m.session_id
+      where s.organization_id=$1 and m.result_status='played' and m.team_a_id is not null and m.team_b_id is not null
+      order by m.match_number limit 1`, [org]);
+    const teamPlayers = await q("select player_id from public.session_team_players where session_id=$1 and session_team_id=$2 order by player_id limit 3", [match.session_id, match.team_a_id]);
+    const opponentPlayers = await q("select player_id from public.session_team_players where session_id=$1 and session_team_id=$2 order by player_id limit 1", [match.session_id, match.team_b_id]);
+    const [matchOverride, sessionOverride, globalDefault] = teamPlayers.map((row: { player_id: string }) => row.player_id);
+    const keeper = opponentPlayers[0].player_id;
+
+    await q("update public.players set preferred_position=$1 where id=$2", ["defender", matchOverride]);
+    await q("update public.players set preferred_position=$1 where id=$2", ["goalkeeper", sessionOverride]);
+    await q("update public.players set preferred_position=$1 where id=$2", ["goalkeeper", globalDefault]);
+    await q("update public.players set preferred_position=$1 where id=$2", ["goalkeeper", keeper]);
+    await q("update public.session_team_lineups set positions=(select jsonb_agg(case when entry->>'playerId'=$2 then jsonb_set(entry,'{position}',to_jsonb($3::text),true) else entry end) from jsonb_array_elements(positions) entry) where session_id=$1 and session_team_id=$4",
+      [match.session_id, sessionOverride, "defender", match.team_a_id]);
+    await q("delete from public.match_player_positions where match_id=$1 and player_id=any($2::uuid[])", [match.id, [matchOverride, sessionOverride, globalDefault, keeper]]);
+    await q("insert into public.match_player_positions(match_id,player_id,session_team_id,position,participated,confirmed_by) values($1,$2,$3,'forward',true,$4)",
+      [match.id, matchOverride, match.team_a_id, ids.admin]);
+
+    const [{ result: performance }] = await q("select public.session_performance($1) result", [match.session_id]);
+    expect(performance.matches[0]).toMatchObject({ teamAName: "Falcons", teamBName: "Comets" });
+    const resolved = (playerId: string) => performance.positions.find((row: any) => row.match_id === match.id && row.player_id === playerId)?.position;
+    expect(resolved(matchOverride)).toBe("forward");
+    expect(resolved(sessionOverride)).toBe("defender");
+    expect(resolved(globalDefault)).toBe("goalkeeper");
+
+    const positions = performance.positions.filter((row: any) => row.match_id === match.id)
+      .map((row: any) => ({ playerId: row.player_id, position: row.position, participated: row.participated }));
+    const selectedOverride = positions.find((row: any) => row.playerId === matchOverride);
+    selectedOverride.position = "midfielder";
+    await q("select public.save_website_game_scores($1,$2)", [match.session_id, JSON.stringify([{
+      matchNumber: match.match_number,
+      teamAId: match.team_a_id,
+      teamBId: match.team_b_id,
+      resultStatus: "played",
+      positions,
+      goals: [{ scorerId: matchOverride, position: "midfielder", concededGoalkeeperId: keeper, goalType: "goal", goalCount: 1 }]
+    }])]);
+    const [{ position: savedPosition }] = await q(
+      "select position,keeper_conceded from public.match_performance_detail where match_id=$1 and player_id=$2",
+      [match.id, matchOverride]
+    );
+    const [{ keeper_conceded: keeperConceded }] = await q(
+      "select keeper_conceded from public.match_performance_detail where match_id=$1 and player_id=$2",
+      [match.id, keeper]
+    );
+    expect(savedPosition).toBe("midfielder");
+    expect(keeperConceded).toBe(1);
+  } finally { await db.exec('rollback'); }
+}, 120000);

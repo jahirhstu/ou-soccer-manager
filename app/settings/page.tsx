@@ -3,13 +3,15 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { cleanupClubData, setOrganizationDefaultProgram, updatePublicReportSettings } from "@/lib/actions/admin";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
 import { hasOrganizationAdminAuthority } from "@/lib/organization-access";
+import { ProductionRefresh } from "@/components/ProductionRefresh";
+import { refreshEnabled } from "@/lib/production-refresh";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ cleanup?: string }> }) {
   const [{ cleanup }, profile] = await Promise.all([searchParams, getCurrentProfile()]);
   const supabase = await createSupabaseServerClient();
   const isAdmin = await hasOrganizationAdminAuthority(supabase, profile?.organization_id);
   const [{ data: organization }, { data: organizationSettings }, { data: programs }] = profile?.organization_id ? await Promise.all([
-    supabase.from("organizations").select("public_reports_enabled").eq("id", profile.organization_id).maybeSingle(),
+    supabase.from("organizations").select("name,public_reports_enabled").eq("id", profile.organization_id).maybeSingle(),
     supabase.from("organization_settings").select("public_balances_enabled,public_payments_enabled").eq("organization_id", profile.organization_id).maybeSingle(),
     supabase.from("programs").select("id,name,slug,is_default").eq("organization_id", profile.organization_id).eq("status", "active").order("name")
   ]) : [{ data: null }, { data: null }, { data: [] }];
@@ -61,7 +63,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         {isAdmin ? (
           <section className="panel grid gap-4 border-rose-200 p-5">
             <div>
-              <h2 className="section-title text-rose-900">Admin data cleanup</h2>
+              <h2 className="section-title text-rose-900">Clean Up Data</h2>
               <p className="mt-2 text-sm text-slate-600">
                 Remove club operating data including leagues, seasons, sessions, teams, players, payments, attendance, goals, imports, and ledger entries.
                 Playgrounds are also removed. Login users, profiles, roles, and access information are kept.
@@ -78,6 +80,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 </ConfirmDialog>
               </div>
             </form>
+            {refreshEnabled() ? (
+              <div className="grid gap-2 border-t border-rose-100 pt-4">
+                <h3 className="font-semibold text-slate-800">Refresh From Production</h3>
+                <p className="text-sm text-slate-600">Review and refresh this organization’s development data from production.</p>
+                <ProductionRefresh organizationName={organization?.name ?? "Organization"} />
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

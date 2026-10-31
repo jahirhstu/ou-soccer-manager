@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { attendanceSchema, expenseSchema, paymentSchema, playerSchema, programSchema, seasonSchema, sessionSchema } from "../schemas";
@@ -135,6 +136,36 @@ export async function updatePlayer(formData: FormData) {
   revalidatePath("/players");
   revalidatePath(`/players/${playerId}`);
   redirect(`/players/${playerId}`);
+}
+
+export async function updatePlayerField(playerId: string, field: "phone" | "email" | "preferred_position", value: string) {
+  const profile = await requirePermission("manage_finance");
+  if (!profile.organization_id) return { error: "No organization found for this account." };
+  const validPlayerId = z.string().uuid().safeParse(playerId);
+  if (!validPlayerId.success) return { error: "Player was not found." };
+
+  let nextValue: string | null = value.trim() || null;
+  if (field === "email" && nextValue) {
+    const parsedEmail = z.string().email().safeParse(nextValue);
+    if (!parsedEmail.success) return { error: "Enter a valid email address." };
+    nextValue = parsedEmail.data;
+  }
+  if (field === "preferred_position" && nextValue && !["goalkeeper", "defender", "midfielder", "forward"].includes(nextValue)) {
+    return { error: "Choose a valid default position." };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: player, error: playerError } = await supabase.from("players").select("id")
+    .eq("id", validPlayerId.data).eq("organization_id", profile.organization_id).maybeSingle();
+  if (playerError) throw new Error(playerError.message);
+  if (!player) return { error: "Player was not found in this organization." };
+
+  const { error } = await supabase.from("players").update({ [field]: nextValue })
+    .eq("id", player.id).eq("organization_id", profile.organization_id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/players");
+  revalidatePath(`/players/${player.id}`);
+  return { success: true };
 }
 
 export async function savePayment(formData: FormData) {
