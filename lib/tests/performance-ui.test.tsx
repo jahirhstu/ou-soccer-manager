@@ -6,6 +6,7 @@ import { previousMatchPositions } from "../../packages/contracts/src/performance
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/actions/performance", () => ({ updatePerformance: vi.fn() }));
 import { SessionPerformance } from "../../components/SessionPerformance";
+import { SessionNominations } from "../../components/SessionNominations";
 
 const data: PerformanceData = {
   session: { id: "session", name: "Sunday morning", status: "completed", seasonId: "fall" },
@@ -24,36 +25,47 @@ const data: PerformanceData = {
   results: [{ player_id: "a1", player_name: "Own Goalkeeper", matches_played: 4, rated_matches: 4, positions: ["goalkeeper"], match_points: 28, captain_points: 30, final_rating: 58, incomplete: false }],
 };
 
-it("renders tied awards, point breakdowns and only opposing eligible nominees", () => {
-  const html = renderToStaticMarkup(<SessionPerformance data={data} />);
-  expect(html).toContain("58.00");
-  expect(html).toContain("Match 28.00/40");
-  expect(html).toContain('value="b1"');
-  expect(html).not.toContain('<option value="a1"');
-  expect(html).not.toContain('<option value="b2"');
-  expect(html).not.toContain('checked=""');
-  expect(html).toContain("Own Goalkeeper");
-  expect(html).toContain("Visiting Goalkeeper");
-  expect(html).toContain("Team Sadat vs Team Jahir");
-  expect(html).not.toContain("Played</label>");
+it("renders rating breakdowns and teammate nomination choices while excluding the voter", () => {
+  const ratings = renderToStaticMarkup(<SessionPerformance data={data} />);
+  const nominations = renderToStaticMarkup(<SessionNominations data={{
+    ...data,
+    canManage: false,
+    canClose: false,
+    canNominate: true,
+    voterPlayerId: "a1",
+    nominations: [],
+    voteCounts: [{ category: "goalkeeper", total: 3, pointsPerVote: 20 }]
+  }} />);
+  expect(ratings).toContain("58.00");
+  expect(ratings).toContain("Match 28.00/40");
+  expect(nominations).toContain("Top Goalkeeper");
+  expect(nominations).toContain('value="b1"');
+  expect(nominations).not.toContain('value="a1"');
+  expect(nominations).toContain("Visiting Goalkeeper");
+  expect(ratings).toContain("Team Sadat vs Team Jahir");
+  expect(ratings).not.toContain("Played</label>");
   if (process.env.OU_RENDER_PERFORMANCE === "1") {
     const css = readdirSync(".next/static/css").filter(f => f.endsWith(".css")).map(f => readFileSync(`.next/static/css/${f}`, "utf8")).join("\n");
-    writeFileSync("/tmp/ou-performance-preview.html", `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main style="max-width:1100px;margin:auto;padding:16px"><h1 class="page-title">Player performance</h1>${html}</main></body></html>`);
+    writeFileSync("/tmp/ou-performance-preview.html", `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main style="max-width:1100px;margin:auto;padding:16px"><h1 class="page-title">Player performance</h1>${ratings}${nominations}</main></body></html>`);
   }
 });
 
-it("hides writes for spectators and ballots when voting is closed", () => {
-  const html = renderToStaticMarkup(<SessionPerformance data={{ ...data, canManage: false, canClose: false, closed: true }} />);
-  expect(html).not.toContain("Confirm match participation");
-  expect(html).not.toContain("Save nomination");
-  expect(html).not.toContain("Reopen voting");
-  expect(html).toContain("Voting closed");
+it("hides nomination writes when voting is closed", () => {
+  const html = renderToStaticMarkup(<SessionNominations data={{
+    ...data, canManage: false, canClose: false, canNominate: true, voterPlayerId: "a1",
+    nominations: [], closed: true
+  }} />);
+  expect(html).not.toContain("Submit nomination");
+  expect(html).not.toContain("Reopen nominations");
+  expect(html).toContain("Nominations closed");
 });
 
 it("keeps zero-participation sessions empty without assigning ratings", () => {
-  const html = renderToStaticMarkup(<SessionPerformance data={{ ...data, canManage: false, results: [], details: [], awards: [] }} />);
-  expect(html).toContain("No confirmed participation");
-  expect(html).toContain("No nominations");
+  const emptyData = { ...data, canManage: false, results: [], details: [], awards: [] };
+  const ratings = renderToStaticMarkup(<SessionPerformance data={emptyData} />);
+  const nominations = renderToStaticMarkup(<SessionNominations data={emptyData} />);
+  expect(ratings).toContain("No confirmed participation");
+  expect(nominations).toContain("No nominations yet.");
 });
 
 it("copies only earlier confirmed positions for the current match roster", () => {

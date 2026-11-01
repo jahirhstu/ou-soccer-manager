@@ -13,6 +13,21 @@ export type PerformanceTeam = {
 
 type ScorePositionSelection = { scorerId: string; position?: string };
 
+export type MatchPositionChange = {
+  playerId: string;
+  position: string;
+  participated: boolean;
+  resolvedPosition: string | null;
+  goalkeeperAssigned?: boolean;
+};
+
+export function matchPositionEntries(changes: MatchPositionChange[]) {
+  return changes
+    .filter((change) => change.position !== change.resolvedPosition
+      && (!change.goalkeeperAssigned || change.position === "goalkeeper"))
+    .map(({ playerId, position, participated }) => ({ playerId, position, participated }));
+}
+
 export function scorePositionEntries(goals: ScorePositionSelection[]) {
   return Array.from(new Map(goals
     .filter((goal): goal is ScorePositionSelection & { position: string } => Boolean(goal.scorerId && goal.position))

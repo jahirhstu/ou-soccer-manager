@@ -90,6 +90,27 @@ it("counts four appearances each in a three-team seven-a-side six-match session"
   });
 });
 
+it("saves unrelated match-position edits while preserving the recorded-goalkeeper guard", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(1);
+    await q(`insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id,goal_type,goal_count)
+      values($1,$2,$3,$4,$5,'goal',1)`, [f.sessionId, f.matches[0], f.players[1].id, f.teams[0], f.players[7].id]);
+    await q("select confirm_match_positions($1,$2)", [f.matches[0], JSON.stringify([
+      { playerId: f.players[1].id, position: "midfielder", participated: true }
+    ])]);
+    const [{ position: savedPosition }] = await q(
+      "select position from match_player_positions where match_id=$1 and player_id=$2",
+      [f.matches[0], f.players[1].id]
+    );
+    expect(savedPosition).toBe("midfielder");
+    await db.exec("savepoint keeper_position_guard");
+    await expect(q("select confirm_match_positions($1,$2)", [f.matches[0], JSON.stringify([
+      { playerId: f.players[7].id, position: "defender", participated: true }
+    ])])).rejects.toThrow("Correct goalkeeper assignments");
+    await db.exec("rollback to savepoint keeper_position_guard");
+  });
+});
+
 it("preserves match positions and keeper attribution across atomic score corrections", async () => {
   await asUser("owner", async () => {
     const f = await performanceFixture();
@@ -139,7 +160,7 @@ it("caps ratings and applies position-specific clean-sheet weights", async () =>
   }
 });
 
-it("supports captain edits, ties, 30/60 points, closed ballots and correction-driven eligibility", async () => {
+it("keeps the legacy captain ballot path compatible with dynamic nomination scoring", async () => {
   await asUser("owner", async () => {
     const f = await performanceFixture(1, true);
     await q("update sessions set status='completed' where id=$1", [f.sessionId]);
@@ -158,7 +179,7 @@ it("supports captain edits, ties, 30/60 points, closed ballots and correction-dr
     await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[7].id]);
     let result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
     expect(result.votes).toHaveLength(1);
-    expect(result.results.find((r: any) => r.player_id === f.players[7].id).captain_points).toBe(30);
+    expect(result.results.find((r: any) => r.player_id === f.players[7].id).captain_points).toBe(20);
     await q("select close_performance_voting($1,true)", [f.sessionId]);
     await db.exec("savepoint closed_vote");
     await expect(q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[14].id])).rejects.toThrow("closed");
@@ -167,7 +188,7 @@ it("supports captain edits, ties, 30/60 points, closed ballots and correction-dr
     await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[14].id]);
     result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
     expect(result.results.find((r: any) => r.player_id === f.players[7].id).captain_points).toBe(0);
-    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(30);
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(20);
     await db.exec("savepoint own_vote");
     await expect(q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[0].id])).rejects.toThrow("another team");
     await db.exec("rollback to savepoint own_vote");
@@ -178,7 +199,7 @@ it("supports captain edits, ties, 30/60 points, closed ballots and correction-dr
     await db.exec("set local role authenticated");
     await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[1], f.players[14].id]);
     result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
-    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(60);
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(40);
     await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[1], f.players[0].id]);
     result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
     expect(result.awards).toHaveLength(2);
@@ -187,8 +208,84 @@ it("supports captain edits, ties, 30/60 points, closed ballots and correction-dr
     expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(0);
     expect(result.awards).toHaveLength(1);
     const ranks = (await q("select season_performance($1) result", [season]))[0].result;
-    expect(ranks.find((r: any) => r.player_id === f.players[0].id && r.position === "goalkeeper").average_session_rating).toBe(58);
+    expect(ranks.find((r: any) => r.player_id === f.players[0].id && r.position === "goalkeeper").average_session_rating).toBe(48);
     expect(ranks.find((r: any) => r.player_id === f.players[14].id && r.position === "forward").nominations).toBe(0);
+  });
+});
+
+it("allows eligible players and admin-authorized nonparticipants to nominate with dynamic points", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(1);
+    await q("update sessions set status='completed' where id=$1", [f.sessionId]);
+    await db.exec("reset role");
+    await q("delete from program_members where program_id=$1 and profile_id is null", [soccer]);
+    await q("update program_members set player_id=null where program_id=$1", [soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.owner, f.players[0].id, soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.captain, f.players[1].id, soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.member, f.players[14].id, soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids["soccer-manager"], f.players[15].id, soccer]);
+    await db.exec("set local role authenticated");
+
+    await q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[7].id]);
+    await q("select submit_session_performance_nomination($1,'defender',$2)", [f.sessionId, f.players[2].id]);
+    await db.exec("savepoint unauthorized_player_nomination");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids["soccer-manager"]]);
+    await expect(q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[7].id])).rejects.toThrow("not authorized");
+    await db.exec("rollback to savepoint unauthorized_player_nomination");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.owner]);
+    await db.exec("savepoint duplicate_player_nomination");
+    await expect(q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[7].id])).rejects.toThrow("already nominated");
+    await db.exec("rollback to savepoint duplicate_player_nomination");
+    await db.exec("savepoint self_nomination");
+    await expect(q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[0].id])).rejects.toThrow("cannot nominate yourself");
+    await db.exec("rollback to savepoint self_nomination");
+
+    await db.exec("reset role");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.captain]);
+    await db.exec("set local role authenticated");
+    await q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[7].id]);
+    let result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.voteCounts.find((vote: any) => vote.category === "goalkeeper")).toMatchObject({ total: 2, pointsPerVote: 20 });
+    expect(result.results.find((row: any) => row.player_id === f.players[7].id).nomination_points).toBe(40);
+
+    await db.exec("reset role");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.owner]);
+    await db.exec("set local role authenticated");
+    await q("select authorize_session_performance_nominator($1,$2,true)", [f.sessionId, f.players[14].id]);
+    await db.exec("reset role");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.member]);
+    await db.exec("set local role authenticated");
+    await q("select submit_session_performance_nomination($1,'midfielder',$2)", [f.sessionId, f.players[3].id]);
+    result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.nominations).toContainEqual({ category: "midfielder", player_id: f.players[3].id });
+    expect(result.results.find((row: any) => row.player_id === f.players[3].id).nomination_points).toBe(20);
+    expect(result.results.every((row: any) => row.final_rating <= 100)).toBe(true);
+  });
+});
+
+it("caps a player's combined nomination points across multiple resolved positions", async () => {
+  await asUser("owner", async () => {
+    const f = await performanceFixture(2, true);
+    await q("update sessions set status='completed' where id=$1", [f.sessionId]);
+    await q("select confirm_match_positions($1,$2)", [f.matches[2], JSON.stringify([
+      { playerId: f.players[7].id, position: "defender", participated: true }
+    ])]);
+    await db.exec("reset role");
+    await q("delete from program_members where program_id=$1 and profile_id is null", [soccer]);
+    await q("update program_members set player_id=null where program_id=$1", [soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.owner, f.players[0].id, soccer]);
+    await q("update program_members set player_id=$2 where profile_id=$1 and program_id=$3", [ids.captain, f.players[14].id, soccer]);
+    await db.exec("set local role authenticated");
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[0], f.players[7].id]);
+    await q("select nominate_session_player($1,$2,'defender',$3)", [f.sessionId, f.teams[0], f.players[7].id]);
+    await db.exec("reset role");
+    await q("select set_config('request.jwt.claim.sub',$1,true)", [ids.captain]);
+    await db.exec("set local role authenticated");
+    await q("select nominate_session_player($1,$2,'goalkeeper',$3)", [f.sessionId, f.teams[2], f.players[7].id]);
+    await q("select nominate_session_player($1,$2,'defender',$3)", [f.sessionId, f.teams[2], f.players[7].id]);
+    const result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
+    expect(result.results.find((row: any) => row.player_id === f.players[7].id).nomination_points).toBe(60);
+    expect(result.results.every((row: any) => row.final_rating <= 100)).toBe(true);
   });
 });
 

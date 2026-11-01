@@ -4,6 +4,14 @@ These scripts are **development-only**. They were prepared for the database
 inspected from this workspace's `.env.local`, not for production. No remote
 migration, cleanup, or seeding was performed during preparation.
 
+## Current Development Status
+
+On 2026-10-31, the development database was verified at migration 101. Its schema
+already matched migrations 099 and 100 although its recorded history stopped at
+098; the guarded runner recorded those two existing migrations without replaying
+them, then applied 101 transactionally. A protected database backup was validated
+before the write. Production was not changed.
+
 ## Inspection Results
 
 The read-only inspection found 18 Auth users, 44 players, three sessions, and
@@ -22,10 +30,12 @@ matches the pre-merge development commit `8a10cb1`, with additional manual drift
   them is unnecessary for compatibility and would destroy their existing values.
 
 The upgrade restores the missing foreign keys and winner function, reapplies
-049, 068, 070-080, then applies 088-090. It does **not** replay the already-installed
-081-087 architecture migrations. Report function privileges are tightened again
-before commit. Existing rows are not deleted by the upgrade; historical backfills
-in the included migrations may update their derived links/scope.
+049, 068, 070-080, then applies 088-101. It does **not** replay the already-installed
+081-087 architecture migrations. Migrations 100 and 101 add position priority and
+session player nominations to this upgrade path. Report function privileges are
+tightened again before commit. The upgrade does not truncate application data;
+individual migrations may backfill derived data or remove obsolete unaudited
+position rows when those rows cannot be distinguished from copied fallbacks.
 
 The inspection covers public tables, column types/defaults/nullability, constraints,
 indexes, views, functions, function execute permissions for application roles,
@@ -40,6 +50,8 @@ or project dashboard settings.
 - `scripts/generated/dev-maintenance.local.json`: ignored project-specific guard,
   schema fingerprint, expected schema, and SQL/source checksums.
 - `scripts/dev-database.ts`: guarded preview/execution runner.
+- `scripts/migrate-development.ts`: guarded forward migrations for an existing,
+  inspected development database with migration history.
 - `scripts/seed-demo.ts`: existing fresh seed, now also supporting the inspected
   development target explicitly.
 
@@ -148,6 +160,29 @@ non-demo Auth users. Login emails and links are written to the ignored
 generates artifacts locally from that snapshot and repository SQL; it is tailored
 to this inspected pre-merge schema, not a general automatic migration generator.
 Do not regenerate a pre-upgrade plan after the database has already been upgraded.
+
+For an existing development database that already has migration history, refresh
+the read-only inspection and preview pending migrations with:
+
+```sh
+pnpm db:inspect:dev
+pnpm db:migrate:dev
+```
+
+After confirming the target, making a backup, and pausing writers, apply the
+previewed forward migrations with:
+
+```sh
+pnpm db:migrate:dev --execute --confirm=PROJECT_REF:MIGRATE --backup-confirmed
+pnpm db:inspect:dev
+pnpm db:migrate:dev
+```
+
+The forward runner verifies the inspected project and schema, checks that recorded
+migration names match local sources, recognizes later migrations already reflected
+in the schema without replaying them, applies only the remaining versions, and
+validates the resulting schema in one transaction. It refuses to baseline an
+existing history or skip missing historical migrations.
 
 ## Validation and Production Boundary
 

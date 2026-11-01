@@ -46,6 +46,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/programs", label: "Programs", subLabel: "Sports and events", icon: Layers3, roles: ["admin"], scope: "organization" },
       { href: "/sessions", label: "Sessions", subLabel: "Games and attendance", icon: CalendarDays, roles: ["admin", "captain"], moduleKey: "activities" },
       { href: "/performance", label: "Performance", subLabel: "Draft ratings", icon: Percent, roles: ["admin", "captain"], moduleKey: "teams" },
+      { href: "/reports/performance", label: "Rankings", subLabel: "Season player ratings", icon: Trophy, roles: ["admin", "captain"] },
       { href: "/leagues", label: "Leagues", subLabel: "Teams and fixtures", icon: Trophy, roles: ["admin", "captain"], moduleKey: "leagues" },
       { href: "/attendance", label: "Attendance", subLabel: "Player check-ins", icon: ClipboardCheck, roles: ["admin", "captain"], moduleKey: "attendance" },
       { href: "/reports/leaderboards", label: "Leaderboards", subLabel: "Teams and captains", icon: Trophy, roles: ["admin", "captain"] },

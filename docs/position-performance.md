@@ -1,13 +1,13 @@
-# Position Performance and Captain Voting
+# Position Performance and Player Nominations
 
 ## Availability
 
 The website implements match position confirmation, scoring, performance ratings,
-and captain voting. Existing draft skill percentages, goals/assists rankings,
+and player nominations. Existing draft skill percentages, goals/assists rankings,
 payments, attendance and team formation remain separate and unchanged.
 The fixes documented here are website-only; mobile clients are unchanged.
 
-- Website: Session > Performance & voting; score entry links to match positions.
+- Website: Session > Ratings and Session > Nomination; score entry links to match positions.
 - Public Dashboard: top goalkeeper, defender, and midfielder cards use the existing
   season performance ratings and public-report scope.
 - Player page: performance and position history, with session breakdown links.
@@ -23,10 +23,11 @@ The fixes documented here are website-only; mobile clients are unchanged.
    The Goalkeeper Conceded picker lists the full opposing roster, sorted by name;
    it suggests the first participating player whose resolved position is goalkeeper.
    If no goalkeeper position is known, select the player manually.
-4. On Session Details > Performance & voting, review or override match positions.
+4. On Session Details > Ratings, review or override match positions.
    Players assigned to a participating team count as participating by default.
 5. Mark scoreless games played using the existing scoring control.
-6. Complete the session. Its actual team captains can submit nominations.
+6. Complete the session. Participating players and admin-authorized nonparticipants
+   can submit nominations from the Nomination page.
 
 Unknown positions still count as appearances but contribute zero to the session
 numerator and are marked incomplete. Explicitly excluded participants do not enter
@@ -61,11 +62,12 @@ Goals plus assists are capped at 4 points. Own goals are not individual attackin
 goals. Every match rating is bounded to 0–10, using PostgreSQL numeric arithmetic.
 
 Session match points = sum of match ratings / (10 × actual appearances) × 40.
-No match count is hardcoded. Captain points = min(60, 30 × valid nominations).
-The session final is bounded to 100. Forward-only participants cannot receive votes
+No match count is hardcoded. For each of Top Goalkeeper, Top Defender, and Top
+Midfielder, points per nomination are `min(20, 60 / valid category nominations)`.
+Each player's combined nomination points are capped at 60 across categories. The
+session final is bounded to 100. Forward-only participants cannot receive nominations
 and retain a maximum of 40. Players who switch positions may receive nominations
-only for non-forward positions they actually played; their combined captain bonus
-remains capped at 60 across categories.
+only for non-forward positions they actually played.
 
 For every match, the resolved position priority is:
 
@@ -77,23 +79,24 @@ For every match, the resolved position priority is:
 Website score saves store explicit score positions separately; fallback values are
 not copied into match-specific performance overrides.
 
-Season position leaderboards rank mean position-specific session ratings, not raw
-appearance totals. Each position/session is normalized to 40 and receives only that
-category's nomination points. Match averages, appearances, sessions and nomination
-counts are shown separately. Forward rankings have a 40-point maximum.
+Season Rankings rank mean position-specific session ratings, not raw appearance
+totals. Each position/session is normalized to 40 and receives only that category's
+nomination points. Match averages, appearances, sessions and nomination counts are
+shown separately. Forward rankings have a 40-point maximum.
 
 ## Voting and Authorization
 
-- Voting opens only when the session is completed.
-- An active program membership must link the signed-in account to that saved team's
-  captain player ID. Organization admin status alone does not grant a captain ballot.
-- A nominee must have confirmed participation at the nominated position in a played
-  match and cannot belong to the captain's own saved team.
-- One stored vote per session/team/category. Resubmission updates that vote, never
-  creates duplicate points. Edits are allowed until a manager closes voting.
+- Nominations open only when the session is completed.
+- An active program membership must link the signed-in account to a player profile.
+  Players assigned to the session can nominate; managers may additionally authorize
+  active program players who were not assigned to a session team.
+- A nominee must have participated at the nominated position in a played match.
+  Players may nominate teammates, but cannot nominate themselves.
+- Each voter may submit one nomination per category. Duplicate submissions are
+  rejected. A manager can close and reopen nominations.
 - Managers may reopen voting. Changes and voting status are audited.
-- All tied leaders with at least one valid nomination are returned. Incomplete
-  ballots are not filled automatically; awards remain provisional while voting is open.
+- All tied leaders with at least one valid nomination are returned. Awards remain
+  provisional while nominations are open.
 - Corrections to participation/positions can invalidate a vote; original vote rows
   remain stored but do not contribute until eligible again. Closed voting freezes
   ballot edits, not the underlying corrected match facts.
@@ -123,6 +126,8 @@ New migrations, in order:
    performance workflow.
 5. `100_match_position_priority.sql`: distinct score-position storage and shared
    position resolution.
+6. `101_session_player_nominations.sql`: session player nominations, dynamic points,
+   and voter authorization.
 
 Migration 100 restores match positions from the Performance & Voting audit. Older
 score saves wrote fallback positions into the same table without recording their
@@ -154,17 +159,18 @@ participation, ballots and audit data and is not an automatic rollback strategy.
 
 Database tests cover 1/2/4 matches per player; three seven-player teams with six
 matches; scoreless games; partial/unknown participation; position changes; keeper
-attribution; correction rollback; captain edits, ties, 30/60 points and closed voting;
+attribution; correction rollback; player nomination eligibility, dynamic points and
+closed voting;
 season averages; and unauthorized writes/reads. UI tests cover eligibility, tied
 awards, point breakdowns, empty results and closed/read-only controls. Regression
 tests also cover player-list pagination, unpositioned players, goalkeeper suggestions,
 manual opposing-roster selection, score-position source tracking, and the four-level
 position priority.
 
-Physical-device checks remain necessary for both apps: open a saved session, confirm
-positions, select a keeper, save scores, complete the session, submit/edit a ballot,
-close voting, switch programs and verify the season/profile results. No physical
-iOS/Android test is claimed by this implementation.
+Website checks remain necessary in a deployed environment: open a saved session,
+confirm positions, select a keeper, save scores, complete the session, submit a
+nomination, close voting, switch programs and verify the season/profile results.
+No deployed-environment test is claimed by this implementation.
 
 ### Read-only SQL Checks (SQL Editor)
 
@@ -182,8 +188,8 @@ where session_id = '<session-uuid>'::uuid order by player_name, match_number;
 select * from public.valid_performance_votes
 where session_id = '<session-uuid>'::uuid;
 
-select player_id, match_points, captain_points, final_rating
+select player_id, match_points, nomination_points, final_rating
 from public.session_performance_results
-where final_rating > 100 or match_points > 40 or captain_points > 60;
+where final_rating > 100 or match_points > 40 or nomination_points > 60;
 -- The final query must return no rows.
 ```

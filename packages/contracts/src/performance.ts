@@ -1,16 +1,19 @@
 type Player = { id: string; name: string };
-export type MatchPosition = { match_id: string; player_id: string; session_team_id: string; position: string | null; confirmed_position?: string | null; score_position?: string | null; participated: boolean };
+export type MatchPosition = { match_id: string; player_id: string; session_team_id: string; position: string | null; confirmed_position?: string | null; score_position?: string | null; goalkeeper_assigned?: boolean; participated: boolean };
 type Detail = { player_id: string; player_name: string; match_number: number; position: string | null; keeper_conceded: number | null; clean_sheet: boolean; breakdown: Record<string, number | null> };
 export type PerformanceData = {
   session: { id: string; name: string; status: string; seasonId: string };
-  canManage: boolean; canClose: boolean; closed: boolean;
-  teams: { id: string; name: string; canVote: boolean; players: Player[] }[];
+  canManage: boolean; canClose: boolean; canAuthorizeVoters?: boolean; canNominate?: boolean; voterPlayerId?: string | null; closed: boolean;
+  voters?: { playerId: string; name: string; participated: boolean; authorized: boolean }[];
+  teams: { id: string; name: string; canVote: boolean; players: (Player & { participated?: boolean; authorizedVoter?: boolean })[] }[];
   matches: { id: string; number: number; teamAId: string; teamBId: string; teamAName: string; teamBName: string; status: string }[];
   positions: MatchPosition[];
   details: Detail[];
-  votes: { captain_team_id: string; category: string; player_id: string }[];
+  votes: { captain_team_id?: string | null; voter_id?: string; category: string; player_id: string }[];
+  nominations?: { category: string; player_id: string }[];
+  voteCounts?: { category: string; total: number; pointsPerVote: number }[];
   awards: { category: string; player_id: string; player_name: string; nominations: number }[];
-  results: { player_id: string; player_name: string; matches_played: number; rated_matches: number; positions: string[]; match_points: number; captain_points: number; final_rating: number; incomplete: boolean }[];
+  results: { player_id: string; player_name: string; matches_played: number; rated_matches: number; positions: string[]; match_points: number; captain_points: number; nomination_points?: number; final_rating: number; incomplete: boolean }[];
 };
 
 export const matchPositions = ["goalkeeper", "defender", "midfielder", "forward"] as const;

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Player } from "@/lib/types";
-import { goalkeeperSelectionForGoal, scorePositionEntries } from "@/lib/performance-position";
+import { goalkeeperSelectionForGoal, matchPositionEntries, scorePositionEntries } from "@/lib/performance-position";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), profile: vi.fn() }));
 const pageQueries: any[] = [];
@@ -27,6 +27,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import PlayersPage from "../../app/players/page";
 import { MiniGameScoresForm, type MatchInput } from "../../components/MiniGameScoresForm";
 import { SessionPerformance } from "../../components/SessionPerformance";
+import { SessionNominations } from "../../components/SessionNominations";
 
 const players: Player[] = Array.from({ length: 501 }, (_, index) => ({
   id: `player-${String(index).padStart(3, "0")}`,
@@ -109,6 +110,17 @@ it("persists only positions explicitly selected in game scoring", () => {
   ])).toEqual([{ playerId: "player-b", position: "defender" }]);
 });
 
+it("submits only changed positions and never sends a conceding goalkeeper demotion", () => {
+  expect(matchPositionEntries([
+    { playerId: "keeper", position: "goalkeeper", resolvedPosition: "goalkeeper", participated: true, goalkeeperAssigned: true },
+    { playerId: "defender", position: "midfielder", resolvedPosition: "defender", participated: true },
+    { playerId: "unchanged", position: "forward", resolvedPosition: "forward", participated: true }
+  ])).toEqual([{ playerId: "defender", position: "midfielder", participated: true }]);
+  expect(matchPositionEntries([
+    { playerId: "keeper", position: "defender", resolvedPosition: "goalkeeper", participated: true, goalkeeperAssigned: true }
+  ])).toEqual([]);
+});
+
 it("renders all opposing goalkeeper candidates and selects the first resolved keeper", () => {
   const teams = [
     { id: "a", name: "Team A", players: [{ id: "scorer", name: "Scorer" }] },
@@ -150,13 +162,45 @@ it("does not promote a resolved fallback to a confirmed match-position override"
     matches: [{ id: "match", number: 1, teamAId: "a", teamBId: "b", teamAName: "A", teamBName: "B", status: "played" }],
     positions: [{
       match_id: "match", player_id: "player", session_team_id: "a",
-      position: "goalkeeper", confirmed_position: null, score_position: null, participated: true
+      position: "goalkeeper", confirmed_position: null, score_position: null, participated: true,
+      goalkeeper_assigned: true
     }],
     details: [],
     votes: [],
     awards: [],
     results: []
   }} />);
-  expect(html).toContain('value="" selected="">Use resolved position (goalkeeper)</option>');
-  expect(html).not.toContain('value="goalkeeper" selected=""');
+  expect(html).toContain('value="goalkeeper" selected="">Goalkeeper (Resolved)</option>');
+  expect(html).not.toContain("Use resolved position");
+  expect(html).toContain("recorded as the goalkeeper who conceded a goal");
+});
+
+it("shows player nominations with a 20 point maximum and excludes only the voter's own profile", () => {
+  const html = renderToStaticMarkup(<SessionNominations data={{
+    session: { id: "session", name: "Session", status: "completed", seasonId: "season" },
+    canManage: false,
+    canClose: false,
+    canNominate: true,
+    voterPlayerId: "voter",
+    closed: false,
+    teams: [],
+    matches: [],
+    positions: [],
+    details: [
+      { player_id: "voter", player_name: "Voter", match_number: 1, position: "goalkeeper", keeper_conceded: null, clean_sheet: false, breakdown: {} },
+      { player_id: "teammate", player_name: "Voter Teammate", match_number: 1, position: "goalkeeper", keeper_conceded: null, clean_sheet: false, breakdown: {} },
+      { player_id: "defender", player_name: "Defender", match_number: 1, position: "defender", keeper_conceded: null, clean_sheet: false, breakdown: {} },
+      { player_id: "midfielder", player_name: "Midfielder", match_number: 1, position: "midfielder", keeper_conceded: null, clean_sheet: false, breakdown: {} }
+    ],
+    votes: [],
+    awards: [],
+    results: []
+  }} />);
+  expect(html).toContain("Maximum casting point is 20 per nomination");
+  expect(html).toContain("Top Goalkeeper");
+  expect(html).toContain("Top Defender");
+  expect(html).toContain("Top Midfielder");
+  expect(html).toContain("Voter Teammate");
+  expect(html).not.toContain('value="voter"');
+  expect(html).not.toContain("Captain nominations");
 });

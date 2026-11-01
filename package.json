@@ -20,6 +20,7 @@
     "db:inspect:dev": "tsx scripts/inspect-dev-database.ts",
     "db:prepare:dev": "tsx scripts/prepare-dev-upgrade.ts",
     "db:dev": "tsx scripts/dev-database.ts",
+    "db:migrate:dev": "tsx scripts/migrate-development.ts",
     "db:rehearse": "tsx scripts/rehearse-production.ts",
     "db:refresh-worker": "tsx scripts/refresh/worker.ts"
   },
