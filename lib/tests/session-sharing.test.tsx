@@ -1,11 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PlayersShareImage, ResultsShareImage, StandingsShareImage, TeamsShareImage, type ShareStanding } from "@/components/SessionShareImages";
+import { PlayersShareImage, ResultsShareImage, StandingsShareImage, TeamsShareImage, type ShareStanding, type ShareTopPlayer } from "@/components/SessionShareImages";
 import { canShareImages, imageFileName, shareImages } from "@/lib/image-sharing";
 import { mergePlayerContributions } from "@/lib/player-contributions";
 
 const session = { name: "Sunday Football", date: "2026-10-04", location: "Bell Senseplex, Field 2" };
 const standing: ShareStanding = { teamId: "a", teamName: "Team Ahmed", rank: 1, played: 8, wins: 4, draws: 2, losses: 2, goalsFor: 12, goalsAgainst: 9, goalDifference: 3, awayGoals: 7, points: 14 };
+const topPlayers: ShareTopPlayer[] = [
+  { label: "Top Scorer", playerName: "Scorer", metric: "3 goals" },
+  { label: "Top Assist", playerName: "Assister", metric: "2 assists" },
+  { label: "Top Midfielder", playerName: "Midfielder", metric: "32.50 rating" },
+  { label: "Top Defender", playerName: "Defender", metric: "28.00 rating" },
+  { label: "Top Goalkeeper", playerName: "Keeper", metric: "31.25 rating" }
+];
 afterEach(() => vi.unstubAllGlobals());
 
 describe("phone-readable session images", () => {
@@ -15,6 +22,27 @@ describe("phone-readable session images", () => {
     expect(html).toContain("width:640px");
     expect(html).toContain("font-size:30px");
     expect(html).not.toContain("truncate");
+  });
+
+  it("includes the ordered Top Players section without removing podium or standings", () => {
+    const html = renderToStaticMarkup(<StandingsShareImage session={session} standings={[standing]} topPlayers={topPlayers} />);
+    const topPlayersIndex = html.indexOf(">Top Players</h2>");
+    const scorerIndex = html.indexOf(">Top Scorer</div>");
+    const assistIndex = html.indexOf(">Top Assist</div>");
+    const midfielderIndex = html.indexOf(">Top Midfielder</div>");
+    const defenderIndex = html.indexOf(">Top Defender</div>");
+    const keeperIndex = html.indexOf(">Top Goalkeeper</div>");
+    const standingsIndex = html.indexOf(">Standings</h2>");
+    expect(topPlayersIndex).toBeGreaterThan(-1);
+    expect(topPlayersIndex).toBeLessThan(scorerIndex);
+    expect(scorerIndex).toBeLessThan(assistIndex);
+    expect(assistIndex).toBeLessThan(midfielderIndex);
+    expect(midfielderIndex).toBeLessThan(defenderIndex);
+    expect(defenderIndex).toBeLessThan(keeperIndex);
+    expect(keeperIndex).toBeLessThan(standingsIndex);
+    for (const player of topPlayers) expect(html).toContain(player.playerName);
+    expect(html).toContain("Team Ahmed");
+    expect(html).toContain("Podium");
   });
 
   it("retains every contributor in one aligned goals and assists table", () => {

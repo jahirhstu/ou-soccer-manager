@@ -70,8 +70,22 @@ describe("integrated migration chain", () => {
   it("uses unique migration versions and installs both architectures and features", async () => {
     expect(new Set(files.map(name => name.split("_")[0])).size).toBe(files.length);
     const result = await db.query<{ name: string }>(`select proname name from pg_proc where proname in
-      ('create_organization_onboarding','transfer_player_credit','record_player_refund','record_club_balance_transfer','scoped_public_longest_winning_streaks')`);
-    expect(result.rows).toHaveLength(5);
+      ('create_organization_onboarding','transfer_player_credit','record_player_refund','record_club_balance_transfer','scoped_public_longest_winning_streaks','scoped_public_session_performance')`);
+    expect(result.rows).toHaveLength(6);
+  });
+  it("limits the session performance RPC to public report readers", async () => {
+    for (const role of ["anon", "authenticated"]) {
+      const result = await db.query<{ allowed: boolean }>(
+        "select has_function_privilege($1,'public.scoped_public_session_performance(text,text,uuid)','execute') allowed",
+        [role]
+      );
+      expect(result.rows[0].allowed).toBe(true);
+    }
+    const definition = await db.query<{ source: string }>(
+      "select pg_get_functiondef('public.scoped_public_session_performance(text,text,uuid)'::regprocedure) source"
+    );
+    expect(definition.rows[0].source).toContain("resolve_enabled_public_scope");
+    expect(definition.rows[0].source).toContain("is_program_module_enabled");
   });
   it("does not reopen unscoped reports to anonymous or authenticated clients", async () => {
     for (const signature of ["public_player_report()", "public_sessions()", "public_longest_winning_streaks(uuid)", "public_latest_winning_streaks(uuid)", "public_payment_notification_keys()", "submit_payment_sent_notification(uuid,uuid)"]) {

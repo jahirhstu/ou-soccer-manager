@@ -4,6 +4,7 @@ import type { PlayerContribution } from "@/lib/player-contributions";
 
 export type ShareSession = { name: string; date?: string | null; location?: string | null };
 export type ShareStanding = { teamId: string; teamName: string; rank: number; played: number; wins: number; draws: number; losses: number; goalsFor: number; goalsAgainst: number; goalDifference: number; awayGoals: number; points: number };
+export type ShareTopPlayer = { label: string; playerName: string; metric: string };
 export type ShareResult = { matchNumber: number; teamAName: string; teamBName: string; teamAScore: number; teamBScore: number; homeAway: string; goals: { scorerName: string | null; assistName: string | null; goalCount: number | string | null; goalType?: string | null }[] };
 export type ShareTeam = { id?: string; name: string; captainPlayerId?: string | null; players: { id: string; name: string }[] };
 
@@ -21,9 +22,19 @@ function Frame({ session, title, children }: { session: ShareSession; title: str
   </div>;
 }
 
-export function StandingsShareImage({ session, standings }: { session: ShareSession; standings: ShareStanding[] }) {
+export function StandingsShareImage({ session, standings, topPlayers = [] }: { session: ShareSession; standings: ShareStanding[]; topPlayers?: ShareTopPlayer[] }) {
   const signed = (n: number) => n > 0 ? `+${n}` : String(n);
   return <Frame session={session} title="Podium & Standings">
+    {topPlayers.length ? <>
+      <h2 style={{ margin: "0 0 8px", fontSize: 24, color: green }}>Top Players</h2>
+      <div style={{ ...grid(3), marginBottom: 14 }}>
+        {topPlayers.map((player) => <div key={player.label} style={{ ...box, padding: 8, background: "#f6f8f7" }}>
+          <div style={{ color: muted, fontSize: 16, fontWeight: 700 }}>{player.label}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{player.playerName}</div>
+          {player.metric ? <div style={{ color: green, fontSize: 17, marginTop: 3 }}>{player.metric}</div> : null}
+        </div>)}
+      </div>
+    </> : null}
     <div style={grid(Math.max(1, Math.min(3, standings.length)))}>
       {standings.slice(0, 3).map((team, index) => {
         const Icon = index === 0 ? Trophy : Medal;

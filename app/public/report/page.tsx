@@ -115,7 +115,6 @@ export default async function PublicPlayerReportPage({
   const latestWinner = highlights.get("latest_winner");
   const longestWinningStreakRows = (longestWinningStreakData ?? []) as PublicWinningStreakRow[];
   const longestWinningStreak = longestWinningStreakRows[0];
-  const longestWinningStreakSeasons = [...new Set(longestWinningStreakRows.map((row) => row.season_name ?? "Season"))].join(", ");
   const latestWinningStreakRows = (latestWinningStreakData ?? []) as PublicWinningStreakRow[];
   const latestWinningStreak = latestWinningStreakRows[0];
   const positionLeaders = (positionLeadersData ?? {}) as Record<string, PublicPositionLeader[]>;
@@ -133,17 +132,17 @@ export default async function PublicPlayerReportPage({
               </span>
               <span className="max-w-full break-words text-sm text-slate-600">{reportSeason?.season_name ?? "No seasons configured"}</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               <SummaryCard
                 icon={<Trophy className="h-5 w-5 text-amber-600" />}
                 label={topScorer?.score === "joint_top_scorer" ? "Joint top scorer" : "Top scorer"}
-                subLabel={topScorer ? `${topScorer.value ?? 0} goals | ${topScorer.team_name ?? "No team"}` : "No goals yet"}
+                subLabel={topScorer ? `${topScorer.value ?? 0} goals` : "No goals yet"}
                 value={topScorer?.player_name ?? "-"}
               />
               <SummaryCard
                 icon={<Handshake className="h-5 w-5 text-pitch" />}
                 label={topAssist?.score === "joint_top_assister" ? "Joint top assister" : "Top assist"}
-                subLabel={topAssist ? `${topAssist.value ?? 0} assists | ${topAssist.team_name ?? "No team"}` : "No assists yet"}
+                subLabel={topAssist ? `${topAssist.value ?? 0} assists` : "No assists yet"}
                 value={topAssist?.player_name ?? "-"}
               />
               <SummaryCard
@@ -154,15 +153,15 @@ export default async function PublicPlayerReportPage({
               />
               <SummaryCard
                 icon={<Flame className="h-5 w-5 text-amber-600" />}
-                label={longestWinningStreakRows.length > 1 ? "Joint longest winning streak" : "Longest winning streak"}
-                subLabel={longestWinningStreakError ? "Run latest migration" : longestWinningStreak ? `${numberValue(longestWinningStreak.streak_count)} sessions | ${longestWinningStreakSeasons}` : "No streaks yet"}
+                label="Longest Winning"
+                subLabel={longestWinningStreakError ? "Run latest migration" : longestWinningStreak ? `${numberValue(longestWinningStreak.streak_count)} sessions` : "No streaks yet"}
                 value={longestWinningStreakRows.length ? longestWinningStreakRows.map((row) => row.player_name ?? "-").join(", ") : "-"}
                 wrapValue
               />
               <SummaryCard
                 icon={<Flame className="h-5 w-5 text-pitch" />}
-                label="Latest winning streak"
-                subLabel={latestWinningStreakError ? "Run latest migration" : latestWinningStreak ? `${numberValue(latestWinningStreak.streak_count)} sessions | ${latestWinningStreak.season_name ?? "Season"}` : "No latest winner"}
+                label="Latest Winners"
+                subLabel={latestWinningStreakError ? "Run latest migration" : latestWinningStreak ? `${numberValue(latestWinningStreak.streak_count)} sessions` : "No latest winners"}
                 value={latestWinningStreakRows.length ? latestWinningStreakRows.map((row) => row.player_name ?? "-").join(", ") : "-"}
                 wrapValue
               />
@@ -174,7 +173,7 @@ export default async function PublicPlayerReportPage({
                   icon={<ShieldCheck className="h-5 w-5 text-emerald-600" />}
                   label={`Top ${position[0].toUpperCase()}${position.slice(1)}`}
                   subLabel={positionLeadersError ? "Run latest migration" : leader
-                    ? `${Number(leader.average_session_rating).toFixed(2)} rating | ${leader.sessions_played} sessions`
+                    ? `${Number(leader.average_session_rating).toFixed(2)} rating`
                     : "No rated performances"}
                   value={leaders.length ? leaders.map((row) => row.player_name).join(", ") : "-"}
                   wrapValue
@@ -256,11 +255,11 @@ export default async function PublicPlayerReportPage({
 
 function SummaryCard({ icon, label, subLabel, value, wrapValue = false }: { icon: ReactNode; label: string; subLabel: string; value: string; wrapValue?: boolean }) {
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+    <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2.5">
       {icon}
-      <div className="mt-2 text-xs font-medium text-emerald-700">{label}</div>
-      <div className={cn("mt-1 text-lg font-semibold text-ink", wrapValue ? "break-words" : "truncate")} title={value}>{value}</div>
-      <div className="mt-1 truncate text-xs font-medium text-emerald-800" title={subLabel}>{subLabel}</div>
+      <div className="mt-1.5 text-[11px] font-medium leading-tight text-emerald-700">{label}</div>
+      <div className={cn("mt-1 text-sm font-semibold leading-tight text-ink sm:text-base", wrapValue ? "break-words" : "truncate")} title={value}>{value}</div>
+      <div className="mt-1 truncate text-[11px] font-medium leading-tight text-emerald-800" title={subLabel}>{subLabel}</div>
     </div>
   );
 }

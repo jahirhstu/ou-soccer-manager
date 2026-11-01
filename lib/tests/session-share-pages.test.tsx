@@ -14,10 +14,17 @@ import TeamsPage from "../../app/public/sessions/[id]/teams/page";
 
 const session = { id: "session", name: "Sunday", sessionDate: "2026-10-04", playgroundName: "Field 2", location: "Bell Senseplex", seasonName: "Fall", status: "completed", pricePerSession: 13 };
 const detail = { session, matches: [{ matchNumber: 1, teamAId: "a", teamBId: "b", teamAName: "Team A", teamBName: "Team B", teamAScore: 1, teamBScore: 0, awayTeamId: "b", resultStatus: "played" }], goals: [{ matchNumber: 1, goalType: "goal", scorerName: "Scorer", assistName: "Assistant", teamName: "Team A", goalCount: 1 }] };
+const performanceRows = [
+  { player_id: "gk", player_name: "Keeper", positions: ["goalkeeper"], final_rating: 31.25 },
+  { player_id: "def", player_name: "Defender", positions: ["defender"], final_rating: 28 },
+  { player_id: "mid", player_name: "Midfielder", positions: ["midfielder"], final_rating: 32.5 }
+];
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.profile.mockResolvedValue({ role: "admin" });
-  mocks.rpc.mockResolvedValue({ data: detail, error: null });
+  mocks.rpc.mockImplementation(async (name: string) => name === "scoped_public_session_performance"
+    ? { data: performanceRows, error: null }
+    : { data: detail, error: null });
 });
 
 describe("summary share controls", () => {
@@ -29,6 +36,25 @@ describe("summary share controls", () => {
     expect(html.match(/aria-busy="false"/g)).toHaveLength(3);
     expect(html).not.toContain("Top scorers");
     expect(html).not.toContain("Top assists");
+  });
+
+  it("places five ordered Top Players between standings and podium and removes the old performance section", async () => {
+    const html = renderToStaticMarkup(await SummaryPage({ params: Promise.resolve({ id: "session" }) }));
+    const standingsIndex = html.indexOf(">Standings</h2>");
+    const topPlayersIndex = html.indexOf(">Top Players</h2>");
+    const podiumIndex = html.indexOf(">Podium</h2>");
+    expect(standingsIndex).toBeLessThan(topPlayersIndex);
+    expect(topPlayersIndex).toBeLessThan(podiumIndex);
+    for (const name of ["Scorer", "1 goals", "Assistant", "1 assists", "Midfielder", "32.50 rating", "Defender", "28.00 rating", "Keeper", "31.25 rating"]) expect(html).toContain(name);
+    expect(html).not.toContain("Player performance");
+    expect(html).not.toContain(">Ratings</a>");
+    expect(html).not.toContain(">Nomination</a>");
+    expect(html).not.toContain(">Rankings</a>");
+    expect(mocks.rpc).toHaveBeenCalledWith("scoped_public_session_performance", {
+      p_organization_slug: "ou-soccer",
+      p_program_slug: "football",
+      p_session_id: "session"
+    });
   });
 
   it("preserves captain access and hides sharing for anonymous visitors", async () => {

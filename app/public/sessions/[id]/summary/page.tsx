@@ -1,11 +1,10 @@
 import { notFound } from "next/navigation";
-import { PerformanceOverview } from "@/components/PerformanceOverview";
 import Link from "next/link";
 import { Award, CalendarDays, Medal, ShieldCheck, Trophy } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
 import { MatchGoalDetails } from "@/components/MatchGoalDetails";
 import { ImageShareButton } from "@/components/ImageShareButton";
-import { PlayersShareImage, ResultsShareImage, StandingsShareImage } from "@/components/SessionShareImages";
+import { PlayersShareImage, ResultsShareImage, StandingsShareImage, type ShareTopPlayer } from "@/components/SessionShareImages";
 import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
@@ -77,13 +76,21 @@ type PlayerTotal = {
   total: number;
 };
 
+type SessionPerformanceRow = {
+  player_id: string;
+  player_name: string;
+  positions: string[] | null;
+  final_rating: number | string | null;
+};
+
 export default async function PublicSessionSummaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
   const tenantSlug = await getRequestTenantSlug();
   const programSlug = await getRequestProgramSlug();
-  const [{ data, error }, profile] = await Promise.all([
+  const [{ data, error }, { data: performanceData, error: performanceError }, profile] = await Promise.all([
     supabase.rpc("scoped_public_session_detail", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_session_id: id }),
+    supabase.rpc("scoped_public_session_performance", { p_organization_slug: tenantSlug, p_program_slug: programSlug || null, p_session_id: id }),
     getCurrentProfile()
   ]);
   const showReturnLink = hasPermission(profile?.role, "manage_attendance");
@@ -106,6 +113,8 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   const scorerRows = aggregatePlayers(goals.filter((goal) => goal.goalType !== "own_goal"), "scorerName");
   const assistRows = aggregatePlayers(goals.filter((goal) => goal.assistName), "assistName");
   const contributions = mergePlayerContributions(scorerRows, assistRows);
+  const sessionPerformance = Array.isArray(performanceData) ? performanceData as SessionPerformanceRow[] : [];
+  const topPlayers = buildTopPlayers(scorerRows[0], assistRows[0], sessionPerformance);
   const totalGoals = goals.reduce((total, goal) => total + numberValue(goal.goalCount || 1), 0);
   const sessionLabel = session?.name ?? session?.sessionDate ?? "Session";
   const shareSession = { name: sessionLabel, date: session?.sessionDate, location: session?.playgroundName || session?.location };
@@ -122,7 +131,6 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
-        {profile?.id && <PerformanceOverview sessionId={id} />}
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
             Public session details are not ready yet. Run the latest database migration, then refresh this page.
@@ -156,28 +164,6 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
         </header>
 
         <section className="grid gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="section-title">Podium</h2>
-              <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
-                <StandingsShareImage session={shareSession} standings={standings} />
-              </ImageShareButton> : null}
-              <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
-              <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {podium.map((team, index) => (
-              <PodiumCard key={team.teamId} place={index + 1} standing={team} />
-            ))}
-            {!podium.length ? <div className="panel border-dashed p-10 text-center text-sm text-slate-500 md:col-span-3">No standings yet.</div> : null}
-          </div>
-        </section>
-
-        <section className="grid gap-3">
           <h2 className="section-title">Standings</h2>
           <DataTable
             rows={standings}
@@ -195,6 +181,36 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
               { header: "Pts", cell: (row) => <span className="font-semibold text-ink">{row.points}</span> }
             ]}
           />
+        </section>
+
+        <section className="grid gap-3">
+          <h2 className="section-title">Top Players</h2>
+          {performanceError ? <p className="text-sm text-rose-700">Player ratings are not available: {performanceError.message}</p> : null}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {topPlayers.map((player) => <TopPlayerCard key={player.label} player={player} />)}
+          </div>
+        </section>
+
+        <section className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="section-title">Podium</h2>
+              <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
+                <StandingsShareImage session={shareSession} standings={standings} topPlayers={topPlayers} />
+              </ImageShareButton> : null}
+              <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
+              <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {podium.map((team, index) => (
+              <PodiumCard key={team.teamId} place={index + 1} standing={team} />
+            ))}
+            {!podium.length ? <div className="panel border-dashed p-10 text-center text-sm text-slate-500 md:col-span-3">No standings yet.</div> : null}
+          </div>
         </section>
 
         <section className="grid gap-3">
@@ -238,6 +254,34 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
       </div>
     </PublicShell>
   );
+}
+
+function buildTopPlayers(scorer: PlayerTotal | undefined, assist: PlayerTotal | undefined, performance: SessionPerformanceRow[]): ShareTopPlayer[] {
+  const positions = ["midfielder", "defender", "goalkeeper"] as const;
+  return [
+    { label: "Top Scorer", playerName: scorer?.playerName ?? "-", metric: scorer ? `${scorer.total} goals` : "" },
+    { label: "Top Assist", playerName: assist?.playerName ?? "-", metric: assist ? `${assist.total} assists` : "" },
+    ...positions.map((position) => {
+      const leader = performance.find((row) => row.positions?.includes(position));
+      return {
+        label: `Top ${capitalize(position)}`,
+        playerName: leader?.player_name ?? "-",
+        metric: leader ? `${numberValue(leader.final_rating).toFixed(2)} rating` : ""
+      };
+    })
+  ];
+}
+
+function capitalize(value: string) {
+  return value[0].toUpperCase() + value.slice(1);
+}
+
+function TopPlayerCard({ player }: { player: ShareTopPlayer }) {
+  return <article className="rounded-md border border-line bg-white p-3">
+    <h3 className="text-xs font-semibold text-slate-500">{player.label}</h3>
+    <p className="mt-1 truncate text-sm font-semibold text-ink" title={player.playerName}>{player.playerName}</p>
+    {player.metric ? <p className="mt-1 text-xs text-pitch">{player.metric}</p> : null}
+  </article>;
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {

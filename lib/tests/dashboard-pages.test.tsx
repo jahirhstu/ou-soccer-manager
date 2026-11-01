@@ -91,6 +91,40 @@ describe("public active-season report", () => {
     expect(html).toContain("Top Midfielder");
   });
 
+  it("renders compact highlight cards without the removed team, season, or session details", async () => {
+    mocks.rpc.mockImplementation(async (name: string, args: any) => {
+      if (name === "public_report_season") return { data: [{ season_id: "summer", season_name: "Dashboard Season" }], error: null };
+      if (name === "scoped_public_dashboard_highlights") return { data: [
+        { metric: "top_scorer", player_name: "Scorer Card Player", team_name: "Hidden Scorer Team", value: 8, score: "top_scorer" },
+        { metric: "top_assist", player_name: "Assist Card Player", team_name: "Hidden Assist Team", value: 6, score: "top_assister" },
+        { metric: "latest_winner", team_name: "Winner Team", captain_name: "Captain One", score: "3-1" }
+      ], error: null };
+      if (name === "scoped_public_longest_winning_streaks") return { data: [
+        { player_name: "Longest Player", season_name: "Hidden Longest Season", streak_count: 7 }
+      ], error: null };
+      if (name === "scoped_public_latest_winning_streaks") return { data: [
+        { player_name: "Latest Player", season_name: "Hidden Latest Season", streak_count: 3 }
+      ], error: null };
+      if (name === "scoped_public_position_leaderboards") return { data: {
+        goalkeeper: [{ player_id: "keeper", player_name: "Keeper Card Player", average_session_rating: 87, matches_played: 4, sessions_played: 12 }],
+        defender: [{ player_id: "defender", player_name: "Defender Card Player", average_session_rating: 82, matches_played: 3, sessions_played: 11 }],
+        midfielder: [{ player_id: "midfielder", player_name: "Midfielder Card Player", average_session_rating: 79, matches_played: 5, sessions_played: 10 }]
+      }, error: null };
+      if (name === "scoped_public_player_report") return { data: reportRows, error: null };
+      return { data: [], error: null };
+    });
+
+    const html = renderToStaticMarkup(await PublicReport({ searchParams: Promise.resolve({}) }));
+    expect(html).toContain("grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4");
+    for (const label of ["Longest Winning", "Latest Winners"]) expect(html).toContain(label);
+    for (const player of ["Scorer Card Player", "Assist Card Player", "Keeper Card Player", "Defender Card Player", "Midfielder Card Player"]) expect(html).toContain(player);
+    for (const detail of ["Hidden Scorer Team", "Hidden Assist Team", "Hidden Longest Season", "Hidden Latest Season", "12 sessions", "11 sessions", "10 sessions"]) expect(html).not.toContain(detail);
+    expect(html).toContain("Winner Team");
+    expect(html).toContain("Captain: Captain One");
+    expect(html).toContain("3 sessions");
+    expect(html).toContain("7 sessions");
+  });
+
   it("keeps player search within the resolved season", async () => {
     const html = renderToStaticMarkup(await PublicReport({ searchParams: Promise.resolve({ q: "Zayan" }) }));
     expect(html).not.toContain('<h2 class="truncate text-lg font-semibold text-ink">Zayan');
