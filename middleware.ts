@@ -3,21 +3,12 @@ import type { CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
 import { getActiveProgramSlugForTenant, getProgramSlugFromPathname, getTenantSlugFromPathname, normalizeTenantSlug, stripTenantFromPathname, tenantPath } from "./lib/tenant";
+import { isCaptainAllowedRoute } from "./lib/captain-routes";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public", "/invite"];
 const globalContextRoutes = ["/login", "/signup", "/join", "/select-context", "/invite", "/platform"];
-const captainAllowedPaths = ["/sessions", "/performance", "/leagues", "/attendance", "/reports/leaderboards", "/reports/playground-stats"];
 const programRequiredPaths = ["/sessions", "/seasons", "/players", "/payments", "/expenses", "/attendance", "/performance", "/leagues", "/import-whatsapp", "/reports"];
-
-function isCaptainAllowedRoute(pathname: string) {
-  if (pathname === "/sessions") return true;
-  if (captainAllowedPaths.some((path) => path !== "/sessions" && (pathname === path || pathname.startsWith(`${path}/`)))) {
-    return true;
-  }
-  if (/^\/sessions\/[^/]+$/.test(pathname)) return true;
-  return /^\/sessions\/[^/]+\/(?:fixture|lineups|scores)(?:\/.*)?$/.test(pathname);
-}
 
 function isPlayerAllowedRoute(pathname: string) {
   return /^\/sessions\/[^/]+\/lineups(?:\/.*)?$/.test(pathname);
