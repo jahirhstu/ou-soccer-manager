@@ -87,6 +87,60 @@ describe("integrated migration chain", () => {
     expect(definition.rows[0].source).toContain("resolve_enabled_public_scope");
     expect(definition.rows[0].source).toContain("is_program_module_enabled");
   });
+  it("preserves compatible legacy votes and archives unaudited positions during reconciliation", async () => {
+    const session = id(35), teamA = id(36), teamB = id(37), match = id(38);
+    await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Legacy performance','2020-06-03','completed')",
+      [session,org,program,season]);
+    await db.query("insert into session_teams(id,session_id,name) values ($1,$3,'A'),($2,$3,'B')",
+      [teamA,teamB,session]);
+    await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3)",
+      [session,teamA,player]);
+    await db.query("insert into session_matches(id,session_id,match_number,team_a_id,team_b_id) values ($1,$2,1,$3,$4)",
+      [match,session,teamA,teamB]);
+    await db.exec(`
+      create table performance_votes(
+        session_id uuid not null, team_id uuid not null, category text not null,
+        player_id uuid not null, voter_id uuid not null, updated_at timestamptz not null
+      );
+      create table performance_voting(session_id uuid not null, closed boolean not null);
+      create table performance_audit(
+        id bigint primary key, session_id uuid not null, actor_id uuid not null,
+        action text not null, payload jsonb not null, created_at timestamptz not null
+      );
+    `);
+    const votedAt = "2020-06-03T12:00:00Z";
+    await db.query("insert into performance_votes values ($1,$2,'defender',$3,$4,$5)",
+      [session,teamA,player,manager,votedAt]);
+    await db.query("insert into performance_voting values ($1,true)",[session]);
+    await db.query("insert into performance_audit values (1,$1,$2,'voting_status','{\"closed\":true}',$3)",
+      [session,manager,votedAt]);
+    await db.query(
+      "insert into match_player_positions(match_id,player_id,session_team_id,position,confirmed_by) values ($1,$2,$3,'midfielder',$4)",
+      [match,player,teamA,manager]
+    );
+
+    await db.exec(readFileSync("supabase/migrations/103_reconcile_performance_migrations.sql","utf8"));
+
+    const copiedVote = await db.query<{ player_id: string; voter_id: string }>(
+      "select player_id,voter_id from captain_performance_votes where session_id=$1 and captain_team_id=$2 and category='defender'",
+      [session,teamA]
+    );
+    expect(copiedVote.rows).toEqual([{player_id:player,voter_id:manager}]);
+    const closeState = await db.query<{ closed: boolean; updated_by: string }>(
+      "select closed,updated_by from session_performance_voting where session_id=$1",[session]
+    );
+    expect(closeState.rows).toEqual([{closed:true,updated_by:manager}]);
+    const archivedPosition = await db.query<{ position: string; confirmed_by: string }>(
+      "select position,confirmed_by from match_player_positions_legacy_archive where match_id=$1 and player_id=$2",
+      [match,player]
+    );
+    expect(archivedPosition.rows).toEqual([{position:"midfielder",confirmed_by:manager}]);
+    expect((await db.query("select 1 from match_player_positions where match_id=$1 and player_id=$2",[match,player])).rows)
+      .toHaveLength(0);
+    expect((await db.query("select 1 from performance_votes where session_id=$1",[session])).rows).toHaveLength(1);
+    expect((await db.query("select 1 from performance_voting where session_id=$1",[session])).rows).toHaveLength(1);
+    expect((await db.query("select 1 from performance_audit where session_id=$1",[session])).rows).toHaveLength(1);
+  });
   it("does not reopen unscoped reports to anonymous or authenticated clients", async () => {
     for (const signature of ["public_player_report()", "public_sessions()", "public_longest_winning_streaks(uuid)", "public_latest_winning_streaks(uuid)", "public_payment_notification_keys()", "submit_payment_sent_notification(uuid,uuid)"]) {
       for (const role of ["anon", "authenticated"]) {
@@ -181,10 +235,12 @@ describe("integrated migration chain", () => {
     await db.query("insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
       [session,match,player,teamA,guest]);
     await db.query("select set_config('app.allow_manual_goalkeeper','',true)");
+    await db.exec("savepoint invalid_goalkeeper_assignment");
     await expect(db.query(
       "insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
       [session,match,player,teamA,player]
-    )).rejects.toThrow("opposing team");
+    )).rejects.toThrow("opposing goalkeeper");
+    await db.exec("rollback to savepoint invalid_goalkeeper_assignment");
     await asUser(manager);
     const performance = await db.query<{
       data: { positions: { player_id: string; position: string | null; confirmed_position: string | null }[] };
