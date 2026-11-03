@@ -311,6 +311,135 @@ describe("integrated migration chain", () => {
     expect(keeperCleanSheet.rows[0].clean_sheet).toBe(false);
   });
 
+  it("opens member nominations on any played fixture and locks them on close or completion", async () => {
+    const member = id(70), session = id(71), teamA = id(72), teamB = id(73);
+    const playedMatch = id(74), scheduledMatch = id(75), authorizedMember = id(76), authorizedPlayer = id(77);
+    await db.query("insert into auth.users(id,email) values ($1,'participant@example.test')", [member]);
+    await db.query("insert into auth.users(id,email) values ($1,'authorized@example.test')", [authorizedMember]);
+    await db.query(
+      "insert into organization_members(organization_id,profile_id,role,player_id,status) values ($1,$2,'player',$3,'active')",
+      [org,member,guest]
+    );
+    await db.query(
+      "insert into program_members(organization_id,program_id,profile_id,player_id,role,status) values ($1,$2,$3,null,'member','active')",
+      [org,program,member]
+    );
+    await db.query(
+      "insert into players(id,organization_id,display_name,status,preferred_position) values ($1,$2,'Authorized nonparticipant','active','defender')",
+      [authorizedPlayer,org]
+    );
+    await db.query(
+      "insert into organization_members(organization_id,profile_id,role,player_id,status) values ($1,$2,'player',$3,'active')",
+      [org,authorizedMember,authorizedPlayer]
+    );
+    await db.query(
+      "insert into program_members(organization_id,program_id,profile_id,player_id,role,status) values ($1,$2,$3,null,'member','active')",
+      [org,program,authorizedMember]
+    );
+    await db.query("update program_modules set enabled=true where program_id=$1 and module_key='scores'",[program]);
+    await db.query("update players set preferred_position='defender' where id=any($1::uuid[])",[[player,guest]]);
+    await db.query(
+      "insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Played fixture nominations','2020-06-03','scheduled')",
+      [session,org,program,season]
+    );
+    await db.query("insert into session_teams(id,session_id,name) values ($1,$3,'A'),($2,$3,'B')",[teamA,teamB,session]);
+    await db.query(
+      "insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3),($1,$2,$4)",
+      [session,teamA,guest,player]
+    );
+
+    await asUser(member);
+    let response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.canNominate).toBe(false);
+
+    await db.exec("reset role");
+    await db.query(
+      "insert into session_matches(id,session_id,match_number,team_a_id,team_b_id,result_status) values ($1,$3,1,$4,$5,'scheduled'),($2,$3,2,$4,$5,'scheduled')",
+      [playedMatch,scheduledMatch,session,teamA,teamB]
+    );
+    await asUser(member);
+    response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.canNominate).toBe(false);
+
+    await db.exec("reset role");
+    await db.query("update session_matches set result_status='played',team_a_score=0,team_b_score=0 where id=$1",[playedMatch]);
+    await asUser(member);
+    response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.canNominate).toBe(true);
+
+    await db.exec("reset role");
+    await asUser(authorizedMember);
+    await db.exec("savepoint unauthorized_nonparticipant_nomination");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'defender',$2)",[session,player]
+    )).rejects.toThrow("not authorized");
+    await db.exec("rollback to savepoint unauthorized_nonparticipant_nomination");
+    await db.exec("reset role");
+    await asUser(manager);
+    await db.query("select authorize_session_performance_nominator($1,$2,true)",[session,authorizedPlayer]);
+    await db.exec("reset role");
+    await asUser(authorizedMember);
+    await db.query("select submit_session_performance_nomination($1,'defender',$2)",[session,player]);
+    await db.exec("reset role");
+    await asUser(member);
+    await db.query("select submit_session_performance_nomination($1,'defender',$2)",[session,player]);
+    await db.exec("savepoint duplicate_member_nomination");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'defender',$2)",[session,player]
+    )).rejects.toThrow("already nominated");
+    await db.exec("rollback to savepoint duplicate_member_nomination");
+    await db.exec("savepoint member_self_nomination");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'defender',$2)",[session,guest]
+    )).rejects.toThrow("cannot nominate yourself");
+    await db.exec("rollback to savepoint member_self_nomination");
+
+    await db.exec("reset role");
+    await asUser(manager);
+    await db.query("select close_performance_voting($1,true)",[session]);
+    await db.exec("reset role");
+    await asUser(member);
+    response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.canNominate).toBe(false);
+    expect(response.nominations ?? []).toContainEqual({ category: "defender", player_id: player });
+    await db.exec("savepoint closed_session_nomination");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'midfielder',$2)",[session,player]
+    )).rejects.toThrow("Nominations are closed");
+    await db.exec("rollback to savepoint closed_session_nomination");
+
+    await db.exec("reset role");
+    await asUser(manager);
+    await db.query("select close_performance_voting($1,false)",[session]);
+    await db.exec("reset role");
+    await db.query("update sessions set status='completed' where id=$1",[session]);
+    await asUser(member);
+    response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.canNominate).toBe(false);
+    expect(response.nominations ?? []).toContainEqual({ category: "defender", player_id: player });
+    await db.exec("savepoint completed_session_nomination");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'midfielder',$2)",[session,player]
+    )).rejects.toThrow("Completed sessions are read-only");
+    await db.exec("rollback to savepoint completed_session_nomination");
+    await db.exec("reset role");
+    await asUser(manager);
+    await db.exec("savepoint completed_voting_reopen");
+    await expect(db.query("select close_performance_voting($1,false)",[session]))
+      .rejects.toThrow("Completed sessions are read-only");
+    await db.exec("rollback to savepoint completed_voting_reopen");
+  });
+
   it("caps nomination points at 20 per valid vote and 60 per category", async () => {
     const session = id(51), teamA = id(52), teamB = id(53), teamC = id(54), teamD = id(55), match = id(56), nomineeTeam = id(57);
     await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Nomination points','2020-06-02','completed')",

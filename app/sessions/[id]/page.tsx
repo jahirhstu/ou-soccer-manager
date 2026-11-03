@@ -42,6 +42,8 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
   }
   const matchRows = applyGoalScoresToMatches((matches ?? []) as MatchRow[], goalsByMatchId);
   const standings = buildSessionStandings(matchRows);
+  const hasPlayedFixture = (matches ?? []).some((match) => match.result_status === "played");
+  const showNominationLink = hasPlayedFixture || session?.status === "completed";
   const fixtureMatches = matchRows.map((match) => ({
     matchNumber: match.match_number,
     teamAName: match.team_a?.name ?? null,
@@ -84,7 +86,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
               <Link className="btn-secondary" href={`/sessions/${id}/performance`}>Ratings</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link>
+              {showNominationLink ? <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link> : null}
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
               {isAdmin ? (
                 <form action={completeSession}>
@@ -102,7 +104,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
               {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/scores`}>Game scores</Link> : null}
               <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
               <Link className="btn-secondary" href={`/sessions/${id}/performance`}>Ratings</Link>
-              <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link>
+              {showNominationLink ? <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link> : null}
               <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             </div>
           )}

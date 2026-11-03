@@ -18,6 +18,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
     midfielder: ""
   });
   const completedCategories = new Set((data.nominations ?? []).map((item) => item.category));
+  const hasPlayedFixture = data.matches.some((match) => match.status === "played");
 
   const submit = (operation: "nomination" | "authorize" | "close", payload: Record<string, unknown>) => start(async () => {
     setMessage("");
@@ -37,13 +38,13 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
     <div role="status" className="text-sm font-medium">{busy ? "Saving…" : message}</div>
     <section className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
       <div>
-        <h2 className="section-title">{data.closed ? "Nominations closed" : data.session.status === "completed" ? "Nominations open" : "Nominations open after session completion"}</h2>
+        <h2 className="section-title">{data.closed ? "Nominations closed" : data.session.status === "completed" ? "Nominations are read-only" : hasPlayedFixture ? "Nominations open" : "Nominations open after a fixture is marked played"}</h2>
         <p className="mt-1 text-sm text-slate-600">Maximum casting point is 20 per nomination. Each category allocates up to 60 nomination points.</p>
         {data.canNominate && <p className="mt-1 text-xs text-slate-500">Voting as {data.voters?.find((voter) => voter.playerId === data.voterPlayerId)?.name ?? "your linked player profile"}.</p>}
-        {!data.canNominate && !data.canAuthorizeVoters && data.session.status === "completed" && !data.closed &&
+        {!data.canNominate && !data.canAuthorizeVoters && data.session.status !== "completed" && hasPlayedFixture && !data.closed &&
           <p className="mt-1 text-xs text-amber-800">You need an active player profile participating in this session or admin authorization to nominate.</p>}
       </div>
-      {data.canClose && <button disabled={busy} className="btn-secondary" onClick={() => {
+      {data.canClose && hasPlayedFixture && data.session.status !== "completed" && <button disabled={busy} className="btn-secondary" onClick={() => {
         if (window.confirm(data.closed ? "Reopen nominations?" : "Close nominations?")) {
           submit("close", { closed: !data.closed });
         }
@@ -71,7 +72,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
             </p>)}
             {!awarded.length && <p className="text-sm text-slate-500">No nominations yet.</p>}
           </div>
-          {data.canNominate && !data.closed && !alreadyNominated && data.session.status === "completed" && <form className="mt-3 grid gap-2" onSubmit={(event) => {
+          {data.canNominate && !data.closed && !alreadyNominated && data.session.status !== "completed" && <form className="mt-3 grid gap-2" onSubmit={(event) => {
             event.preventDefault();
             if (selected[category]) submit("nomination", { category, playerId: selected[category] });
           }}>
@@ -88,7 +89,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
       })}
     </div>
 
-    {data.canAuthorizeVoters && <section className="border-t border-line pt-4">
+    {data.canAuthorizeVoters && hasPlayedFixture && data.session.status !== "completed" && !data.closed && <section className="border-t border-line pt-4">
       <h2 className="section-title">Authorize nonparticipant voters</h2>
       <p className="mt-1 text-sm text-slate-500">Authorized players must have an active player-linked account in this program.</p>
       <div className="mt-3 divide-y divide-line">
