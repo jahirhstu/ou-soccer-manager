@@ -68,6 +68,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
   const goalsByMatchNumber = groupGoalsByMatchNumber(goals);
   const matches = applyGoalScoresToMatches(detail.matches ?? [], goalsByMatchNumber);
   const standings = buildSessionStandings(matches);
+  const showNominationLink = matches.some((match) => match.resultStatus === "played") || session?.status === "completed";
   const fixtureMatches = matches.map((match) => ({
     matchNumber: match.matchNumber,
     teamAName: match.teamAName ?? sourceLabel(match.teamASource, "Team A"),
@@ -100,6 +101,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View teams</Link>
             {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link> : null}
             <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
+            {showNominationLink ? <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link> : null}
             <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             <Link className="btn-primary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
           </div>

@@ -11,6 +11,7 @@ vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("Not found
 
 import SummaryPage from "../../app/public/sessions/[id]/summary/page";
 import TeamsPage from "../../app/public/sessions/[id]/teams/page";
+import PublicSessionDetailPage from "../../app/public/sessions/[id]/page";
 
 const session = { id: "session", name: "Sunday", sessionDate: "2026-10-04", playgroundName: "Field 2", location: "Bell Senseplex", seasonName: "Fall", status: "completed", pricePerSession: 13 };
 const detail = { session, matches: [{ matchNumber: 1, teamAId: "a", teamBId: "b", teamAName: "Team A", teamBName: "Team B", teamAScore: 1, teamBScore: 0, awayTeamId: "b", resultStatus: "played" }], goals: [{ matchNumber: 1, goalType: "goal", scorerName: "Scorer", assistName: "Assistant", teamName: "Team A", goalCount: 1 }] };
@@ -108,5 +109,27 @@ describe("saved teams sharing", () => {
   it("does not offer sharing before teams have been saved", async () => {
     mocks.rpc.mockResolvedValue({ data: { session, players: [], teams: [], draft: { teams: [{ name: "Draft" }] } }, error: null });
     expect(renderToStaticMarkup(await TeamsPage({ params: Promise.resolve({ id: "session" }) }))).not.toContain("Share teams");
+  });
+});
+
+describe("public session nomination link", () => {
+  it("makes nominations available to players when a fixture has been played", async () => {
+    mocks.profile.mockResolvedValue({ role: "player" });
+    const html = renderToStaticMarkup(await PublicSessionDetailPage({ params: Promise.resolve({ id: "session" }) }));
+    expect(html).toContain('href="/sessions/session/nomination"');
+    expect(html).toContain(">Nomination</a>");
+  });
+
+  it("does not make nominations available before a fixture has been played", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: {
+        ...detail,
+        session: { ...session, status: "scheduled" },
+        matches: detail.matches.map((match) => ({ ...match, resultStatus: "scheduled" }))
+      },
+      error: null
+    });
+    const html = renderToStaticMarkup(await PublicSessionDetailPage({ params: Promise.resolve({ id: "session" }) }));
+    expect(html).not.toContain(">Nomination</a>");
   });
 });
