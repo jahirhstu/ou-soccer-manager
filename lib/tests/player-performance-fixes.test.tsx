@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Player } from "@/lib/types";
-import { goalkeeperSelectionForGoal, matchPositionEntries, scorePositionEntries } from "@/lib/performance-position";
+import { goalkeeperSelectionForGoal, updateScoringGoalPosition } from "@/lib/performance-position";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), profile: vi.fn() }));
 const pageQueries: any[] = [];
@@ -72,7 +72,7 @@ it("loads every organization player across API pages, including players without 
   expect(html).toContain('aria-label="Edit preferred_position for Player 500"');
 });
 
-it("offers the whole opposing roster and auto-selects its first resolved, participating goalkeeper", () => {
+it("offers the whole opposing roster without requiring a confirmed goalkeeper position", () => {
   const teams = [
     { id: "a", players: [{ id: "scorer", name: "Scorer" }] },
     { id: "b", players: [
@@ -81,14 +81,8 @@ it("offers the whole opposing roster and auto-selects its first resolved, partic
       { id: "a-keeper", name: "A Keeper" }
     ] }
   ];
-  const positions = [
-    { match_id: "match", player_id: "z-keeper", session_team_id: "b", position: "goalkeeper", participated: true },
-    { match_id: "match", player_id: "a-keeper", session_team_id: "b", position: "goalkeeper", participated: true },
-    { match_id: "match", player_id: "defender", session_team_id: "b", position: "defender", participated: true }
-  ];
-  const selection = goalkeeperSelectionForGoal(teams, positions, "match", "scorer", "goal", "a", "b");
+  const selection = goalkeeperSelectionForGoal(teams, "scorer", "goal", "a", "b");
   expect(selection.players.map((player) => player.id)).toEqual(["a-keeper", "defender", "z-keeper"]);
-  expect(selection.suggestedGoalkeeperId).toBe("a-keeper");
 });
 
 it("keeps every opposing player manually selectable when no goalkeeper position is resolved", () => {
@@ -96,39 +90,26 @@ it("keeps every opposing player manually selectable when no goalkeeper position 
     { id: "a", players: [{ id: "scorer", name: "Scorer" }] },
     { id: "b", players: [{ id: "one", name: "One" }, { id: "two", name: "Two" }] }
   ];
-  const selection = goalkeeperSelectionForGoal(teams, [], "match", "scorer", "goal", "a", "b");
+  const selection = goalkeeperSelectionForGoal(teams, "scorer", "goal", "a", "b");
   expect(selection.players.map((player) => player.id)).toEqual(["one", "two"]);
-  expect(selection.suggestedGoalkeeperId).toBe("");
-  expect(goalkeeperSelectionForGoal(teams, [], "match", "one", "goal", "a", "b").players.map((player) => player.id)).toEqual(["scorer"]);
+  expect(goalkeeperSelectionForGoal(teams, "one", "goal", "a", "b").players.map((player) => player.id)).toEqual(["scorer"]);
 });
 
-it("persists only positions explicitly selected in game scoring", () => {
-  expect(scorePositionEntries([
-    { scorerId: "player-a", position: undefined },
-    { scorerId: "player-b", position: "defender" },
-    { scorerId: "player-c", position: "" }
-  ])).toEqual([{ playerId: "player-b", position: "defender" }]);
+it("stores a position on only the selected goal event for a player who changes positions", () => {
+  const goals = [
+    { key: "goal-1", scorerId: "player", position: "forward" },
+    { key: "goal-2", scorerId: "player", position: "midfielder" }
+  ];
+  expect(updateScoringGoalPosition(goals, "goal-1", "goalkeeper")).toEqual([
+    { key: "goal-1", scorerId: "player", position: "goalkeeper" },
+    { key: "goal-2", scorerId: "player", position: "midfielder" }
+  ]);
 });
 
-it("submits only changed positions and never sends a conceding goalkeeper demotion", () => {
-  expect(matchPositionEntries([
-    { playerId: "keeper", position: "goalkeeper", resolvedPosition: "goalkeeper", participated: true, goalkeeperAssigned: true },
-    { playerId: "defender", position: "midfielder", resolvedPosition: "defender", participated: true },
-    { playerId: "unchanged", position: "forward", resolvedPosition: "forward", participated: true }
-  ])).toEqual([{ playerId: "defender", position: "midfielder", participated: true }]);
-  expect(matchPositionEntries([
-    { playerId: "keeper", position: "defender", resolvedPosition: "goalkeeper", participated: true, goalkeeperAssigned: true }
-  ])).toEqual([]);
-});
-
-it("renders all opposing goalkeeper candidates and selects the first resolved keeper", () => {
+it("renders all opposing players as conceding-goalkeeper candidates", () => {
   const teams = [
     { id: "a", name: "Team A", players: [{ id: "scorer", name: "Scorer" }] },
     { id: "b", name: "Team B", players: [{ id: "keeper", name: "Keeper" }, { id: "defender", name: "Defender" }] }
-  ];
-  const positions = [
-    { match_id: "match", player_id: "keeper", session_team_id: "b", position: "goalkeeper", participated: true },
-    { match_id: "match", player_id: "defender", session_team_id: "b", position: "defender", participated: true }
   ];
   const game: MatchInput = {
     key: "match",
@@ -139,17 +120,17 @@ it("renders all opposing goalkeeper candidates and selects the first resolved ke
   };
   const html = renderToStaticMarkup(<MiniGameScoresForm
     existingGames={[game]}
-    positions={positions}
     readOnly
     sessionId="session"
     teams={teams}
   />);
   const goalkeeperSelect = html.slice(html.indexOf("Goalkeeper conceded"), html.indexOf("</label>", html.indexOf("Goalkeeper conceded")));
-  expect(goalkeeperSelect).toContain('value="keeper" selected=""');
+  expect(goalkeeperSelect).toContain('value="keeper"');
   expect(goalkeeperSelect).toContain('value="defender"');
+  expect(goalkeeperSelect).toContain('value="" selected="">Select player');
 });
 
-it("does not promote a resolved fallback to a confirmed match-position override", () => {
+it("removes match-by-match position management from session ratings", () => {
   const html = renderToStaticMarkup(<SessionPerformance data={{
     session: { id: "session", name: "Session", status: "draft", seasonId: "season" },
     canManage: true,
@@ -170,9 +151,10 @@ it("does not promote a resolved fallback to a confirmed match-position override"
     awards: [],
     results: []
   }} />);
-  expect(html).toContain('value="goalkeeper" selected="">Goalkeeper (Resolved)</option>');
-  expect(html).not.toContain("Use resolved position");
-  expect(html).toContain("recorded as the goalkeeper who conceded a goal");
+  expect(html).not.toContain("Match positions & participation");
+  expect(html).not.toContain("Save match positions");
+  expect(html).not.toContain("aria-label=\"Player position\"");
+  expect(html).toContain("Session ratings");
 });
 
 it("shows player nominations with a 20 point maximum and excludes only the voter's own profile", () => {

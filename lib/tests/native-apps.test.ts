@@ -56,6 +56,12 @@ async function performanceFixture(rounds = 1, threeTeams = false) {
     const [team] = await q("insert into session_teams(session_id,organization_id,program_id,name,label,captain_player_id) select id,organization_id,program_id,$2,$2,$3 from sessions where id=$1 returning id", [sessionId, `Team ${i}`, players[i * 7].id]);
     teams.push(team.id);
     for (const p of players.slice(i * 7, i * 7 + 7)) await q("insert into session_team_players(session_id,session_team_id,player_id,organization_id,program_id) select id,$2,$3,organization_id,program_id from sessions where id=$1", [sessionId, team.id, p.id]);
+    const positions = players.slice(i * 7, i * 7 + 7).map((p, n) => ({
+      playerId: p.id,
+      position: n === 0 ? "goalkeeper" : n < 3 ? "defender" : n < 5 ? "midfielder" : "forward"
+    }));
+    await q("insert into session_team_lineups(session_id,session_team_id,player_count,positions) values($1,$2,7,$3)",
+      [sessionId, team.id, JSON.stringify(positions)]);
   }
   let number = 0;
   const matches: string[] = [];
@@ -74,9 +80,9 @@ for (const count of [1, 2, 4]) it(`normalizes ${count} actual matches to the sam
     expect(result.results).toHaveLength(14);
     const keeper = result.results.find((r: any) => r.player_id === f.players[0].id);
     expect(keeper.matches_played).toBe(count);
-    expect(keeper.match_points).toBe(28);
+    expect(keeper.match_points).toBe(36);
     expect(keeper.captain_points).toBe(0);
-    expect(result.details.filter((d: any) => d.player_id === f.players[0].id).every((d: any) => d.clean_sheet && d.keeper_conceded === 0)).toBe(true);
+    expect(result.details.filter((d: any) => d.player_id === f.players[0].id).every((d: any) => !d.clean_sheet && d.keeper_conceded === 0)).toBe(true);
   });
 });
 
@@ -130,33 +136,35 @@ it("preserves match positions and keeper attribution across atomic score correct
     games[0].goals = [];
     await q("select save_program_game_scores($1,$2)", [f.sessionId, JSON.stringify(games)]);
     result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
-    expect(result.details.find((d: any) => d.player_id === f.players[7].id).clean_sheet).toBe(true);
+    expect(result.details.find((d: any) => d.player_id === f.players[7].id).clean_sheet).toBe(false);
     expect(result.positions).toHaveLength(14);
   });
 });
 
-it("does not invent historical keeper attribution or positions; counts partial participation", async () => {
+it("marks unattributed goalkeeper concessions provisional and ignores manual participation", async () => {
   await asUser("owner", async () => {
     const f = await performanceFixture(2);
     await q("update session_matches set team_a_score=3 where id=$1", [f.matches[0]]);
     await q("select confirm_match_positions($1,$2)", [f.matches[1], JSON.stringify([{ playerId: f.players[7].id, position: "", participated: false }, { playerId: f.players[0].id, position: "", participated: true }])]);
     const result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
     const keeper = result.details.find((d: any) => d.player_id === f.players[7].id);
-    expect(keeper.keeper_conceded).toBeNull();
+    expect(keeper.keeper_conceded).toBe(0);
     expect(keeper.clean_sheet).toBe(false);
-    expect(result.results.find((d: any) => d.player_id === f.players[7].id).matches_played).toBe(1);
-    const unknown = result.results.find((d: any) => d.player_id === f.players[0].id);
-    expect(unknown.rated_matches).toBe(1);
-    expect(unknown.incomplete).toBe(true);
+    expect(keeper.keeper_attribution_incomplete).toBe(true);
+    expect(keeper.breakdown.provisional).toBe(true);
+    expect(result.results.find((d: any) => d.player_id === f.players[7].id).matches_played).toBe(2);
+    expect(result.results.find((d: any) => d.player_id === f.players[7].id).incomplete).toBe(true);
   });
 });
 
-it("caps ratings and applies position-specific clean-sheet weights", async () => {
-  for (const [position, clean] of [["goalkeeper", 7], ["defender", 6], ["midfielder", 4], ["forward", 3]] as const) {
-    expect((await q("select match_performance_points_v1($1,0,0,0,0,0) r", [position]))[0].r.rating).toBe(clean);
-    const high = (await q("select match_performance_points_v1($1,99,0,99,99,0) r", [position]))[0].r;
+it("caps ratings and applies the position-based match formulas", async () => {
+  for (const [position, base, contribution] of [
+    ["goalkeeper", 9, 2], ["defender", 7, 2], ["midfielder", 3, 3], ["forward", 1, 5]
+  ] as const) {
+    expect((await q("select match_performance_points_v2(array[$1]::text[],0,0,0,0,0,false) r", [position]))[0].r.rating).toBe(base);
+    const high = (await q("select match_performance_points_v2(array[$1]::text[],99,0,99,99,0,false) r", [position]))[0].r;
     expect(high.rating).toBeLessThanOrEqual(10);
-    expect(high.individual).toBe(4);
+    expect(high.individual).toBe(contribution);
   }
 });
 
@@ -205,11 +213,11 @@ it("keeps the legacy captain ballot path compatible with dynamic nomination scor
     expect(result.awards).toHaveLength(2);
     for (const m of result.matches.filter((m: any) => [m.teamAId, m.teamBId].includes(f.teams[2]))) await q("select confirm_match_positions($1,$2)", [m.id, JSON.stringify([{ playerId: f.players[14].id, position: "forward", participated: true }])]);
     result = (await q("select session_performance($1) result", [f.sessionId]))[0].result;
-    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(0);
-    expect(result.awards).toHaveLength(1);
+    expect(result.results.find((r: any) => r.player_id === f.players[14].id).captain_points).toBe(20);
+    expect(result.awards).toHaveLength(2);
     const ranks = (await q("select season_performance($1) result", [season]))[0].result;
-    expect(ranks.find((r: any) => r.player_id === f.players[0].id && r.position === "goalkeeper").average_session_rating).toBe(48);
-    expect(ranks.find((r: any) => r.player_id === f.players[14].id && r.position === "forward").nominations).toBe(0);
+    expect(ranks.find((r: any) => r.player_id === f.players[0].id && r.position === "goalkeeper").average_session_rating).toBe(56);
+    expect(ranks.find((r: any) => r.player_id === f.players[14].id && r.position === "goalkeeper").nominations).toBe(1);
   });
 });
 

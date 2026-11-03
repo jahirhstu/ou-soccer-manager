@@ -1,43 +1,18 @@
-export type MatchPositionRow = {
-  match_id: string;
-  player_id: string;
-  session_team_id: string;
-  position: string | null;
-  participated?: boolean;
-};
-
 export type PerformanceTeam = {
   id: string;
   players: Array<{ id: string; name: string }>;
 };
 
-type ScorePositionSelection = { scorerId: string; position?: string };
-
-export type MatchPositionChange = {
-  playerId: string;
-  position: string;
-  participated: boolean;
-  resolvedPosition: string | null;
-  goalkeeperAssigned?: boolean;
-};
-
-export function matchPositionEntries(changes: MatchPositionChange[]) {
-  return changes
-    .filter((change) => change.position !== change.resolvedPosition
-      && (!change.goalkeeperAssigned || change.position === "goalkeeper"))
-    .map(({ playerId, position, participated }) => ({ playerId, position, participated }));
-}
-
-export function scorePositionEntries(goals: ScorePositionSelection[]) {
-  return Array.from(new Map(goals
-    .filter((goal): goal is ScorePositionSelection & { position: string } => Boolean(goal.scorerId && goal.position))
-    .map((goal) => [goal.scorerId, { playerId: goal.scorerId, position: goal.position }])).values());
+export function updateScoringGoalPosition<T extends { key: string; position?: string }>(
+  goals: T[],
+  goalKey: string,
+  position: string
+) {
+  return goals.map((goal) => goal.key === goalKey ? { ...goal, position } : goal);
 }
 
 export function goalkeeperSelectionForGoal(
   teams: PerformanceTeam[],
-  positions: MatchPositionRow[],
-  matchId: string,
   scorerId: string,
   goalType: "goal" | "own_goal",
   teamAId?: string,
@@ -45,7 +20,7 @@ export function goalkeeperSelectionForGoal(
 ) {
   const scorerTeam = teams.find((team) => team.players.some((player) => player.id === scorerId));
   if (!scorerTeam || !teamAId || !teamBId || teamAId === teamBId) {
-    return { players: [] as Array<{ id: string; name: string }>, suggestedGoalkeeperId: "" };
+    return { players: [] as Array<{ id: string; name: string }> };
   }
 
   const concededTeamId = goalType === "own_goal"
@@ -53,7 +28,7 @@ export function goalkeeperSelectionForGoal(
     : scorerTeam.id === teamAId ? teamBId : scorerTeam.id === teamBId ? teamAId : "";
   const concededTeam = teams.find((team) => team.id === concededTeamId);
   if (!concededTeam) {
-    return { players: [] as Array<{ id: string; name: string }>, suggestedGoalkeeperId: "" };
+    return { players: [] as Array<{ id: string; name: string }> };
   }
 
   const players = [...concededTeam.players].sort((left, right) =>
@@ -61,9 +36,5 @@ export function goalkeeperSelectionForGoal(
     left.name.localeCompare(right.name, "en") ||
     left.id.localeCompare(right.id)
   );
-  const suggestedGoalkeeperId = players.find((player) => {
-    const position = positions.find((row) => row.match_id === matchId && row.player_id === player.id);
-    return position?.position === "goalkeeper" && position.participated !== false;
-  })?.id ?? "";
-  return { players, suggestedGoalkeeperId };
+  return { players };
 }

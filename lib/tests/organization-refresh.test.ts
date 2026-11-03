@@ -163,7 +163,7 @@ it('resolves website performance positions by match, session, then player defaul
     const [{ result: performance }] = await q("select public.session_performance($1) result", [match.session_id]);
     expect(performance.matches[0]).toMatchObject({ teamAName: "Falcons", teamBName: "Comets" });
     const resolved = (playerId: string) => performance.positions.find((row: any) => row.match_id === match.id && row.player_id === playerId)?.position;
-    expect(resolved(matchOverride)).toBe("forward");
+    expect(resolved(matchOverride)).toBe("defender");
     expect(resolved(sessionOverride)).toBe("defender");
     expect(resolved(globalDefault)).toBe("goalkeeper");
 
@@ -184,7 +184,7 @@ it('resolves website performance positions by match, session, then player defaul
       "select position from public.match_score_positions where match_id=$1 and player_id=$2",
       [match.id, matchOverride]
     );
-    expect(savedPosition).toBe("forward");
+    expect(savedPosition).toBe("midfielder");
     expect(scorePosition).toBe("midfielder");
     await q("delete from public.match_player_positions where match_id=$1 and player_id=$2", [match.id, matchOverride]);
     const [{ position: resolvedScorePosition }] = await q(

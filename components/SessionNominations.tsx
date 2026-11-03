@@ -57,7 +57,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
         const voteInfo = data.voteCounts?.find((entry) => entry.category === category);
         const alreadyNominated = completedCategories.has(category);
         const nominees = [...new Map(data.details
-          .filter((detail) => detail.position === category && detail.player_id !== data.voterPlayerId)
+          .filter((detail) => (detail.positions?.includes(category) ?? detail.position === category) && detail.player_id !== data.voterPlayerId)
           .map((detail) => [detail.player_id, detail])).values()]
           .sort((left, right) => left.player_name.localeCompare(right.player_name));
         return <section className="rounded-lg border border-line p-4" key={category}>

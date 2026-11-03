@@ -196,7 +196,7 @@ describe("integrated migration chain", () => {
     const scope = await db.query<{ program_id: string }>("select * from resolve_enabled_public_scope('integration-a',null)");
     expect(scope.rows.map(row => row.program_id)).toEqual([otherProgram]);
   });
-  it("resolves match positions by performance, score, lineup, then profile priority", async () => {
+  it("uses scoring events before lineup and profile positions and ignores manual match overrides", async () => {
     const session = id(31), teamA = id(32), teamB = id(33), match = id(34);
     await db.query("update players set preferred_position='forward' where id=$1",[player]);
     await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date) values ($1,$2,$3,$4,'Position priority','2020-06-02')",
@@ -204,48 +204,145 @@ describe("integrated migration chain", () => {
     await db.query("insert into session_teams(id,session_id,name) values ($1,$3,'A'),($2,$3,'B')",[teamA,teamB,session]);
     await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3),($1,$4,$5)",
       [session,teamA,player,teamB,guest]);
+    await db.query("insert into players(id,organization_id,display_name,status) values ($1,$2,'Rotating Keeper','active')",
+      [id(35),org]);
+    await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3)",
+      [session,teamB,id(35)]);
     await db.query("insert into session_team_lineups(session_id,session_team_id,organization_id,player_count,positions) values ($1,$2,$3,1,$4)",
       [session,teamA,org,JSON.stringify([{playerId:player,position:"defender"}])]);
     await db.query("insert into session_matches(id,session_id,match_number,team_a_id,team_b_id) values ($1,$2,1,$3,$4)",
       [match,session,teamA,teamB]);
     await db.query("update session_matches set result_status='played',team_a_score=1,team_b_score=0 where id=$1",[match]);
-    const resolved = async () => (await db.query<{ position: string }>(
-      "select resolved_match_player_position($1,$2) position",[match,player]
-    )).rows[0].position;
-    const ratedPosition = async () => (await db.query<{ position: string; rating: string }>(
-      "select position,breakdown->>'rating' rating from match_performance_detail where match_id=$1 and player_id=$2",
-      [match,player]
-    )).rows[0];
-    expect(await resolved()).toBe("defender");
-    expect((await ratedPosition()).position).toBe("defender");
+    const ratedPositions = async () => (await db.query<{ positions: string[] | null }>(
+      "select positions from match_performance_detail where match_id=$1 and player_id=$2",[match,player]
+    )).rows[0].positions;
+    expect(await ratedPositions()).toEqual(["defender"]);
     await db.query("insert into match_score_positions(match_id,player_id,position) values ($1,$2,'midfielder')",[match,player]);
-    expect(await resolved()).toBe("midfielder");
-    expect((await ratedPosition()).position).toBe("midfielder");
     await db.query("insert into match_player_positions(match_id,player_id,session_team_id,position,confirmed_by) values ($1,$2,$3,'goalkeeper',$4)",
       [match,player,teamA,manager]);
-    expect(await resolved()).toBe("goalkeeper");
-    expect((await ratedPosition()).position).toBe("goalkeeper");
-    await db.query("delete from match_player_positions where match_id=$1 and player_id=$2",[match,player]);
-    expect(await resolved()).toBe("midfielder");
+    expect(await ratedPositions()).toEqual(["defender"]);
+    await db.query("insert into match_player_positions(match_id,player_id,session_team_id,position,confirmed_by) values ($1,$2,$3,'goalkeeper',$4)",
+      [match,guest,teamB,manager]);
+    expect(await ratedPositions()).toEqual(["defender"]);
+    await db.query("delete from match_player_positions where match_id=$1",[match]);
     await db.query("delete from match_score_positions where match_id=$1 and player_id=$2",[match,player]);
-    expect(await resolved()).toBe("defender");
     await db.query("delete from session_team_lineups where session_team_id=$1",[teamA]);
-    expect(await resolved()).toBe("forward");
-    await db.query("select set_config('app.allow_manual_goalkeeper','true',true)");
-    await db.query("insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
-      [session,match,player,teamA,guest]);
-    await db.query("select set_config('app.allow_manual_goalkeeper','',true)");
-    await db.exec("savepoint invalid_goalkeeper_assignment");
-    await expect(db.query(
-      "insert into goals(session_id,match_id,scorer_id,session_team_id,conceded_goalkeeper_id) values ($1,$2,$3,$4,$5)",
-      [session,match,player,teamA,player]
-    )).rejects.toThrow("opposing goalkeeper");
-    await db.exec("rollback to savepoint invalid_goalkeeper_assignment");
+    expect(await ratedPositions()).toEqual(["forward"]);
+
+    await db.query("insert into goals(session_id,match_id,scorer_id,session_team_id,goal_type,goal_count,player_position,conceded_goalkeeper_id) values ($1,$2,$3,$4,'goal',1,'midfielder',$5),($1,$2,$3,$4,'goal',1,'forward',$6)",
+      [session,match,player,teamA,guest,id(35)]);
+    await db.query("update session_matches set team_a_score=2 where id=$1",[match]);
+    const rating = await db.query<{ positions: string[]; keeper_conceded: number; rating: string }>(
+      "select positions,keeper_conceded,breakdown->>'rating' rating from match_performance_detail where match_id=$1 and player_id=$2",
+      [match,player]
+    );
+    expect(rating.rows[0].positions).toEqual(["forward","midfielder"]);
+    expect(Number(rating.rows[0].rating)).toBeCloseTo(7.5, 2);
+
+    const keepers = await db.query<{ player_id: string; keeper_conceded: number; positions: string[] }>(
+      "select player_id,keeper_conceded,positions from match_performance_detail where match_id=$1 and player_id in ($2,$3) order by player_id",
+      [match,guest,id(35)]
+    );
+    expect(keepers.rows.map(row => [row.keeper_conceded,row.positions])).toEqual([
+      [1,["goalkeeper"]],[1,["goalkeeper"]]
+    ]);
+
+    const positionCalculation = await db.query<{ rating: string }>(
+      "select public.match_performance_points_v2(array['goalkeeper','forward'],3,2,1,0,1,false)->>'rating' rating"
+    );
+    expect(Number(positionCalculation.rows[0].rating)).toBeCloseTo(7.7917, 3);
+    const provisional = await db.query<{ provisional: boolean }>(
+      "select (public.match_performance_points_v2(array['goalkeeper'],3,2,0,0,0,true)->>'provisional')::boolean provisional"
+    );
+    expect(provisional.rows[0].provisional).toBe(true);
+
+    const incompleteKeeper = await db.query<{ keeper_attribution_incomplete: boolean; breakdown: { provisional: boolean } }>(
+      "select keeper_attribution_incomplete,breakdown from match_performance_detail where match_id=$1 and player_id=$2",
+      [match,guest]
+    );
+    expect(incompleteKeeper.rows[0]).toMatchObject({ keeper_attribution_incomplete: false, breakdown: { provisional: false } });
+
     await asUser(manager);
     const performance = await db.query<{
-      data: { positions: { player_id: string; position: string | null; confirmed_position: string | null }[] };
+      data: { results: { player_id: string; positions: string[] }[] };
     }>("select session_performance($1) data", [session]);
-    const reported = performance.rows[0].data.positions.find(item => item.player_id === player);
-    expect(reported).toMatchObject({ position: "forward", confirmed_position: null });
+    expect(performance.rows[0].data.results.find((item: any) => item.player_id === player)?.positions)
+      .toEqual(["forward","midfielder"]);
+  });
+
+  it("calculates single-position points and 40-point session normalization from actual match counts", async () => {
+    const session = id(41), teamA = id(42), teamB = id(43), teamC = id(46), match1 = id(44), match2 = id(45), match3 = id(47);
+    await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Rating calculation','2020-06-02','completed')",
+      [session,org,program,season]);
+    await db.query("insert into players(id,organization_id,display_name,status,preferred_position) values ($1,$2,'Single-match player','active','midfielder')",
+      [id(48),org]);
+    await db.query("insert into players(id,organization_id,display_name,status,preferred_position) values ($1,$2,'Assist player','active','midfielder')",
+      [id(49),org]);
+    await db.query("insert into session_teams(id,session_id,name) values ($1,$4,'A'),($2,$4,'B'),($3,$4,'C')",[teamA,teamB,teamC,session]);
+    await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3),($1,$4,$5),($1,$6,$7),($1,$2,$8)",
+      [session,teamA,player,teamB,guest,teamC,id(48),id(49)]);
+    await db.query("insert into session_matches(id,session_id,match_number,team_a_id,team_b_id,result_status,team_a_score,team_b_score) values ($1,$4,1,$5,$6,'played',3,2),($2,$4,2,$5,$6,'played',0,0),($3,$4,3,$7,$6,'played',1,0)",
+      [match1,match2,match3,session,teamA,teamB,teamC]);
+    await db.query("update players set preferred_position='forward' where id=$1",[player]);
+    await db.query("update players set preferred_position='goalkeeper' where id=$1",[guest]);
+    await db.query("insert into goals(session_id,match_id,scorer_id,assist_player_id,session_team_id,goal_type,goal_count,player_position) values ($1,$2,$3,$4,$5,'goal',1,'forward')",
+      [session,match1,player,id(49),teamA]);
+    const single = await db.query<{ rating: string; position: string }>(
+      "select breakdown->>'rating' rating,position from match_performance_detail where match_id=$1 and player_id=$2",
+      [match1,player]
+    );
+    expect(single.rows[0].position).toBe("forward");
+    expect(Number(single.rows[0].rating)).toBeCloseTo(7.25, 2);
+    const sessionResult = await db.query<{ matches_played: number; match_points: string }>(
+      "select matches_played,match_points from session_performance_results where session_id=$1 and player_id=$2",
+      [session,player]
+    );
+    expect(sessionResult.rows[0].matches_played).toBe(2);
+    expect(Number(sessionResult.rows[0].match_points)).toBeCloseTo(16.5, 2);
+    const oneMatch = await db.query<{ matches_played: number }>(
+      "select matches_played from session_performance_results where session_id=$1 and player_id=$2",
+      [session,id(48)]
+    );
+    expect(oneMatch.rows[0].matches_played).toBe(1);
+    const keeperCleanSheet = await db.query<{ clean_sheet: boolean }>(
+      "select clean_sheet from match_performance_detail where match_id=$1 and player_id=$2",
+      [match2,guest]
+    );
+    expect(keeperCleanSheet.rows[0].clean_sheet).toBe(false);
+  });
+
+  it("caps nomination points at 20 per valid vote and 60 per category", async () => {
+    const session = id(51), teamA = id(52), teamB = id(53), teamC = id(54), teamD = id(55), match = id(56), nomineeTeam = id(57);
+    await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Nomination points','2020-06-02','completed')",
+      [session,org,program,season]);
+    await db.query("insert into session_teams(id,session_id,name,captain_player_id) values ($1,$6,'A',$7),($2,$6,'B',$7),($3,$6,'C',$7),($4,$6,'D',$7),($5,$6,'Nominee',null)",
+      [teamA,teamB,teamC,teamD,nomineeTeam,session,player]);
+    await db.query("insert into session_team_players(session_id,session_team_id,player_id) values ($1,$2,$3),($1,$4,$5)",
+      [session,teamA,player,nomineeTeam,guest]);
+    await db.query("update program_members set player_id=$1 where program_id=$2 and profile_id=$3",[player,program,manager]);
+    await db.query("update players set preferred_position='defender' where id=any($1::uuid[])",[[player,guest]]);
+    await db.query("insert into session_matches(id,session_id,match_number,team_a_id,team_b_id,result_status) values ($1,$2,1,$3,$4,'played')",
+      [match,session,teamA,nomineeTeam]);
+    await db.query("insert into goals(session_id,match_id,scorer_id,session_team_id,goal_type,goal_count,player_position,conceded_goalkeeper_id) values ($1,$2,$3,$4,'goal',1,'midfielder',$5),($1,$2,$5,$6,'goal',1,'defender',$3)",
+      [session,match,player,teamA,guest,nomineeTeam]);
+    await db.query("update session_matches set team_a_score=1,team_b_score=1 where id=$1",[match]);
+    await db.query("insert into captain_performance_votes(session_id,captain_team_id,category,player_id,voter_id) select $1,id,'defender',$2,$3 from session_teams where id=any($4::uuid[])",
+      [session,guest,manager,[teamA,teamB,teamC,teamD]]);
+    const nomineePositions = await db.query<{ positions: string[] }>(
+      "select positions from match_performance_detail where session_id=$1 and player_id=$2",[session,guest]
+    );
+    expect(nomineePositions.rows[0].positions).toEqual(["defender","goalkeeper"]);
+    const points = await db.query<{ total_votes: string; points_per_vote: string; nomination_points: string }>(
+      "select total_votes,points_per_vote,nomination_points from session_category_nomination_points where session_id=$1 and category='defender' and player_id=$2",
+      [session,guest]
+    );
+    expect(Number(points.rows[0].total_votes)).toBe(4);
+    expect(Number(points.rows[0].points_per_vote)).toBe(15);
+    expect(Number(points.rows[0].nomination_points)).toBe(60);
+    const noVotes = await db.query<{ nomination_points: string }>(
+      "select coalesce(points.nomination_points,0)::numeric nomination_points from (values($1::uuid)) candidate(player_id) left join session_player_nomination_points points on points.session_id=$2 and points.player_id=candidate.player_id",
+      [player,session]
+    );
+    expect(Number(noVotes.rows[0].nomination_points)).toBe(0);
   });
 });

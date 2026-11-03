@@ -10,14 +10,9 @@ type MiniGameGoalInput = {
   scorerId?: string;
   concededGoalkeeperId?: string;
   assistPlayerId?: string;
+  position?: string;
   goalCount?: number;
   goalType?: "goal" | "own_goal";
-};
-
-type MiniGamePositionInput = {
-  playerId: string;
-  position: string | null;
-  participated?: boolean;
 };
 
 type MiniGameInput = {
@@ -32,7 +27,6 @@ type MiniGameInput = {
   resultStatus?: "scheduled" | "played";
   scheduledStartTime?: string;
   scheduledEndTime?: string;
-  positions?: MiniGamePositionInput[];
   goals?: MiniGameGoalInput[];
 };
 

@@ -15,7 +15,7 @@ export default async function PerformanceReport({ searchParams }: { searchParams
     {error && <p role="alert" className="text-red-700">{error.message}</p>}
     {['goalkeeper', 'defender', 'midfielder', 'forward'].map((position) => <section key={position} className="border-b border-line pb-4">
       <h2 className="section-title">{position === "forward" ? "Forward Rankings" : `Top ${position[0].toUpperCase() + position.slice(1)} Rankings`}</h2>
-      {!rows.some((r) => r.position === position) && <p className="py-3 text-sm text-slate-500">No confirmed performances.</p>}
+      {!rows.some((r) => r.position === position) && <p className="py-3 text-sm text-slate-500">No rated performances.</p>}
       {rows.filter((r) => r.position === position).map((r, i) => <div className="flex items-center justify-between gap-3 border-b border-line py-3" key={r.player_id}>
         <div><span className="mr-2 text-slate-400">{i + 1}</span><strong>{r.player_name}</strong><p className="text-xs text-slate-500">{r.matches_played} matches · {r.sessions_played} sessions · {r.nominations} nominations</p></div>
         <div className="text-right"><strong className="text-lg tabular-nums text-emerald-800">{Number(r.average_session_rating).toFixed(2)}<span className="text-xs text-slate-500"> / {position === "forward" ? 40 : 100}</span></strong><p className="text-xs text-slate-500">Match average {Number(r.average_match_rating).toFixed(2)}/10</p></div>

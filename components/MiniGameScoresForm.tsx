@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { toast } from "sonner";
 import { Plus, Save, Trash2 } from "lucide-react";
 import { saveMiniGameScores } from "@/lib/actions/session-management";
-import { goalkeeperSelectionForGoal, scorePositionEntries, type MatchPositionRow } from "@/lib/performance-position";
+import { goalkeeperSelectionForGoal, updateScoringGoalPosition } from "@/lib/performance-position";
 
 type SaveActionResult = { success?: boolean; message?: string; error?: string } | null;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
@@ -50,8 +50,7 @@ export function MiniGameScoresForm({
   saveAction = saveMiniGameScores,
   sessionId,
   sessionLabel = "Session",
-  teams,
-  positions = []
+  teams
 }: {
   existingGames: MatchInput[];
   heading?: string;
@@ -61,7 +60,6 @@ export function MiniGameScoresForm({
   sessionId: string;
   sessionLabel?: string;
   teams: TeamOption[];
-  positions?: Array<MatchPositionRow & { score_position?: string | null }>;
 }) {
   const [games, setGames] = useState<MatchInput[]>(() => existingGames.length ? existingGames : defaultGames(teams));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -94,15 +92,13 @@ export function MiniGameScoresForm({
       .filter((goal) => goal.scorerId)
       .map((goal) => ({
         scorerId: goal.scorerId,
-        concededGoalkeeperId: goal.concededGoalkeeperId || goalkeeperSelectionForGoal(
-          teams, positions, game.key, goal.scorerId, goal.goalType, game.teamAId, game.teamBId
-        ).suggestedGoalkeeperId || undefined,
+        concededGoalkeeperId: goal.concededGoalkeeperId || undefined,
         assistPlayerId: goal.goalType === "own_goal" ? undefined : goal.assistPlayerId || undefined,
         sessionTeamId: inferScoringTeamId(goal, game, teamByPlayer),
         goalCount: goal.goalCount,
-        goalType: goal.goalType
-      })),
-    positions: scorePositionEntries(game.goals)
+        goalType: goal.goalType,
+        position: goal.position || undefined
+      }))
   }));
   const payloadJson = JSON.stringify(payload);
 
@@ -189,10 +185,10 @@ export function MiniGameScoresForm({
     );
   }
 
-  function updatePlayerGoalPosition(game: MatchInput, playerId: string, position: string) {
+  function updatePlayerGoalPosition(game: MatchInput, goalKey: string, position: string) {
     setGames((current) => current.map((item) => item.key === game.key ? {
       ...item,
-      goals: item.goals.map((goal) => goal.scorerId === playerId ? { ...goal, position } : goal)
+      goals: updateScoringGoalPosition(item.goals, goalKey, position)
     } : item));
   }
 
@@ -338,25 +334,22 @@ export function MiniGameScoresForm({
                 {game.goals.map((goal) => {
                   const scorerTeamId = teamByPlayer.get(goal.scorerId) ?? "";
                   const keeperSelection = goalkeeperSelectionForGoal(
-                    teams, positions, game.key, goal.scorerId, goal.goalType, game.teamAId, game.teamBId
+                    teams, goal.scorerId, goal.goalType, game.teamAId, game.teamBId
                   );
                   const assistPlayers = goal.scorerId && scorerTeamId ? playersForTeam(playersByTeam, scorerTeamId) : selectablePlayers;
-                  const scorerPosition = goal.position ?? positionForPlayer(positions, game.key, goal.scorerId);
-                  const concededGoalkeeperId = goal.concededGoalkeeperId || keeperSelection.suggestedGoalkeeperId;
+                  const scorerPosition = goal.position ?? "";
+                  const concededGoalkeeperId = goal.concededGoalkeeperId ?? "";
                   return (
                     <div className="grid gap-2 rounded-md border border-line bg-slate-50 p-2" key={goal.key}>
                       <div className="grid gap-2 lg:grid-cols-[120px_minmax(0,1fr)_minmax(130px,0.7fr)_minmax(0,1fr)] lg:items-end">
                         <GoalTypeSelect disabled={readOnly} onChange={(value) => {
-                          const selection = goalkeeperSelectionForGoal(teams, positions, game.key, goal.scorerId, value, game.teamAId, game.teamBId);
-                          updateGoal(game.key, goal.key, { goalType: value, concededGoalkeeperId: selection.suggestedGoalkeeperId, assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId });
+                          updateGoal(game.key, goal.key, { goalType: value, concededGoalkeeperId: "", assistPlayerId: value === "own_goal" ? "" : goal.assistPlayerId });
                         }} value={goal.goalType} />
                         <PlayerSelect
                           disabled={readOnly || !game.teamAId || !game.teamBId}
                           label={goal.goalType === "own_goal" ? "Own goal by" : "Scorer"}
                           onChange={(value) => {
-                            const selection = goalkeeperSelectionForGoal(teams, positions, game.key, value, goal.goalType, game.teamAId, game.teamBId);
-                            const scorePosition = positions.find((position) => position.match_id === game.key && position.player_id === value)?.score_position;
-                            updateGoal(game.key, goal.key, { scorerId: value, position: scorePosition ?? undefined, assistPlayerId: "", concededGoalkeeperId: selection.suggestedGoalkeeperId });
+                            updateGoal(game.key, goal.key, { scorerId: value, position: undefined, assistPlayerId: "", concededGoalkeeperId: "" });
                           }}
                           players={selectablePlayers}
                           value={goal.scorerId}
@@ -367,7 +360,7 @@ export function MiniGameScoresForm({
                             aria-label={`${goal.scorerId ? selectablePlayers.find((player) => player.id === goal.scorerId)?.name ?? "Scorer" : "Scorer"} match position`}
                             className="input min-h-9 px-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                             disabled={readOnly || !goal.scorerId}
-                            onChange={(event) => updatePlayerGoalPosition(game, goal.scorerId, event.target.value)}
+                            onChange={(event) => updatePlayerGoalPosition(game, goal.key, event.target.value)}
                             value={scorerPosition}
                           >
                             <option value="">Unknown</option>
@@ -439,14 +432,6 @@ function uniquePlayers(players: Array<{ id: string; name: string }>) {
 
 function playersForTeam(playersByTeam: Map<string, Array<{ id: string; name: string }>>, teamId?: string) {
   return teamId ? playersByTeam.get(teamId) ?? [] : [];
-}
-
-function positionForPlayer(
-  positions: MatchPositionRow[],
-  matchId: string,
-  playerId: string
-) {
-  return positions.find((position) => position.match_id === matchId && position.player_id === playerId)?.position ?? "";
 }
 
 function capitalize(value: string) {

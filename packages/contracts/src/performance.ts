@@ -1,6 +1,6 @@
 type Player = { id: string; name: string };
 export type MatchPosition = { match_id: string; player_id: string; session_team_id: string; position: string | null; confirmed_position?: string | null; score_position?: string | null; goalkeeper_assigned?: boolean; participated: boolean };
-type Detail = { player_id: string; player_name: string; match_number: number; position: string | null; keeper_conceded: number | null; clean_sheet: boolean; breakdown: Record<string, number | null> };
+type Detail = { player_id: string; player_name: string; match_number: number; position: string | null; positions?: string[]; keeper_conceded: number | null; clean_sheet: boolean; keeper_attribution_incomplete?: boolean; breakdown: Record<string, number | string | boolean | null> };
 export type PerformanceData = {
   session: { id: string; name: string; status: string; seasonId: string };
   canManage: boolean; canClose: boolean; canAuthorizeVoters?: boolean; canNominate?: boolean; voterPlayerId?: string | null; closed: boolean;
@@ -26,4 +26,5 @@ export function previousMatchPositions(data: PerformanceData, matchId: string) {
     .sort((a, b) => earlier.get(a.match_id)! - earlier.get(b.match_id)!)
     .map(p => [`${matchId}:${p.player_id}`, { position: p.position ?? "", participated: p.participated }]));
 }
+
 export type SeasonPerformanceRow = { player_id: string; player_name: string; position: string; matches_played: number; sessions_played: number; average_match_rating: number; average_session_rating: number; nominations: number };

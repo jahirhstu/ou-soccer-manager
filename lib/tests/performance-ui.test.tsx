@@ -2,7 +2,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import type { PerformanceData } from "../../packages/contracts/src/performance";
-import { previousMatchPositions } from "../../packages/contracts/src/performance";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/actions/performance", () => ({ updatePerformance: vi.fn() }));
 import { SessionPerformance } from "../../components/SessionPerformance";
@@ -42,7 +41,8 @@ it("renders rating breakdowns and teammate nomination choices while excluding th
   expect(nominations).toContain('value="b1"');
   expect(nominations).not.toContain('value="a1"');
   expect(nominations).toContain("Visiting Goalkeeper");
-  expect(ratings).toContain("Team Sadat vs Team Jahir");
+  expect(ratings).not.toContain("Match positions & participation");
+  expect(ratings).toContain("Session ratings");
   expect(ratings).not.toContain("Played</label>");
   if (process.env.OU_RENDER_PERFORMANCE === "1") {
     const css = readdirSync(".next/static/css").filter(f => f.endsWith(".css")).map(f => readFileSync(`.next/static/css/${f}`, "utf8")).join("\n");
@@ -64,16 +64,6 @@ it("keeps zero-participation sessions empty without assigning ratings", () => {
   const emptyData = { ...data, canManage: false, results: [], details: [], awards: [] };
   const ratings = renderToStaticMarkup(<SessionPerformance data={emptyData} />);
   const nominations = renderToStaticMarkup(<SessionNominations data={emptyData} />);
-  expect(ratings).toContain("No confirmed participation");
+  expect(ratings).toContain("No player performance is available");
   expect(nominations).toContain("No nominations yet.");
-});
-
-it("copies only earlier confirmed positions for the current match roster", () => {
-  const fixture: PerformanceData = { ...data, matches: [data.matches[0], { ...data.matches[0], id: "g2", number: 2 }], positions: [
-    { match_id: "g1", player_id: "a1", session_team_id: "a", position: "goalkeeper", participated: true },
-    { match_id: "g2", player_id: "a1", session_team_id: "a", position: "forward", participated: true },
-    { match_id: "g1", player_id: "not-on-roster", session_team_id: "a", position: "midfielder", participated: true }
-  ] };
-  expect(previousMatchPositions(fixture, "g1")).toEqual({});
-  expect(previousMatchPositions(fixture, "g2")).toEqual({ "g2:a1": { position: "goalkeeper", participated: true } });
 });

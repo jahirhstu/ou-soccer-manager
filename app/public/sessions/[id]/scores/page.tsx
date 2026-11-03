@@ -38,6 +38,7 @@ type PublicScoreData = {
       scorerId: string;
       assistPlayerId: string | null;
       concededGoalkeeperId?: string | null;
+      playerPosition?: string | null;
       goalType: "goal" | "own_goal";
       goalCount: number;
     }>;
@@ -78,6 +79,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
       goals: (match.goals ?? []).map((goal) => ({
         key: goal.id,
         scorerId: goal.scorerId,
+        position: goal.playerPosition ?? undefined,
         assistPlayerId: goal.assistPlayerId ?? "",
         concededGoalkeeperId: goal.concededGoalkeeperId ?? "",
         goalType: goal.goalType === "own_goal" ? "own_goal" : "goal",
@@ -88,7 +90,7 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
   return (
     <PublicShell returnHref={showReturnLink ? "/dashboard" : undefined} returnLabel="Return">
       <div className="grid gap-5">
-        {performance?.canManage && <Link className="btn-secondary justify-self-start" href={`/sessions/${id}/performance`}>Match positions & performance</Link>}
+        {performance?.canManage && <Link className="btn-secondary justify-self-start" href={`/sessions/${id}/performance`}>Session ratings</Link>}
         {error ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
             Public game scores are not ready yet. Run the latest database migration, then refresh this page.
@@ -103,7 +105,6 @@ export default async function PublicGameScoresPage({ params }: { params: Promise
         ) : (
           <MiniGameScoresForm
             existingGames={existingGames}
-            positions={performance?.positions ?? []}
             heading="Game scores"
             readOnly={readOnly}
             readOnlyReason={canManageSessionActivity ? "Scores are read-only because this session is completed or past its date." : "Sign in as a program manager or captain to edit scores."}
