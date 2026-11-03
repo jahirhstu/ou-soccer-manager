@@ -24,7 +24,7 @@ describe("phone-readable session images", () => {
     expect(html).not.toContain("truncate");
   });
 
-  it("includes the ordered Top Players section without removing podium or standings", () => {
+  it("orders podium, standings, and Top Players in the shared image", () => {
     const html = renderToStaticMarkup(<StandingsShareImage session={session} standings={[standing]} topPlayers={topPlayers} />);
     const topPlayersIndex = html.indexOf(">Top Players</h2>");
     const scorerIndex = html.indexOf(">Top Scorer</div>");
@@ -33,13 +33,20 @@ describe("phone-readable session images", () => {
     const defenderIndex = html.indexOf(">Top Defender</div>");
     const keeperIndex = html.indexOf(">Top Goalkeeper</div>");
     const standingsIndex = html.indexOf(">Standings</h2>");
-    expect(topPlayersIndex).toBeGreaterThan(-1);
+    const winnerIndex = html.indexOf(">Winner</div>");
+    const secondIndex = html.indexOf(">Second</div>");
+    const thirdIndex = html.indexOf(">Third</div>");
+    const headerIndex = html.indexOf(">Podium &amp; Standings</div>");
+    expect(headerIndex).toBeLessThan(winnerIndex);
+    expect(winnerIndex).toBeLessThan(secondIndex);
+    expect(secondIndex).toBeLessThan(thirdIndex);
+    expect(thirdIndex).toBeLessThan(standingsIndex);
+    expect(standingsIndex).toBeLessThan(topPlayersIndex);
     expect(topPlayersIndex).toBeLessThan(scorerIndex);
     expect(scorerIndex).toBeLessThan(assistIndex);
     expect(assistIndex).toBeLessThan(midfielderIndex);
     expect(midfielderIndex).toBeLessThan(defenderIndex);
     expect(defenderIndex).toBeLessThan(keeperIndex);
-    expect(keeperIndex).toBeLessThan(standingsIndex);
     for (const player of topPlayers) expect(html).toContain(player.playerName);
     expect(html).toContain("Team Ahmed");
     expect(html).toContain("Podium");

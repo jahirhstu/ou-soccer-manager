@@ -25,16 +25,6 @@ function Frame({ session, title, children }: { session: ShareSession; title: str
 export function StandingsShareImage({ session, standings, topPlayers = [] }: { session: ShareSession; standings: ShareStanding[]; topPlayers?: ShareTopPlayer[] }) {
   const signed = (n: number) => n > 0 ? `+${n}` : String(n);
   return <Frame session={session} title="Podium & Standings">
-    {topPlayers.length ? <>
-      <h2 style={{ margin: "0 0 8px", fontSize: 24, color: green }}>Top Players</h2>
-      <div style={{ ...grid(3), marginBottom: 14 }}>
-        {topPlayers.map((player) => <div key={player.label} style={{ ...box, padding: 8, background: "#f6f8f7" }}>
-          <div style={{ color: muted, fontSize: 16, fontWeight: 700 }}>{player.label}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{player.playerName}</div>
-          {player.metric ? <div style={{ color: green, fontSize: 17, marginTop: 3 }}>{player.metric}</div> : null}
-        </div>)}
-      </div>
-    </> : null}
     <div style={grid(Math.max(1, Math.min(3, standings.length)))}>
       {standings.slice(0, 3).map((team, index) => {
         const Icon = index === 0 ? Trophy : Medal;
@@ -51,6 +41,16 @@ export function StandingsShareImage({ session, standings, topPlayers = [] }: { s
       <div style={{ display: "grid", gridTemplateColumns: "32px minmax(0,1fr) auto", gap: 8, alignItems: "center", fontWeight: 700 }}><span style={{ color: green }}>{team.rank}</span><span>{team.teamName}</span><span style={{ color: green }}>{team.points}<span style={{ fontSize: 18 }}> pts</span></span></div>
       <div style={{ ...grid(8), gap: 4, marginTop: 8, textAlign: "center" }}>{[["P", team.played], ["W", team.wins], ["D", team.draws], ["L", team.losses], ["GF", team.goalsFor], ["GA", team.goalsAgainst], ["GD", signed(team.goalDifference)], ["AG", team.awayGoals]].map(([label, value]) => <div key={label} aria-label={`${label} ${value}`} style={{ borderLeft: label === "GF" ? `1px solid ${border}` : undefined }}><div style={{ fontSize: 16, color: muted }}>{label}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div></div>)}</div>
     </div>)}{!standings.length ? <div style={{ padding: 12 }}>No standings yet.</div> : null}</div>
+    {topPlayers.length ? <>
+      <h2 style={{ margin: "16px 0 8px", fontSize: 24, color: green }}>Top Players</h2>
+      <div style={{ ...grid(3), marginBottom: 14 }}>
+        {topPlayers.map((player) => <div key={player.label} style={{ ...box, padding: 8, background: "#f6f8f7" }}>
+          <div style={{ color: muted, fontSize: 16, fontWeight: 700 }}>{player.label}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{player.playerName}</div>
+          {player.metric ? <div style={{ color: green, fontSize: 17, marginTop: 3 }}>{player.metric}</div> : null}
+        </div>)}
+      </div>
+    </> : null}
   </Frame>;
 }
 

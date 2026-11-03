@@ -164,6 +164,28 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
         </header>
 
         <section className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="section-title">Podium</h2>
+              <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
+                <StandingsShareImage session={shareSession} standings={standings} topPlayers={topPlayers} />
+              </ImageShareButton> : null}
+              <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
+              <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {podium.map((team, index) => (
+              <PodiumCard key={team.teamId} place={index + 1} standing={team} />
+            ))}
+            {!podium.length ? <div className="panel border-dashed p-10 text-center text-sm text-slate-500 md:col-span-3">No standings yet.</div> : null}
+          </div>
+        </section>
+
+        <section className="grid gap-3">
           <h2 className="section-title">Standings</h2>
           <DataTable
             rows={standings}
@@ -188,28 +210,6 @@ export default async function PublicSessionSummaryPage({ params }: { params: Pro
           {performanceError ? <p className="text-sm text-rose-700">Player ratings are not available: {performanceError.message}</p> : null}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {topPlayers.map((player) => <TopPlayerCard key={player.label} player={player} />)}
-          </div>
-        </section>
-
-        <section className="grid gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="section-title">Podium</h2>
-              <p className="text-sm text-slate-500">Ranking follows points, goal difference, goals for, away goals, then team name.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {showReturnLink && standings.length > 0 ? <ImageShareButton label="Share podium & standings" title="Podium & Standings" filename={imageFileName(sessionLabel, "standings", session?.sessionDate)}>
-                <StandingsShareImage session={shareSession} standings={standings} topPlayers={topPlayers} />
-              </ImageShareButton> : null}
-              <Link className="btn-secondary" href={`/public/sessions/${id}`}>Session details</Link>
-              <Link className="btn-secondary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {podium.map((team, index) => (
-              <PodiumCard key={team.teamId} place={index + 1} standing={team} />
-            ))}
-            {!podium.length ? <div className="panel border-dashed p-10 text-center text-sm text-slate-500 md:col-span-3">No standings yet.</div> : null}
           </div>
         </section>
 

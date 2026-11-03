@@ -38,13 +38,15 @@ describe("summary share controls", () => {
     expect(html).not.toContain("Top assists");
   });
 
-  it("places five ordered Top Players between standings and podium and removes the old performance section", async () => {
+  it("orders the podium, standings, and five Top Players categories below the summary header", async () => {
     const html = renderToStaticMarkup(await SummaryPage({ params: Promise.resolve({ id: "session" }) }));
     const standingsIndex = html.indexOf(">Standings</h2>");
     const topPlayersIndex = html.indexOf(">Top Players</h2>");
     const podiumIndex = html.indexOf(">Podium</h2>");
+    const headerIndex = html.indexOf(">Session summary</span>");
+    expect(headerIndex).toBeLessThan(podiumIndex);
+    expect(podiumIndex).toBeLessThan(standingsIndex);
     expect(standingsIndex).toBeLessThan(topPlayersIndex);
-    expect(topPlayersIndex).toBeLessThan(podiumIndex);
     for (const name of ["Scorer", "1 goals", "Assistant", "1 assists", "Midfielder", "32.50 rating", "Defender", "28.00 rating", "Keeper", "31.25 rating"]) expect(html).toContain(name);
     expect(html).not.toContain("Player performance");
     expect(html).not.toContain(">Ratings</a>");
