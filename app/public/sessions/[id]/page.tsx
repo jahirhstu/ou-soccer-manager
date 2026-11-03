@@ -7,6 +7,7 @@ import { PublicShell } from "@/components/PublicShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient, getCurrentProfile } from "@/lib/supabase/server";
+import { tenantPath } from "@/lib/tenant";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { money } from "@/lib/utils";
 
@@ -101,7 +102,7 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
             <Link className="btn-secondary" href={`/public/sessions/${id}/teams`}>View teams</Link>
             {canManageSessionActivity ? <Link className="btn-secondary" href={`/sessions/${id}/fixture`}>Generate fixture</Link> : null}
             <Link className="btn-secondary" href={`/sessions/${id}/lineups`}>Lineups</Link>
-            {showNominationLink ? <Link className="btn-secondary" href={`/sessions/${id}/nomination`}>Nomination</Link> : null}
+            {showNominationLink ? <Link className="btn-secondary" href={tenantPath(`/sessions/${id}/nomination`, tenantSlug, programSlug)}>Nomination</Link> : null}
             <Link className="btn-secondary" href={`/public/sessions/${id}/summary`}>Session summary</Link>
             <Link className="btn-primary" href={`/public/sessions/${id}/scores`}>Game scores</Link>
           </div>

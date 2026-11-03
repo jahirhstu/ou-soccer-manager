@@ -116,7 +116,7 @@ describe("public session nomination link", () => {
   it("makes nominations available to players when a fixture has been played", async () => {
     mocks.profile.mockResolvedValue({ role: "player" });
     const html = renderToStaticMarkup(await PublicSessionDetailPage({ params: Promise.resolve({ id: "session" }) }));
-    expect(html).toContain('href="/sessions/session/nomination"');
+    expect(html).toContain('href="/ou-soccer/football/sessions/session/nomination"');
     expect(html).toContain(">Nomination</a>");
   });
 
