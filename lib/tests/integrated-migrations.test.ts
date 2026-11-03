@@ -188,6 +188,36 @@ describe("integrated migration chain", () => {
     await asUser(manager);
     await expect(db.query("select admin_dashboard_season_finance($1)",[season])).rejects.toThrow("authorized program manager");
   });
+  it("persists guided draft categories per session and exposes profile positions to the website builder", async () => {
+    const session = id(60);
+    await db.query("insert into sessions(id,organization_id,program_id,season_id,name,session_date,status) values ($1,$2,$3,$4,'Guided draft','2020-06-03','scheduled')",
+      [session,org,program,season]);
+    await db.query("update players set preferred_position='forward' where id=$1",[player]);
+    await db.query("insert into attendance(organization_id,program_id,session_id,player_id,status) values ($1,$2,$3,$4,'confirmed'),($1,$2,$3,$5,'confirmed')",
+      [org,program,session,player,guest]);
+    await asUser(manager);
+    await db.query(
+      "select save_program_team_builder_guided_draft($1,'[]'::jsonb,7,0,'[]'::jsonb,0,$2::jsonb)",
+      [session,JSON.stringify({ [player]: "goalkeeper", [guest]: "unassigned" })]
+    );
+    const saved = await db.query<{ draft_mode: string; draft_position_categories: Record<string, string> }>(
+      "select draft_mode,draft_position_categories from session_team_builder_drafts where session_id=$1",
+      [session]
+    );
+    expect(saved.rows[0]).toEqual({
+      draft_mode: "guided",
+      draft_position_categories: { [player]: "goalkeeper", [guest]: "unassigned" }
+    });
+    const publicData = await db.query<{ data: { players: Array<{ id: string; preferredPosition: string | null }>; draft: { draftMode: string; draftPositionCategories: Record<string, string> } } }>(
+      "select scoped_public_session_team_builder('integration-a','soccer',$1) data",
+      [session]
+    );
+    expect(publicData.rows[0].data.draft).toMatchObject({
+      draftMode: "guided",
+      draftPositionCategories: { [player]: "goalkeeper", [guest]: "unassigned" }
+    });
+    expect(publicData.rows[0].data.players.find((row) => row.id === player)?.preferredPosition).toBe("forward");
+  });
   it("keeps public season lookup and notification amounts behind the public scope", async () => {
     await db.query("update program_modules set enabled=false where program_id=$1 and module_key='public_reports'",[program]);
     await db.exec("set local role anon");

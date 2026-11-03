@@ -4,15 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, hasSupabaseEnv } from "./lib/supabase/env";
 import { getActiveProgramSlugForTenant, getProgramSlugFromPathname, getTenantSlugFromPathname, normalizeTenantSlug, stripTenantFromPathname, tenantPath } from "./lib/tenant";
 import { isCaptainAllowedRoute } from "./lib/captain-routes";
+import { isPlayerAllowedRoute } from "./lib/player-routes";
 
 const publicRoutes = ["/", "/login", "/signup", "/setup"];
 const publicRoutePrefixes = ["/public", "/invite"];
 const globalContextRoutes = ["/login", "/signup", "/join", "/select-context", "/invite", "/platform"];
 const programRequiredPaths = ["/sessions", "/seasons", "/players", "/payments", "/expenses", "/attendance", "/performance", "/leagues", "/import-whatsapp", "/reports"];
-
-function isPlayerAllowedRoute(pathname: string) {
-  return /^\/sessions\/[^/]+\/lineups(?:\/.*)?$/.test(pathname);
-}
 
 type CookieToSet = {
   name: string;

@@ -18,6 +18,11 @@ The shared manual-position table and RPC remain for the existing native clients;
 the website no longer renders, calls, or uses that workflow. Native applications
 were not modified.
 
+The website's Guided team draft uses a separate, session-scoped category override
+based on each player's profile position. Organizers may adjust or reset those
+draft categories without changing profile positions; the overrides do not affect
+lineups, match positions, or performance ratings.
+
 ## Match rating
 
 Each match rates at most 10 points. For a match, `R` is 2 for a win, 1 for a draw,

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Crown, ListOrdered, RadioTower, RotateCcw, Save, Shuffle, Undo2, UserPlus, Users } from "lucide-react";
 import { autosaveSessionTeamBuilderDraft, saveSessionTeamBuilder } from "@/lib/actions/team-builder";
+import { currentDraftCategory, draftPositionCategories as DRAFT_POSITION_CATEGORIES, normalizeDraftCategoryOverrides, profileDraftCategory, type DraftPositionCategory } from "@/lib/team-builder-draft";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,7 @@ export type TeamBuilderPlayer = {
   id: string;
   name: string;
   status?: string | null;
+  preferredPosition?: string | null;
   attackingSkillPercent?: number | null;
   defendingSkillPercent?: number | null;
   goalkeepingSkillPercent?: number | null;
@@ -42,10 +44,11 @@ export type TeamBuilderData = {
   draft?: {
     teams?: DraftSnapshotTeam[];
     playersPerTeam?: number | null;
-    draftMode?: "lottery" | "balanced" | null;
+    draftMode?: "lottery" | "balanced" | "guided" | null;
     pickCursor?: number | null;
     tossOrderKeys?: string[] | null;
     rouletteRotation?: number | null;
+    draftPositionCategories?: Record<string, DraftPositionCategory> | null;
     updatedAt?: string | null;
   } | null;
 };
@@ -71,7 +74,7 @@ type DragSource = {
   teamKey?: string;
 };
 
-type DraftMode = "lottery" | "balanced";
+type DraftMode = "lottery" | "balanced" | "guided";
 
 type LiveAction = {
   id: string;
@@ -133,7 +136,12 @@ export function TeamBuilder({
   const playersById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const [playersPerTeam, setPlayersPerTeam] = useState(() => Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8));
   const [teams, setTeams] = useState<DraftTeam[]>(() => initialDraftTeams(existingDraft?.teams, existingTeams, 2, players));
-  const [draftMode, setDraftMode] = useState<DraftMode>(() => existingDraft?.draftMode === "balanced" ? "balanced" : "lottery");
+  const [draftMode, setDraftMode] = useState<DraftMode>(() =>
+    existingDraft?.draftMode === "guided" ? "guided" : existingDraft?.draftMode === "balanced" ? "balanced" : "lottery"
+  );
+  const [draftPositionCategoriesState, setDraftPositionCategoriesState] = useState(() =>
+    normalizeDraftCategoryOverrides(existingDraft?.draftPositionCategories, players)
+  );
   const [pickCursor, setPickCursor] = useState(() => Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0));
   const [isTossing, setIsTossing] = useState(false);
   const [tossOrderKeys, setTossOrderKeys] = useState<string[] | null>(() => Array.isArray(existingDraft?.tossOrderKeys) ? existingDraft.tossOrderKeys : null);
@@ -176,19 +184,32 @@ export function TeamBuilder({
   const pickOrderTeams = useMemo(() => orderedTeamsForToss(teams, tossOrderKeys), [teams, tossOrderKeys]);
   const captainsReady = captainsSelectedForTeams(teams);
   const teamBuildingStarted = captainsReady && hasPickedPlayerForTeams(teams);
-  const balancedDraftStarted = draftMode === "balanced" && captainsReady && Boolean(tossOrderKeys?.length);
-  const effectivePickCursor = draftMode === "balanced" && !balancedDraftStarted ? 0 : pickCursor;
+  const isBalancedDraft = draftMode !== "lottery";
+  const balancedDraftStarted = isBalancedDraft && captainsReady && Boolean(tossOrderKeys?.length);
+  const effectivePickCursor = isBalancedDraft && !balancedDraftStarted ? 0 : pickCursor;
   const remainingDraftPicks = teams.reduce((total, team) => total + Math.max(playersPerTeam - team.playerIds.length, 0), 0);
-  const trackedDraftPicks = draftMode === "balanced" ? effectivePickCursor + remainingDraftPicks : players.length;
+  const trackedDraftPicks = isBalancedDraft ? effectivePickCursor + remainingDraftPicks : players.length;
   const totalDraftRounds = Math.max(Math.ceil(trackedDraftPicks / Math.max(teams.length, 1)), 1);
   const balancedRounds = useMemo(
     () => buildBalancedDraftRounds(pickOrderTeams, totalDraftRounds),
     [pickOrderTeams, totalDraftRounds]
   );
   const scheduledPickCounts = useMemo(() => pickPositionCounts(balancedRounds), [balancedRounds]);
-  const activeTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
-  const nextTurn = draftMode === "balanced" && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
-  const canUseRoulette = canEdit && !(draftMode === "balanced" && teamBuildingStarted);
+  const activeTurn = isBalancedDraft && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor) : null;
+  const nextTurn = isBalancedDraft && balancedDraftStarted ? getDraftTurn(balancedRounds, effectivePickCursor + 1) : null;
+  const canUseRoulette = canEdit && !(isBalancedDraft && teamBuildingStarted);
+  const draftPositionCategories = draftPositionCategoriesState;
+  const teamPositionComposition = useMemo(() => teams.map((team) => ({
+    key: team.key,
+    name: team.name,
+    counts: Object.fromEntries(DRAFT_POSITION_CATEGORIES.map((category) => [
+      category,
+      team.playerIds.reduce((count, playerId) => {
+        const player = playersById.get(playerId);
+        return count + (player && currentDraftCategory(player, draftPositionCategories) === category ? 1 : 0);
+      }, 0)
+    ])) as Record<DraftPositionCategory, number>
+  })), [draftPositionCategories, playersById, teams]);
 
   useEffect(() => {
     if (state?.success) {
@@ -209,6 +230,7 @@ export function TeamBuilder({
     pickCursor: number;
     tossOrderKeys: string[] | null;
     rouletteRotation: number;
+    draftPositionCategories: Record<string, DraftPositionCategory>;
   }>) {
     if (!canEdit || applyingRemoteUpdate.current) return;
     const nextSnapshot = {
@@ -217,7 +239,8 @@ export function TeamBuilder({
       playersPerTeam: Math.max(1, Number(snapshot.playersPerTeam ?? playersPerTeam) || 8),
       rouletteRotation: Number(snapshot.rouletteRotation ?? rouletteRotation) || 0,
       teams: serializeDraftTeams(snapshot.teams ?? teams),
-      tossOrderKeys: Array.isArray(snapshot.tossOrderKeys) ? snapshot.tossOrderKeys : snapshot.tossOrderKeys === null ? null : tossOrderKeys
+      tossOrderKeys: Array.isArray(snapshot.tossOrderKeys) ? snapshot.tossOrderKeys : snapshot.tossOrderKeys === null ? null : tossOrderKeys,
+      draftPositionCategories: snapshot.draftPositionCategories ?? draftPositionCategories
     };
     const signature = JSON.stringify(nextSnapshot);
     if (signature === lastDraftSignatureRef.current) return;
@@ -248,6 +271,7 @@ export function TeamBuilder({
     isTossing: boolean;
     tossOrderKeys: string[] | null;
     rouletteRotation: number;
+    draftPositionCategories: Record<string, DraftPositionCategory>;
     action: LiveAction | null;
   }>) {
     if (!canEdit || applyingRemoteUpdate.current) return;
@@ -257,7 +281,8 @@ export function TeamBuilder({
       "draftMode" in snapshot ||
       "pickCursor" in snapshot ||
       "tossOrderKeys" in snapshot ||
-      "rouletteRotation" in snapshot
+      "rouletteRotation" in snapshot ||
+      "draftPositionCategories" in snapshot
     ) {
       scheduleDraftAutosave(snapshot);
     }
@@ -274,6 +299,7 @@ export function TeamBuilder({
         isTossing,
         tossOrderKeys,
         rouletteRotation,
+        draftPositionCategories,
         ...snapshot
       }
     });
@@ -290,11 +316,14 @@ export function TeamBuilder({
         applyingRemoteUpdate.current = true;
         if (Array.isArray(payload.teams)) setTeams(payload.teams);
         if (Number(payload.playersPerTeam) > 0) setPlayersPerTeam(Number(payload.playersPerTeam));
-        if (payload.draftMode === "lottery" || payload.draftMode === "balanced") setDraftMode(payload.draftMode);
+        if (payload.draftMode === "lottery" || payload.draftMode === "balanced" || payload.draftMode === "guided") setDraftMode(payload.draftMode);
         if (Number.isFinite(Number(payload.pickCursor))) setPickCursor(Math.max(0, Number(payload.pickCursor)));
         if (typeof payload.isTossing === "boolean") setIsTossing(payload.isTossing);
         if (Array.isArray(payload.tossOrderKeys) || payload.tossOrderKeys === null) setTossOrderKeys(payload.tossOrderKeys);
         if (Number.isFinite(Number(payload.rouletteRotation))) setRouletteRotation(Number(payload.rouletteRotation));
+        if (payload.draftPositionCategories && typeof payload.draftPositionCategories === "object") {
+          setDraftPositionCategoriesState(normalizeDraftCategoryOverrides(payload.draftPositionCategories, players));
+        }
         if (payload.action) notifyLiveAction(payload.action);
         window.setTimeout(() => {
           applyingRemoteUpdate.current = false;
@@ -333,18 +362,20 @@ export function TeamBuilder({
       liveChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [canEdit, notifyLiveAction, router, sessionId]);
+  }, [canEdit, notifyLiveAction, players, router, sessionId]);
 
   useEffect(() => {
     const nextTeams = initialDraftTeams(existingDraft?.teams, existingTeams, 2, players);
     const nextPlayersPerTeam = Math.max(1, Number(existingDraft?.playersPerTeam ?? 0) || savedPlayersPerTeam || 8);
-    const nextDraftMode = existingDraft?.draftMode === "balanced" ? "balanced" : "lottery";
+    const nextDraftMode = existingDraft?.draftMode === "guided" ? "guided" : existingDraft?.draftMode === "balanced" ? "balanced" : "lottery";
     const nextPickCursor = Math.max(0, Number(existingDraft?.pickCursor ?? 0) || 0);
     const nextTossOrderKeys = Array.isArray(existingDraft?.tossOrderKeys) ? existingDraft.tossOrderKeys : null;
     const nextRouletteRotation = Number(existingDraft?.rouletteRotation ?? 0) || 0;
+    const nextDraftPositionCategories = normalizeDraftCategoryOverrides(existingDraft?.draftPositionCategories, players);
     setTeams(nextTeams);
     setPlayersPerTeam(nextPlayersPerTeam);
     setDraftMode(nextDraftMode);
+    setDraftPositionCategoriesState(nextDraftPositionCategories);
     setPickCursor(nextPickCursor);
     setTossOrderKeys(nextTossOrderKeys);
     setRouletteRotation(nextRouletteRotation);
@@ -356,7 +387,8 @@ export function TeamBuilder({
       playersPerTeam: nextPlayersPerTeam,
       rouletteRotation: nextRouletteRotation,
       teams: serializeDraftTeams(nextTeams),
-      tossOrderKeys: nextTossOrderKeys
+      tossOrderKeys: nextTossOrderKeys,
+      draftPositionCategories: nextDraftPositionCategories
     });
   }, [existingDraft, existingTeams, players, savedPlayersPerTeam, serverTeamSignature]);
 
@@ -436,10 +468,10 @@ export function TeamBuilder({
       const sourceTeam = current.find((team) => team.playerIds.includes(playerId));
       const source = sourceTeam ? "team" : "pool";
       const removed = current.map((team) => ({ ...team, playerIds: team.playerIds.filter((id) => id !== playerId) }));
-      const basePickCursor = draftMode === "balanced" && !balancedDraftStarted ? 0 : pickCursor;
+      const basePickCursor = isBalancedDraft && !balancedDraftStarted ? 0 : pickCursor;
       if (targetTeamKey === "pool") {
         const isCaptainReturn = sourceTeam?.captainPlayerId === playerId;
-        const shouldRewindPick = sourceTeam && (draftMode !== "balanced" || (balancedDraftStarted && !isCaptainReturn));
+        const shouldRewindPick = sourceTeam && (!isBalancedDraft || (balancedDraftStarted && !isCaptainReturn));
         const nextPickCursor = shouldRewindPick ? Math.max(0, basePickCursor - 1) : basePickCursor;
         const action = createLiveAction("pool", `${player?.name ?? "Player"} moved to Draft pool${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
           playerId,
@@ -466,7 +498,7 @@ export function TeamBuilder({
         };
       });
       if (!didAssign) return current;
-      const isDraftPick = source === "pool" && (draftMode !== "balanced" || balancedDraftStarted);
+      const isDraftPick = source === "pool" && (!isBalancedDraft || balancedDraftStarted);
       const nextPickCursor = isDraftPick ? basePickCursor + 1 : basePickCursor;
       const action = createLiveAction(isDraftPick ? "pick" : "move", `${targetTeam?.name ?? "Team"} ${isDraftPick ? "picked" : "received"} ${player?.name ?? "player"}${sourceTeam ? ` from ${sourceTeam.name}` : ""}.`, {
         playerId,
@@ -486,9 +518,21 @@ export function TeamBuilder({
     if (nextMode === draftMode) return;
     if (teamBuildingStarted) return;
     setDraftMode(nextMode);
-    const action = createLiveAction("mode", `Draft mode switched to ${nextMode === "balanced" ? "Balanced rotating order" : "Lottery"}.`);
+    const action = createLiveAction("mode", `Draft mode switched to ${nextMode === "guided" ? "Guided" : nextMode === "balanced" ? "Balanced" : "Lottery"}.`);
     notifyLiveAction(action);
     broadcastLive({ draftMode: nextMode, action });
+  }
+
+  function changeDraftCategory(playerId: string, category: DraftPositionCategory) {
+    const player = playersById.get(playerId);
+    if (!player) return;
+    const nextCategories = { ...draftPositionCategories };
+    if (category === profileDraftCategory(player.preferredPosition)) delete nextCategories[playerId];
+    else nextCategories[playerId] = category;
+    setDraftPositionCategoriesState(nextCategories);
+    const action = createLiveAction("settings", `${player.name}'s draft category changed to ${categoryLabel(category)}.`, { playerId });
+    notifyLiveAction(action);
+    broadcastLive({ draftPositionCategories: nextCategories, action });
   }
 
   function resetTeamBuilding() {
@@ -545,7 +589,7 @@ export function TeamBuilder({
     setRouletteRotation((current) => current + extraTurns + Math.max(firstIndex, 0) * segment + segment / 2);
     setTossOrderKeys(shuffled.map((team) => team.key));
     setIsTossing(false);
-    if (draftMode === "balanced") setPickCursor(0);
+    if (isBalancedDraft) setPickCursor(0);
     const nextAction = createLiveAction("toss", shuffled[0]?.name ? `Roulette complete. ${shuffled[0].name} picks first.` : "Roulette complete.", {
       teamKey: shuffled[0]?.key
     });
@@ -554,7 +598,7 @@ export function TeamBuilder({
       isTossing: false,
       rouletteRotation: rouletteRotation + extraTurns + Math.max(firstIndex, 0) * segment + segment / 2,
       tossOrderKeys: shuffled.map((team) => team.key),
-      pickCursor: draftMode === "balanced" ? 0 : pickCursor,
+      pickCursor: isBalancedDraft ? 0 : pickCursor,
       action: nextAction
     });
   }
@@ -680,8 +724,8 @@ export function TeamBuilder({
       <section className="panel relative overflow-hidden p-3 sm:p-4">
         <div className="relative grid gap-4 lg:grid-cols-[minmax(220px,1fr)_260px_minmax(220px,1fr)] lg:items-center">
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <div className="col-span-2 grid grid-cols-2 rounded-md border border-line bg-slate-50 p-1">
-              {(["lottery", "balanced"] as const).map((mode) => (
+            <div className="col-span-2 grid grid-cols-3 rounded-md border border-line bg-slate-50 p-1">
+              {(["lottery", "balanced", "guided"] as const).map((mode) => (
                 <button
                   className={cn(
                     "inline-flex min-h-9 items-center justify-center gap-2 rounded px-2 text-xs font-semibold transition sm:text-sm",
@@ -695,7 +739,7 @@ export function TeamBuilder({
                   type="button"
                 >
                   {mode === "lottery" ? <Shuffle className="h-4 w-4" /> : <ListOrdered className="h-4 w-4" />}
-                  {mode === "lottery" ? "Lottery" : "Balanced"}
+                  {mode === "lottery" ? "Lottery" : mode === "balanced" ? "Balanced" : "Guided"}
                 </button>
               ))}
             </div>
@@ -750,8 +794,8 @@ export function TeamBuilder({
         </div>
       </section>
 
-      {draftMode === "balanced" ? (
-        <BalancedDraftBoard activePickIndex={effectivePickCursor} draftStarted={balancedDraftStarted} playersById={playersById} rounds={balancedRounds} />
+      {isBalancedDraft ? (
+        <BalancedDraftBoard activePickIndex={effectivePickCursor} draftStarted={balancedDraftStarted} heading={draftMode === "guided" ? "Guided balanced draft order" : "Balanced rotating draft order"} playersById={playersById} rounds={balancedRounds} />
       ) : null}
 
       {remoteDragPreview?.playerId ? (
@@ -784,28 +828,105 @@ export function TeamBuilder({
             </span>
           ) : null}
         </div>
-        <div className="flex min-h-12 flex-wrap gap-1.5 rounded-md bg-slate-50 p-2 sm:min-h-16 sm:gap-2 sm:p-3">
-          {poolPlayers.map((player) => (
-            <div className="inline-flex flex-wrap items-center gap-1.5" key={player.id}>
-              {canEdit ? (
-                <PoolPlayerSelect
-                  activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
-                  highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
-                  onAssign={(teamKey) => movePlayer(player.id, teamKey)}
-                  player={player}
-                  playersById={playersById}
-                  teams={draftMode === "balanced" ? pickOrderTeams : teams}
-                  playersPerTeam={playersPerTeam}
-                  restrictToActiveTurn={draftMode === "balanced" && balancedDraftStarted}
-                />
-              ) : (
-                <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
-              )}
-            </div>
-          ))}
-          {!poolPlayers.length ? <p className="text-sm text-slate-500">No players in the draft pool.</p> : null}
-        </div>
+        {draftMode === "guided" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {DRAFT_POSITION_CATEGORIES.map((category) => {
+              const categoryPlayers = poolPlayers.filter((player) => currentDraftCategory(player, draftPositionCategories) === category);
+              return (
+                <section aria-label={`${categoryLabel(category)} draft pool`} className="grid content-start gap-2 rounded-md border border-line bg-slate-50 p-2 sm:p-3" key={category}>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-ink">{categoryLabel(category)}</h3>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-line">{categoryPlayers.length}</span>
+                  </div>
+                  <div className="flex min-h-10 flex-wrap items-start gap-1.5">
+                    {categoryPlayers.map((player) => (
+                      <div className="inline-flex flex-wrap items-center gap-1" key={player.id}>
+                        {canEdit ? (
+                          <>
+                            <PoolPlayerSelect
+                              activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
+                              highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
+                              onAssign={(teamKey) => movePlayer(player.id, teamKey)}
+                              player={player}
+                              playersById={playersById}
+                              teams={pickOrderTeams}
+                              playersPerTeam={playersPerTeam}
+                              restrictToActiveTurn={balancedDraftStarted}
+                            />
+                            <DraftCategoryControl
+                              canEdit={canEdit}
+                              category={category}
+                              onChange={(nextCategory) => changeDraftCategory(player.id, nextCategory)}
+                              originalCategory={profileDraftCategory(player.preferredPosition)}
+                              playerName={player.name}
+                            />
+                          </>
+                        ) : (
+                          <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
+                        )}
+                      </div>
+                    ))}
+                    {!categoryPlayers.length ? <p className="text-xs text-slate-500">No players here.</p> : null}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex min-h-12 flex-wrap gap-1.5 rounded-md bg-slate-50 p-2 sm:min-h-16 sm:gap-2 sm:p-3">
+            {poolPlayers.map((player) => (
+              <div className="inline-flex flex-wrap items-center gap-1.5" key={player.id}>
+                {canEdit ? (
+                  <PoolPlayerSelect
+                    activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
+                    highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
+                    onAssign={(teamKey) => movePlayer(player.id, teamKey)}
+                    player={player}
+                    playersById={playersById}
+                    teams={isBalancedDraft ? pickOrderTeams : teams}
+                    playersPerTeam={playersPerTeam}
+                    restrictToActiveTurn={isBalancedDraft && balancedDraftStarted}
+                  />
+                ) : (
+                  <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
+                )}
+              </div>
+            ))}
+            {!poolPlayers.length ? <p className="text-sm text-slate-500">No players in the draft pool.</p> : null}
+          </div>
+        )}
       </section>
+
+      {draftMode === "guided" ? (
+        <section className="grid gap-3 rounded-lg border border-line bg-white p-3 shadow-sm sm:p-4">
+          <div>
+            <h2 className="section-title">Team position composition</h2>
+            <p className="mt-1 text-xs text-slate-500">Includes captains. Zero counts show position gaps; counts are guidance only and captains may pick any available player.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-xs uppercase text-slate-500">
+                  <th className="py-2 pr-3 font-semibold">Position</th>
+                  {teamPositionComposition.map((team) => <th className="px-3 py-2 text-center font-semibold" key={team.key}>{team.name}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {DRAFT_POSITION_CATEGORIES.map((category) => (
+                  <tr className="border-b border-line last:border-0" key={category}>
+                    <th className="py-2 pr-3 font-medium text-ink">{categoryLabel(category)}</th>
+                    {teamPositionComposition.map((team) => (
+                      <td className={cn("px-3 py-2 text-center tabular-nums", team.counts[category] === 0 && "font-semibold text-amber-700")} key={team.key}>
+                        {team.counts[category]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
         {teams.map((team, index) => {
@@ -884,6 +1005,15 @@ export function TeamBuilder({
                         player={player}
                         previewed={remoteDragPreview?.playerId === player.id}
                       />
+                      {draftMode === "guided" ? (
+                        <DraftCategoryControl
+                          canEdit={canEdit}
+                          category={currentDraftCategory(player, draftPositionCategories)}
+                          onChange={(category) => changeDraftCategory(player.id, category)}
+                          originalCategory={profileDraftCategory(player.preferredPosition)}
+                          playerName={player.name}
+                        />
+                      ) : null}
                       {canEdit ? (
                         <button
                           aria-label={`Return ${player.name} to draft pool`}
@@ -1087,11 +1217,13 @@ type DraftTurn = {
 function BalancedDraftBoard({
   activePickIndex,
   draftStarted,
+  heading,
   playersById,
   rounds
 }: {
   activePickIndex: number;
   draftStarted: boolean;
+  heading: string;
   playersById: Map<string, TeamBuilderPlayer>;
   rounds: DraftTeam[][];
 }) {
@@ -1111,7 +1243,7 @@ function BalancedDraftBoard({
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <ListOrdered className="h-4 w-4 shrink-0 text-pitch" />
-          <h2 className="section-title truncate">Balanced rotating draft order</h2>
+          <h2 className="section-title truncate">{heading}</h2>
         </div>
         <button
           className="inline-flex h-8 items-center gap-1 rounded-md border border-line bg-white px-2 text-xs font-semibold text-slate-700 shadow-sm sm:hidden"
@@ -1374,6 +1506,47 @@ function PoolPlayerSelect({
   );
 }
 
+function DraftCategoryControl({
+  canEdit,
+  category,
+  onChange,
+  originalCategory,
+  playerName
+}: {
+  canEdit: boolean;
+  category: DraftPositionCategory;
+  onChange: (category: DraftPositionCategory) => void;
+  originalCategory: DraftPositionCategory;
+  playerName: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <select
+        aria-label={`${playerName} draft category`}
+        className="h-8 max-w-28 rounded-md border border-line bg-white px-1.5 text-[11px] font-medium text-slate-700"
+        disabled={!canEdit}
+        onChange={(event) => onChange(event.target.value as DraftPositionCategory)}
+        value={category}
+      >
+        {DRAFT_POSITION_CATEGORIES.map((option) => (
+          <option key={option} value={option}>{categoryLabel(option)}</option>
+        ))}
+      </select>
+      {canEdit && category !== originalCategory ? (
+        <button
+          aria-label={`Reset ${playerName} draft category`}
+          className="rounded px-1 py-1 text-[10px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-ink"
+          onClick={() => onChange(originalCategory)}
+          title={`Reset to profile position: ${categoryLabel(originalCategory)}`}
+          type="button"
+        >
+          Reset
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function SkillBadges({ player }: { player: TeamBuilderPlayer }) {
   return (
     <span className="inline-flex shrink-0 items-center rounded bg-slate-50 px-1 py-0.5 text-[10px] font-black leading-none">
@@ -1594,6 +1767,10 @@ function orderNumberClass(index: number) {
   if (index === 1) return "bg-amber-100 text-amber-800 ring-1 ring-amber-200";
   if (index === 2) return "bg-rose-100 text-rose-800 ring-1 ring-rose-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function categoryLabel(category: DraftPositionCategory) {
+  return category === "unassigned" ? "Unassigned" : `${category[0].toUpperCase()}${category.slice(1)}`;
 }
 
 function shuffledKeys(teams: DraftTeam[]) {

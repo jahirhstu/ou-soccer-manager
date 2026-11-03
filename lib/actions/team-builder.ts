@@ -8,10 +8,11 @@ type TeamBuilderDraftPayload = {
   sessionId: string;
   teams: unknown[];
   playersPerTeam: number;
-  draftMode: "lottery" | "balanced";
+  draftMode: "lottery" | "balanced" | "guided";
   pickCursor: number;
   tossOrderKeys: string[] | null;
   rouletteRotation: number;
+  draftPositionCategories: Record<string, string>;
 };
 
 export async function saveSessionTeamBuilder(_: unknown, formData: FormData) {
@@ -62,7 +63,7 @@ export async function autosaveSessionTeamBuilderDraft(payload: TeamBuilderDraftP
     const sessionId = String(payload.sessionId ?? "");
     const teams = Array.isArray(payload.teams) ? payload.teams : [];
     const playersPerTeam = Math.max(1, Number(payload.playersPerTeam ?? 0) || 8);
-    const draftMode = payload.draftMode === "balanced" ? "balanced" : "lottery";
+    const draftMode = payload.draftMode === "balanced" || payload.draftMode === "guided" ? payload.draftMode : "lottery";
     const pickCursor = Math.max(0, Number(payload.pickCursor ?? 0) || 0);
     const tossOrderKeys = Array.isArray(payload.tossOrderKeys) ? payload.tossOrderKeys : null;
     const rouletteRotation = Number(payload.rouletteRotation ?? 0) || 0;
@@ -70,15 +71,25 @@ export async function autosaveSessionTeamBuilderDraft(payload: TeamBuilderDraftP
     if (!sessionId) return { error: "Session is missing." };
 
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("save_program_team_builder_draft", {
-      p_draft_mode: draftMode,
-      p_pick_cursor: pickCursor,
-      p_players_per_team: playersPerTeam,
-      p_roulette_rotation: rouletteRotation,
-      p_session_id: sessionId,
-      p_teams: teams,
-      p_toss_order_keys: tossOrderKeys
-    });
+    const { data, error } = draftMode === "guided"
+      ? await supabase.rpc("save_program_team_builder_guided_draft", {
+        p_draft_position_categories: payload.draftPositionCategories,
+        p_pick_cursor: pickCursor,
+        p_players_per_team: playersPerTeam,
+        p_roulette_rotation: rouletteRotation,
+        p_session_id: sessionId,
+        p_teams: teams,
+        p_toss_order_keys: tossOrderKeys
+      })
+      : await supabase.rpc("save_program_team_builder_draft", {
+        p_draft_mode: draftMode,
+        p_pick_cursor: pickCursor,
+        p_players_per_team: playersPerTeam,
+        p_roulette_rotation: rouletteRotation,
+        p_session_id: sessionId,
+        p_teams: teams,
+        p_toss_order_keys: tossOrderKeys
+      });
     if (error) throw new Error(error.message);
 
     const updatedAt = data && typeof data === "object" && "updatedAt" in data ? String(data.updatedAt) : undefined;
