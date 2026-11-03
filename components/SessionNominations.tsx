@@ -19,19 +19,46 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
   });
   const completedCategories = new Set((data.nominations ?? []).map((item) => item.category));
   const hasPlayedFixture = data.matches.some((match) => match.status === "played");
+  const nominees = [...new Map(data.teams
+    .flatMap((team) => team.players)
+    .filter((player) => player.id !== data.voterPlayerId)
+    .map((player) => [player.id, player])).values()]
+    .sort((left, right) => left.name.localeCompare(right.name));
 
-  const submit = (operation: "nomination" | "authorize" | "close", payload: Record<string, unknown>) => start(async () => {
+  const submit = (operation: "authorize" | "close", payload: Record<string, unknown>) => start(async () => {
     setMessage("");
     try {
       const response = await updatePerformance(data.session.id, operation, payload);
       setMessage(response.error ?? "Saved.");
       if (!response.error) {
-        setSelected({ goalkeeper: "", defender: "", midfielder: "" });
         router.refresh();
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save. Please retry.");
     }
+  });
+
+  const submitNominations = () => start(async () => {
+    setMessage("");
+    const pendingCategories = categories.filter((category) => selected[category]);
+    let saved = 0;
+    for (const category of pendingCategories) {
+      const playerId = selected[category];
+      try {
+        const response = await updatePerformance(data.session.id, "nomination", { category, playerId });
+        if (response.error) {
+          setMessage(response.error);
+          break;
+        }
+        saved += 1;
+        setSelected((previous) => ({ ...previous, [category]: "" }));
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Could not save. Please retry.");
+        break;
+      }
+    }
+    if (saved > 0) router.refresh();
+    if (saved > 0 && saved === pendingCategories.length) setMessage("Nominations saved.");
   });
 
   return <div className="grid gap-5">
@@ -57,10 +84,6 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
         const awarded = data.awards.filter((award) => award.category === category);
         const voteInfo = data.voteCounts?.find((entry) => entry.category === category);
         const alreadyNominated = completedCategories.has(category);
-        const nominees = [...new Map(data.details
-          .filter((detail) => (detail.positions?.includes(category) ?? detail.position === category) && detail.player_id !== data.voterPlayerId)
-          .map((detail) => [detail.player_id, detail])).values()]
-          .sort((left, right) => left.player_name.localeCompare(right.player_name));
         return <section className="rounded-lg border border-line p-4" key={category}>
           <h2 className="section-title">{label}</h2>
           <p className="mt-1 text-xs text-slate-500">
@@ -72,22 +95,43 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
             </p>)}
             {!awarded.length && <p className="text-sm text-slate-500">No nominations yet.</p>}
           </div>
-          {data.canNominate && !data.closed && !alreadyNominated && data.session.status !== "completed" && <form className="mt-3 grid gap-2" onSubmit={(event) => {
-            event.preventDefault();
-            if (selected[category]) submit("nomination", { category, playerId: selected[category] });
-          }}>
-            <label className="grid gap-1 text-sm font-medium" htmlFor={`nominee-${category}`}>{label} nomination
-              <select id={`nominee-${category}`} className="input" value={selected[category]} onChange={(event) => setSelected((previous) => ({ ...previous, [category]: event.target.value }))} required>
-                <option value="">Select a player</option>
-                {nominees.map((player) => <option value={player.player_id} key={player.player_id}>{player.player_name}</option>)}
-              </select>
-            </label>
-            <button disabled={busy || !nominees.length || !selected[category]} className="btn-secondary">Submit nomination</button>
-          </form>}
           {alreadyNominated && <p className="mt-3 text-xs text-emerald-800">Your nomination for this category is recorded.</p>}
+          {data.canNominate && !data.closed && !alreadyNominated && data.session.status !== "completed" && (
+            <div className="mt-3 grid gap-2">
+              <p className="text-xs font-medium text-slate-600">Choose one player. The same player can be selected in other categories.</p>
+              <div aria-label={`${label} nomination players`} className="grid max-h-56 gap-1 overflow-y-auto rounded-md border border-line p-1.5" role="radiogroup">
+                {nominees.map((player) => {
+                  const isSelected = selected[category] === player.id;
+                  return <button
+                    aria-checked={isSelected}
+                    className={`min-h-10 rounded-md border px-3 py-2 text-left text-sm transition ${isSelected ? "border-emerald-600 bg-emerald-50 font-semibold text-emerald-950 ring-1 ring-emerald-200" : "border-transparent text-slate-700 hover:border-line hover:bg-slate-50"}`}
+                    disabled={busy}
+                    key={player.id}
+                    onClick={() => setSelected((previous) => ({ ...previous, [category]: isSelected ? "" : player.id }))}
+                    role="radio"
+                    type="button"
+                  >
+                    {player.name}
+                  </button>;
+                })}
+                {!nominees.length && <p className="px-3 py-2 text-sm text-slate-500">No other session participants to nominate.</p>}
+              </div>
+            </div>
+          )}
         </section>;
       })}
     </div>
+
+    {data.canNominate && !data.closed && data.session.status !== "completed" && (
+      <button
+        className="btn-primary justify-self-start"
+        disabled={busy || !categories.some((category) => selected[category])}
+        onClick={submitNominations}
+        type="button"
+      >
+        {busy ? "Submitting…" : "Submit Nominations"}
+      </button>
+    )}
 
     {data.canAuthorizeVoters && hasPlayedFixture && data.session.status !== "completed" && !data.closed && <section className="border-t border-line pt-4">
       <h2 className="section-title">Authorize nonparticipant voters</h2>

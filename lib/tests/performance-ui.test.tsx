@@ -24,10 +24,11 @@ const data: PerformanceData = {
   results: [{ player_id: "a1", player_name: "Own Goalkeeper", matches_played: 4, rated_matches: 4, positions: ["goalkeeper"], match_points: 28, captain_points: 30, final_rating: 58, incomplete: false }],
 };
 
-it("renders rating breakdowns and teammate nomination choices while excluding the voter", () => {
+it("offers every session participant in every nomination category except the voter", () => {
   const ratings = renderToStaticMarkup(<SessionPerformance data={data} />);
   const nominations = renderToStaticMarkup(<SessionNominations data={{
     ...data,
+    session: { ...data.session, status: "scheduled" },
     canManage: false,
     canClose: false,
     canNominate: true,
@@ -37,10 +38,19 @@ it("renders rating breakdowns and teammate nomination choices while excluding th
   }} />);
   expect(ratings).toContain("58.00");
   expect(ratings).toContain("Match 28.00/40");
-  expect(nominations).toContain("Top Goalkeeper");
-  expect(nominations).toContain('value="b1"');
-  expect(nominations).not.toContain('value="a1"');
-  expect(nominations).toContain("Visiting Goalkeeper");
+  const groups = [...nominations.matchAll(/<div aria-label="(Top [^"]+ nomination players)"[^>]*>([\s\S]*?)<\/div>/g)];
+  expect(groups.map((group) => group[1])).toEqual([
+    "Top Goalkeeper nomination players",
+    "Top Defender nomination players",
+    "Top Midfielder nomination players"
+  ]);
+  for (const [, , players] of groups) {
+    expect(players).toContain("Own Defender");
+    expect(players).toContain("Visiting Goalkeeper");
+    expect(players).toContain("Visiting Midfielder");
+    expect(players).not.toContain("Own Goalkeeper");
+  }
+  expect(nominations).toContain("Submit Nominations");
   expect(ratings).not.toContain("Match positions & participation");
   expect(ratings).toContain("Session ratings");
   expect(ratings).not.toContain("Played</label>");
@@ -55,7 +65,7 @@ it("hides nomination writes when voting is closed", () => {
     ...data, canManage: false, canClose: false, canNominate: true, voterPlayerId: "a1",
     nominations: [], closed: true
   }} />);
-  expect(html).not.toContain("Submit nomination");
+  expect(html).not.toContain("Submit Nominations");
   expect(html).not.toContain("Reopen nominations");
   expect(html).toContain("Nominations closed");
 });

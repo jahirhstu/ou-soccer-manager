@@ -157,16 +157,19 @@ it("removes match-by-match position management from session ratings", () => {
   expect(html).toContain("Session ratings");
 });
 
-it("shows player nominations with a 20 point maximum and excludes only the voter's own profile", () => {
+it("offers the same session roster in each nomination category and excludes the voter", () => {
   const html = renderToStaticMarkup(<SessionNominations data={{
-    session: { id: "session", name: "Session", status: "completed", seasonId: "season" },
+    session: { id: "session", name: "Session", status: "scheduled", seasonId: "season" },
     canManage: false,
     canClose: false,
     canNominate: true,
     voterPlayerId: "voter",
     closed: false,
-    teams: [],
-    matches: [],
+    teams: [
+      { id: "a", name: "A", canVote: true, players: [{ id: "voter", name: "Voter" }, { id: "teammate", name: "Voter Teammate" }] },
+      { id: "b", name: "B", canVote: false, players: [{ id: "defender", name: "Defender" }, { id: "midfielder", name: "Midfielder" }] }
+    ],
+    matches: [{ id: "match", number: 1, teamAId: "a", teamBId: "b", teamAName: "A", teamBName: "B", status: "played" }],
     positions: [],
     details: [
       { player_id: "voter", player_name: "Voter", match_number: 1, position: "goalkeeper", keeper_conceded: null, clean_sheet: false, breakdown: {} },
@@ -182,7 +185,14 @@ it("shows player nominations with a 20 point maximum and excludes only the voter
   expect(html).toContain("Top Goalkeeper");
   expect(html).toContain("Top Defender");
   expect(html).toContain("Top Midfielder");
-  expect(html).toContain("Voter Teammate");
-  expect(html).not.toContain('value="voter"');
+  const groups = [...html.matchAll(/<div aria-label="(Top [^"]+ nomination players)"[^>]*>([\s\S]*?)<\/div>/g)];
+  expect(groups).toHaveLength(3);
+  for (const [, , players] of groups) {
+    expect(players).toContain("Voter Teammate");
+    expect(players).toContain("Defender");
+    expect(players).toContain("Midfielder");
+    expect(players).not.toContain("Voter</button>");
+  }
+  expect(html).toContain("Submit Nominations");
   expect(html).not.toContain("Captain nominations");
 });

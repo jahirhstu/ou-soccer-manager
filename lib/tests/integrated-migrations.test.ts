@@ -418,15 +418,31 @@ describe("integrated migration chain", () => {
     await db.query("select submit_session_performance_nomination($1,'defender',$2)",[session,player]);
     await db.exec("reset role");
     await asUser(member);
-    await db.query("select submit_session_performance_nomination($1,'defender',$2)",[session,player]);
+    await db.query("select submit_session_performance_nomination($1,'goalkeeper',$2)",[session,player]);
+    response = (await db.query<{ data: { canNominate: boolean; nominations?: { category: string; player_id: string }[] } }>(
+      "select session_performance($1) data",[session]
+    )).rows[0].data;
+    expect(response.nominations ?? []).toContainEqual({ category: "goalkeeper", player_id: player });
+    await db.exec("reset role");
+    const positionIndependentVote = await db.query<{ count: string }>(
+      "select count(*)::text count from valid_session_performance_nominations where session_id=$1 and category='goalkeeper' and player_id=$2",
+      [session,player]
+    );
+    expect(Number(positionIndependentVote.rows[0].count)).toBe(1);
+    const positionIndependentPoints = await db.query<{ nomination_points: string }>(
+      "select nomination_points from session_player_nomination_points where session_id=$1 and player_id=$2",
+      [session,player]
+    );
+    expect(Number(positionIndependentPoints.rows[0].nomination_points)).toBe(40);
+    await asUser(member);
     await db.exec("savepoint duplicate_member_nomination");
     await expect(db.query(
-      "select submit_session_performance_nomination($1,'defender',$2)",[session,player]
+      "select submit_session_performance_nomination($1,'goalkeeper',$2)",[session,player]
     )).rejects.toThrow("already nominated");
     await db.exec("rollback to savepoint duplicate_member_nomination");
     await db.exec("savepoint member_self_nomination");
     await expect(db.query(
-      "select submit_session_performance_nomination($1,'defender',$2)",[session,guest]
+      "select submit_session_performance_nomination($1,'goalkeeper',$2)",[session,guest]
     )).rejects.toThrow("cannot nominate yourself");
     await db.exec("rollback to savepoint member_self_nomination");
 
@@ -439,7 +455,7 @@ describe("integrated migration chain", () => {
       "select session_performance($1) data",[session]
     )).rows[0].data;
     expect(response.canNominate).toBe(false);
-    expect(response.nominations ?? []).toContainEqual({ category: "defender", player_id: player });
+    expect(response.nominations ?? []).toContainEqual({ category: "goalkeeper", player_id: player });
     await db.exec("savepoint closed_session_nomination");
     await expect(db.query(
       "select submit_session_performance_nomination($1,'midfielder',$2)",[session,player]
@@ -456,7 +472,7 @@ describe("integrated migration chain", () => {
       "select session_performance($1) data",[session]
     )).rows[0].data;
     expect(response.canNominate).toBe(false);
-    expect(response.nominations ?? []).toContainEqual({ category: "defender", player_id: player });
+    expect(response.nominations ?? []).toContainEqual({ category: "goalkeeper", player_id: player });
     await db.exec("savepoint completed_session_nomination");
     await expect(db.query(
       "select submit_session_performance_nomination($1,'midfielder',$2)",[session,player]
