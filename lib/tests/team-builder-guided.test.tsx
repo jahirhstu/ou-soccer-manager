@@ -67,14 +67,25 @@ describe("guided team draft categories", () => {
     expect(html).toContain("Midfielder draft pool");
     expect(html).toContain("Forward draft pool");
     expect(html).toContain("Unassigned draft pool");
+    expect(html).toContain("grid grid-cols-5 gap-1 sm:gap-2");
     expect(html).toContain("Team position composition");
     expect(html).toContain("Zero counts show position gaps");
     expect(html).toContain("Midfielder Captain picks now");
     expect(html).toContain('aria-label="Defender draft category"');
     expect(html).toContain('aria-label="Reset Defender draft category"');
-    expect(html).toMatch(/<th[^>]*>Goalkeeper<\/th><td[^>]*>1<\/td><td[^>]*>0<\/td>/);
-    expect(html).toMatch(/<th[^>]*>Forward<\/th><td[^>]*>1<\/td><td[^>]*>0<\/td>/);
-    expect(html).toMatch(/<th[^>]*>Midfielder<\/th><td[^>]*>0<\/td><td[^>]*>1<\/td>/);
+    expect(html).toContain("GK");
+    expect(html).toContain("DEF");
+    expect(html).toContain("MID");
+    expect(html).toContain("FWD");
+    expect(html).toContain('aria-label="Team A position counts"');
+    expect(html).toContain('aria-label="Team B position counts"');
+    expect(html).toContain('aria-label="Open actions for Unassigned Player"');
+    expect(html).not.toContain("overflow-x-auto");
+    const unassignedPool = html.match(/aria-label="Unassigned draft pool"([\s\S]*?)<\/section>/)?.[1] ?? "";
+    expect(unassignedPool).not.toContain("A-");
+    expect(unassignedPool).not.toContain("D-");
+    expect(unassignedPool).not.toContain("G-");
+    expect(unassignedPool).not.toContain('aria-label="Unassigned Player draft category"');
   });
 
   it("preserves the existing balanced captain order for two- and three-team drafts", () => {

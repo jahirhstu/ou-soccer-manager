@@ -78,49 +78,59 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
       }}>{data.closed ? "Reopen nominations" : "Close nominations"}</button>}
     </section>
 
-    <div className="grid gap-4 md:grid-cols-3">
-      {categories.map((category) => {
-        const label = `Top ${capitalize(category)}`;
-        const awarded = data.awards.filter((award) => award.category === category);
-        const voteInfo = data.voteCounts?.find((entry) => entry.category === category);
-        const alreadyNominated = completedCategories.has(category);
-        return <section className="rounded-lg border border-line p-4" key={category}>
-          <h2 className="section-title">{label}</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            {voteInfo ? `${voteInfo.total} valid nominations · ${Number(voteInfo.pointsPerVote).toFixed(2)} points per nomination` : "No nominations yet · up to 20 points per vote"}
-          </p>
-          <div className="mt-3 min-h-12">
-            {awarded.map((award) => <p className="text-sm" key={award.player_id}>
-              <strong>{award.player_name}</strong> · {award.nominations} nomination{award.nominations === 1 ? "" : "s"}
+    <section aria-label="Nominations by player" className="grid gap-3">
+      <div className="grid grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))] gap-1.5 sm:gap-2">
+        <div className="flex items-end rounded-md px-2 py-2 text-xs font-semibold uppercase text-slate-500 sm:px-3">Player</div>
+        {categories.map((category) => {
+          const label = `Top ${capitalize(category)}`;
+          const awarded = data.awards.filter((award) => award.category === category);
+          const voteInfo = data.voteCounts?.find((entry) => entry.category === category);
+          const alreadyNominated = completedCategories.has(category);
+          return <div className="min-w-0 rounded-md border border-line bg-slate-50 p-2 sm:p-3" key={category}>
+            <h2 className="text-xs font-semibold leading-tight text-ink sm:text-sm">{label}</h2>
+            <p className="mt-1 text-[10px] leading-tight text-slate-500 sm:text-xs">
+              {voteInfo ? `${voteInfo.total} nominations · ${Number(voteInfo.pointsPerVote).toFixed(2)} pts each` : "No nominations yet"}
+            </p>
+            {awarded.map((award) => <p className="mt-1 break-words text-[10px] leading-tight text-ink sm:text-xs" key={award.player_id}>
+              <strong>{award.player_name}</strong> · {award.nominations}
             </p>)}
-            {!awarded.length && <p className="text-sm text-slate-500">No nominations yet.</p>}
+            {alreadyNominated && <p className="mt-1 text-[10px] leading-tight text-emerald-800 sm:text-xs">Your vote is recorded</p>}
+          </div>;
+        })}
+      </div>
+      <p className="text-xs text-slate-600">Choose one player in each category. The same player may be selected in multiple categories.</p>
+      <div className="grid gap-1.5">
+        {nominees.map((player) => <div
+          className="grid grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))] gap-1.5 rounded-lg border border-line bg-white p-1.5 shadow-sm sm:gap-2 sm:p-2"
+          key={player.id}
+        >
+          <div className="flex min-h-11 min-w-0 items-center px-1.5 py-1 text-xs font-medium text-ink sm:px-2 sm:text-sm">
+            <span className="break-words">{player.name}</span>
           </div>
-          {alreadyNominated && <p className="mt-3 text-xs text-emerald-800">Your nomination for this category is recorded.</p>}
-          {data.canNominate && !data.closed && !alreadyNominated && data.session.status !== "completed" && (
-            <div className="mt-3 grid gap-2">
-              <p className="text-xs font-medium text-slate-600">Choose one player. The same player can be selected in other categories.</p>
-              <div aria-label={`${label} nomination players`} className="grid max-h-56 gap-1 overflow-y-auto rounded-md border border-line p-1.5" role="radiogroup">
-                {nominees.map((player) => {
-                  const isSelected = selected[category] === player.id;
-                  return <button
-                    aria-checked={isSelected}
-                    className={`min-h-10 rounded-md border px-3 py-2 text-left text-sm transition ${isSelected ? "border-emerald-600 bg-emerald-50 font-semibold text-emerald-950 ring-1 ring-emerald-200" : "border-transparent text-slate-700 hover:border-line hover:bg-slate-50"}`}
-                    disabled={busy}
-                    key={player.id}
-                    onClick={() => setSelected((previous) => ({ ...previous, [category]: isSelected ? "" : player.id }))}
-                    role="radio"
-                    type="button"
-                  >
-                    {player.name}
-                  </button>;
-                })}
-                {!nominees.length && <p className="px-3 py-2 text-sm text-slate-500">No other session participants to nominate.</p>}
-              </div>
-            </div>
-          )}
-        </section>;
-      })}
-    </div>
+          {categories.map((category) => {
+            const alreadyNominated = completedCategories.has(category);
+            const isSelected = selected[category] === player.id;
+            const canSelect = Boolean(data.canNominate) && !data.closed && data.session.status !== "completed" && !alreadyNominated;
+            return <label
+              className={`flex min-h-11 min-w-0 items-center justify-center rounded-md border transition ${isSelected ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-200" : "border-transparent bg-slate-50"} ${canSelect && !busy ? "cursor-pointer hover:border-emerald-300" : "cursor-not-allowed opacity-60"}`}
+              key={category}
+              title={`${player.name} — Top ${category}`}
+            >
+              <input
+                aria-label={`Top ${capitalize(category)} nomination for ${player.name}`}
+                checked={isSelected}
+                className="h-5 w-5 accent-emerald-700"
+                disabled={busy || !canSelect}
+                onChange={() => setSelected((previous) => ({ ...previous, [category]: isSelected ? "" : player.id }))}
+                type="checkbox"
+              />
+            </label>;
+          })}
+        </div>)}
+        {!nominees.length && <p className="rounded-lg border border-dashed border-line px-3 py-4 text-sm text-slate-500">No other session participants to nominate.</p>}
+      </div>
+      {categories.some((category) => completedCategories.has(category)) && <p className="text-xs text-emerald-800">Your nomination for a completed category is recorded.</p>}
+    </section>
 
     {data.canNominate && !data.closed && data.session.status !== "completed" && (
       <button

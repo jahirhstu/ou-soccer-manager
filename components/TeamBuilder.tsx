@@ -829,44 +829,34 @@ export function TeamBuilder({
           ) : null}
         </div>
         {draftMode === "guided" ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-5 gap-1 sm:gap-2">
             {DRAFT_POSITION_CATEGORIES.map((category) => {
               const categoryPlayers = poolPlayers.filter((player) => currentDraftCategory(player, draftPositionCategories) === category);
               return (
-                <section aria-label={`${categoryLabel(category)} draft pool`} className="grid content-start gap-2 rounded-md border border-line bg-slate-50 p-2 sm:p-3" key={category}>
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-ink">{categoryLabel(category)}</h3>
-                    <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-line">{categoryPlayers.length}</span>
+                <section aria-label={`${categoryLabel(category)} draft pool`} className="grid min-w-0 content-start gap-1 rounded-md border border-line bg-slate-50 p-1 sm:gap-2 sm:p-2" key={category}>
+                  <div className="grid min-w-0 justify-items-center text-center">
+                    <h3 className="break-words text-[10px] font-semibold leading-tight text-ink sm:text-xs">{categoryLabel(category)}</h3>
+                    <span className="text-[9px] font-semibold uppercase leading-tight text-slate-500 sm:text-[10px]">{categoryAbbreviation(category)}</span>
+                    <span className="mt-0.5 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-semibold leading-none text-slate-600 ring-1 ring-line sm:text-[10px]">{categoryPlayers.length}</span>
                   </div>
-                  <div className="flex min-h-10 flex-wrap items-start gap-1.5">
+                  <div className="grid min-w-0 content-start gap-1">
                     {categoryPlayers.map((player) => (
-                      <div className="inline-flex flex-wrap items-center gap-1" key={player.id}>
-                        {canEdit ? (
-                          <>
-                            <PoolPlayerSelect
-                              activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
-                              highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
-                              onAssign={(teamKey) => movePlayer(player.id, teamKey)}
-                              player={player}
-                              playersById={playersById}
-                              teams={pickOrderTeams}
-                              playersPerTeam={playersPerTeam}
-                              restrictToActiveTurn={balancedDraftStarted}
-                            />
-                            <DraftCategoryControl
-                              canEdit={canEdit}
-                              category={category}
-                              onChange={(nextCategory) => changeDraftCategory(player.id, nextCategory)}
-                              originalCategory={profileDraftCategory(player.preferredPosition)}
-                              playerName={player.name}
-                            />
-                          </>
-                        ) : (
-                          <PlayerChip highlighted={latestAction?.playerId === player.id} player={player} previewed={remoteDragPreview?.playerId === player.id} />
-                        )}
-                      </div>
+                      <GuidedPoolPlayerAction
+                        activeTeamKey={balancedDraftStarted ? activeTurn?.team.key : undefined}
+                        canEdit={canEdit}
+                        category={category}
+                        highlighted={latestAction?.playerId === player.id || remoteDragPreview?.playerId === player.id}
+                        onAssign={(teamKey) => movePlayer(player.id, teamKey)}
+                        onChangeCategory={(nextCategory) => changeDraftCategory(player.id, nextCategory)}
+                        player={player}
+                        playersById={playersById}
+                        playersPerTeam={playersPerTeam}
+                        restrictToActiveTurn={balancedDraftStarted}
+                        teams={pickOrderTeams}
+                        key={player.id}
+                      />
                     ))}
-                    {!categoryPlayers.length ? <p className="text-xs text-slate-500">No players here.</p> : null}
+                    {!categoryPlayers.length ? <p className="break-words text-center text-[9px] leading-tight text-slate-500 sm:text-[10px]">No players</p> : null}
                   </div>
                 </section>
               );
@@ -903,27 +893,20 @@ export function TeamBuilder({
             <h2 className="section-title">Team position composition</h2>
             <p className="mt-1 text-xs text-slate-500">Includes captains. Zero counts show position gaps; counts are guidance only and captains may pick any available player.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-xs uppercase text-slate-500">
-                  <th className="py-2 pr-3 font-semibold">Position</th>
-                  {teamPositionComposition.map((team) => <th className="px-3 py-2 text-center font-semibold" key={team.key}>{team.name}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {DRAFT_POSITION_CATEGORIES.map((category) => (
-                  <tr className="border-b border-line last:border-0" key={category}>
-                    <th className="py-2 pr-3 font-medium text-ink">{categoryLabel(category)}</th>
-                    {teamPositionComposition.map((team) => (
-                      <td className={cn("px-3 py-2 text-center tabular-nums", team.counts[category] === 0 && "font-semibold text-amber-700")} key={team.key}>
-                        {team.counts[category]}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {teamPositionComposition.map((team) => (
+              <article aria-label={`${team.name} position counts`} className="min-w-0 rounded-md border border-line bg-slate-50 p-2" key={team.key}>
+                <h3 className="break-words text-xs font-semibold text-ink">{team.name}</h3>
+                <div className="mt-2 grid grid-cols-2 gap-1">
+                  {DRAFT_POSITION_CATEGORIES.filter((category) => category !== "unassigned").map((category) => (
+                    <div className="flex min-w-0 items-center justify-between gap-1 rounded bg-white px-1.5 py-1 text-[10px] sm:text-xs" key={category} title={categoryLabel(category)}>
+                      <span className="truncate text-slate-600">{categoryAbbreviation(category)}</span>
+                      <strong className={team.counts[category] === 0 ? "text-amber-700" : "text-ink"}>{team.counts[category]}</strong>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       ) : null}
@@ -1506,6 +1489,117 @@ function PoolPlayerSelect({
   );
 }
 
+function GuidedPoolPlayerAction({
+  activeTeamKey,
+  canEdit,
+  category,
+  highlighted,
+  onAssign,
+  onChangeCategory,
+  player,
+  playersById,
+  playersPerTeam,
+  restrictToActiveTurn,
+  teams
+}: {
+  activeTeamKey?: string;
+  canEdit: boolean;
+  category: DraftPositionCategory;
+  highlighted: boolean;
+  onAssign: (teamKey: string) => void;
+  onChangeCategory: (category: DraftPositionCategory) => void;
+  player: TeamBuilderPlayer;
+  playersById: Map<string, TeamBuilderPlayer>;
+  playersPerTeam: number;
+  restrictToActiveTurn: boolean;
+  teams: DraftTeam[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        aria-expanded={open}
+        aria-label={`Open actions for ${player.name}`}
+        className={cn(
+          "min-h-8 w-full min-w-0 break-words rounded border border-line bg-white px-1 py-1 text-[9px] font-semibold leading-tight text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 sm:min-h-9 sm:px-1.5 sm:text-xs",
+          highlighted && "border-amber-300 bg-amber-50 text-amber-950 ring-1 ring-amber-100"
+        )}
+        disabled={!canEdit}
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        {player.name}
+      </button>
+      {open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/30 p-2 sm:items-center"
+          onClick={() => setOpen(false)}
+        >
+          <section
+            aria-label={`${player.name} actions`}
+            aria-modal="true"
+            className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-lg border border-line bg-white p-3 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <header className="flex items-center justify-between gap-3 border-b border-line pb-2">
+              <h2 className="truncate text-sm font-semibold text-ink">{player.name}</h2>
+              <button className="btn-secondary min-h-8 px-3 py-1 text-xs" onClick={() => setOpen(false)} type="button">Close</button>
+            </header>
+            <div className="grid gap-3 pt-3">
+              <section className="grid gap-1">
+                <h3 className="text-xs font-semibold uppercase text-slate-500">Move to Team</h3>
+                {teams.map((team) => {
+                  const isCurrentTurn = !restrictToActiveTurn || team.key === activeTeamKey;
+                  const isFull = team.playerIds.length >= playersPerTeam;
+                  const disabled = !isCurrentTurn || isFull;
+                  return (
+                    <button
+                      className={cn(
+                        "min-h-10 rounded-md px-3 text-left text-sm transition",
+                        disabled ? "cursor-not-allowed text-slate-400" : "hover:bg-emerald-50 hover:text-pitch"
+                      )}
+                      disabled={disabled}
+                      key={team.key}
+                      onClick={() => {
+                        onAssign(team.key);
+                        setOpen(false);
+                      }}
+                      type="button"
+                    >
+                      {teamOptionLabel(team, playersById)}{restrictToActiveTurn ? isCurrentTurn ? " (current turn)" : " (waiting)" : ""}{isFull ? " - full" : ""}
+                    </button>
+                  );
+                })}
+              </section>
+              <section className="grid gap-1">
+                <h3 className="text-xs font-semibold uppercase text-slate-500">Move to Position</h3>
+                {DRAFT_POSITION_CATEGORIES.map((option) => (
+                  <button
+                    aria-pressed={option === category}
+                    className={cn(
+                      "min-h-10 rounded-md px-3 text-left text-sm transition",
+                      option === category ? "bg-emerald-50 font-semibold text-emerald-900" : "hover:bg-slate-50"
+                    )}
+                    key={option}
+                    onClick={() => {
+                      onChangeCategory(option);
+                      setOpen(false);
+                    }}
+                    type="button"
+                  >
+                    {categoryLabel(option)}{option === category ? " (current)" : ""}
+                  </button>
+                ))}
+              </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function DraftCategoryControl({
   canEdit,
   category,
@@ -1771,6 +1865,17 @@ function orderNumberClass(index: number) {
 
 function categoryLabel(category: DraftPositionCategory) {
   return category === "unassigned" ? "Unassigned" : `${category[0].toUpperCase()}${category.slice(1)}`;
+}
+
+function categoryAbbreviation(category: DraftPositionCategory) {
+  const abbreviations: Record<DraftPositionCategory, string> = {
+    goalkeeper: "GK",
+    defender: "DEF",
+    midfielder: "MID",
+    forward: "FWD",
+    unassigned: "UN"
+  };
+  return abbreviations[category];
 }
 
 function shuffledKeys(teams: DraftTeam[]) {

@@ -38,18 +38,16 @@ it("offers every session participant in every nomination category except the vot
   }} />);
   expect(ratings).toContain("58.00");
   expect(ratings).toContain("Match 28.00/40");
-  const groups = [...nominations.matchAll(/<div aria-label="(Top [^"]+ nomination players)"[^>]*>([\s\S]*?)<\/div>/g)];
-  expect(groups.map((group) => group[1])).toEqual([
-    "Top Goalkeeper nomination players",
-    "Top Defender nomination players",
-    "Top Midfielder nomination players"
-  ]);
-  for (const [, , players] of groups) {
-    expect(players).toContain("Own Defender");
-    expect(players).toContain("Visiting Goalkeeper");
-    expect(players).toContain("Visiting Midfielder");
-    expect(players).not.toContain("Own Goalkeeper");
-  }
+  expect(nominations).toContain('aria-label="Nominations by player"');
+  expect(nominations).toContain("Top Goalkeeper");
+  expect(nominations).toContain("Top Defender");
+  expect(nominations).toContain("Top Midfielder");
+  expect(nominations).toContain('aria-label="Top Goalkeeper nomination for Own Defender"');
+  expect(nominations).toContain('aria-label="Top Defender nomination for Visiting Goalkeeper"');
+  expect(nominations).toContain('aria-label="Top Midfielder nomination for Visiting Midfielder"');
+  expect(nominations).not.toContain('aria-label="Top Goalkeeper nomination for Own Goalkeeper"');
+  expect(nominations).not.toContain('role="radiogroup"');
+  expect([...nominations.matchAll(/aria-label="Top (?:Goalkeeper|Defender|Midfielder) nomination for/g)]).toHaveLength(9);
   expect(nominations).toContain("Submit Nominations");
   expect(ratings).not.toContain("Match positions & participation");
   expect(ratings).toContain("Session ratings");
@@ -75,5 +73,5 @@ it("keeps zero-participation sessions empty without assigning ratings", () => {
   const ratings = renderToStaticMarkup(<SessionPerformance data={emptyData} />);
   const nominations = renderToStaticMarkup(<SessionNominations data={emptyData} />);
   expect(ratings).toContain("No player performance is available");
-  expect(nominations).toContain("No nominations yet.");
+  expect(nominations).toContain("No nominations yet");
 });
