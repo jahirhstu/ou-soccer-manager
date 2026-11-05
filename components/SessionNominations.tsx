@@ -3,8 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updatePerformance } from "@/lib/actions/performance";
-import { nomineeSelectedInAnotherCategory, nominationCategories, type NominationCategory } from "@ou/contracts";
-import type { PerformanceData } from "../packages/contracts/src/performance";
+import {
+  nomineeSelectedInAnotherCategory,
+  nominationCategories,
+  type NominationCategory,
+  type PerformanceData
+} from "../packages/contracts/src/performance";
 
 export function SessionNominations({ data }: { data: PerformanceData }) {
   const router = useRouter();
