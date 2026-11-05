@@ -987,16 +987,8 @@ export function TeamBuilder({
                         onPointerUp={onPlayerPointerUp}
                         player={player}
                         previewed={remoteDragPreview?.playerId === player.id}
+                        showSkillBadges={false}
                       />
-                      {draftMode === "guided" ? (
-                        <DraftCategoryControl
-                          canEdit={canEdit}
-                          category={currentDraftCategory(player, draftPositionCategories)}
-                          onChange={(category) => changeDraftCategory(player.id, category)}
-                          originalCategory={profileDraftCategory(player.preferredPosition)}
-                          playerName={player.name}
-                        />
-                      ) : null}
                       {canEdit ? (
                         <button
                           aria-label={`Return ${player.name} to draft pool`}
@@ -1360,7 +1352,8 @@ function PlayerChip({
   onPointerUp,
   player,
   previewed = false,
-  selected = false
+  selected = false,
+  showSkillBadges = true
 }: {
   armed?: boolean;
   draggable?: boolean;
@@ -1379,6 +1372,7 @@ function PlayerChip({
   player: TeamBuilderPlayer;
   previewed?: boolean;
   selected?: boolean;
+  showSkillBadges?: boolean;
 }) {
   return (
     <span
@@ -1406,7 +1400,7 @@ function PlayerChip({
       tabIndex={onClick ? 0 : undefined}
     >
       <span className="truncate">{player.name}</span>
-      <SkillBadges player={player} />
+      {showSkillBadges ? <SkillBadges player={player} /> : null}
     </span>
   );
 }
@@ -1597,47 +1591,6 @@ function GuidedPoolPlayerAction({
         </div>
       ) : null}
     </>
-  );
-}
-
-function DraftCategoryControl({
-  canEdit,
-  category,
-  onChange,
-  originalCategory,
-  playerName
-}: {
-  canEdit: boolean;
-  category: DraftPositionCategory;
-  onChange: (category: DraftPositionCategory) => void;
-  originalCategory: DraftPositionCategory;
-  playerName: string;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <select
-        aria-label={`${playerName} draft category`}
-        className="h-8 max-w-28 rounded-md border border-line bg-white px-1.5 text-[11px] font-medium text-slate-700"
-        disabled={!canEdit}
-        onChange={(event) => onChange(event.target.value as DraftPositionCategory)}
-        value={category}
-      >
-        {DRAFT_POSITION_CATEGORIES.map((option) => (
-          <option key={option} value={option}>{categoryLabel(option)}</option>
-        ))}
-      </select>
-      {canEdit && category !== originalCategory ? (
-        <button
-          aria-label={`Reset ${playerName} draft category`}
-          className="rounded px-1 py-1 text-[10px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-ink"
-          onClick={() => onChange(originalCategory)}
-          title={`Reset to profile position: ${categoryLabel(originalCategory)}`}
-          type="button"
-        >
-          Reset
-        </button>
-      ) : null}
-    </span>
   );
 }
 
