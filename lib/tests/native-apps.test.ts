@@ -244,6 +244,9 @@ it("allows eligible players and admin-authorized nonparticipants to nominate wit
     await db.exec("savepoint duplicate_player_nomination");
     await expect(q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[7].id])).rejects.toThrow("already nominated");
     await db.exec("rollback to savepoint duplicate_player_nomination");
+    await db.exec("savepoint duplicate_player_category_nomination");
+    await expect(q("select submit_session_performance_nomination($1,'midfielder',$2)", [f.sessionId, f.players[7].id])).rejects.toThrow("another category");
+    await db.exec("rollback to savepoint duplicate_player_category_nomination");
     await db.exec("savepoint self_nomination");
     await expect(q("select submit_session_performance_nomination($1,'goalkeeper',$2)", [f.sessionId, f.players[0].id])).rejects.toThrow("cannot nominate yourself");
     await db.exec("rollback to savepoint self_nomination");

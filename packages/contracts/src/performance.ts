@@ -28,3 +28,17 @@ export function previousMatchPositions(data: PerformanceData, matchId: string) {
 }
 
 export type SeasonPerformanceRow = { player_id: string; player_name: string; position: string; matches_played: number; sessions_played: number; average_match_rating: number; average_session_rating: number; nominations: number };
+
+export const nominationCategories = ["goalkeeper", "defender", "midfielder"] as const;
+export type NominationCategory = typeof nominationCategories[number];
+export type NominationSelection = { category: string; player_id: string };
+
+export function nomineeSelectedInAnotherCategory(
+  playerId: string,
+  category: NominationCategory,
+  nominations: readonly NominationSelection[] = [],
+  selected: Partial<Record<NominationCategory, string>> = {}
+) {
+  return nominations.some(nomination => nomination.player_id === playerId && nomination.category !== category)
+    || nominationCategories.some(other => other !== category && selected[other] === playerId);
+}

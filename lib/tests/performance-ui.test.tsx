@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { nomineeSelectedInAnotherCategory } from "../../packages/contracts/src/performance";
 import type { PerformanceData } from "../../packages/contracts/src/performance";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/actions/performance", () => ({ updatePerformance: vi.fn() }));
@@ -18,11 +19,19 @@ const data: PerformanceData = {
   positions: [], votes: [],
   awards: [{ category: "goalkeeper", player_id: "a1", player_name: "Own Goalkeeper", nominations: 1 }, { category: "goalkeeper", player_id: "b1", player_name: "Visiting Goalkeeper", nominations: 1 }],
   details: [
-    { player_id: "a1", player_name: "Own Goalkeeper", match_number: 1, position: "goalkeeper", keeper_conceded: 0, clean_sheet: true, breakdown: { rating: 7, defense: 4 } },
+    { player_id: "a1", player_name: "Own Goalkeeper", match_number: 1, position: "goalkeeper", keeper_conceded: 0, clean_sheet: true, keeper_attribution_incomplete: true, breakdown: { rating: 7, defense: 4, keeper_assignment_incomplete: true } },
     { player_id: "b1", player_name: "Visiting Goalkeeper", match_number: 1, position: "goalkeeper", keeper_conceded: null, clean_sheet: false, breakdown: { rating: 5, defense: 0 } },
   ],
-  results: [{ player_id: "a1", player_name: "Own Goalkeeper", matches_played: 4, rated_matches: 4, positions: ["goalkeeper"], match_points: 28, captain_points: 30, final_rating: 58, incomplete: false }],
+  results: [{ player_id: "a1", player_name: "Own Goalkeeper", matches_played: 4, rated_matches: 4, positions: ["goalkeeper"], match_points: 28, captain_points: 30, final_rating: 58, incomplete: true }],
 };
+
+it("prevents a voter's nominee from being selected in multiple categories", () => {
+  const nominations = [{ category: "goalkeeper", player_id: "player-a" }];
+  expect(nomineeSelectedInAnotherCategory("player-a", "defender", nominations)).toBe(true);
+  expect(nomineeSelectedInAnotherCategory("player-a", "goalkeeper", nominations)).toBe(false);
+  expect(nomineeSelectedInAnotherCategory("player-b", "defender", nominations)).toBe(false);
+  expect(nomineeSelectedInAnotherCategory("player-b", "defender", [], { goalkeeper: "player-b" })).toBe(true);
+});
 
 it("offers every session participant in every nomination category except the voter", () => {
   const ratings = renderToStaticMarkup(<SessionPerformance data={data} />);
@@ -49,13 +58,30 @@ it("offers every session participant in every nomination category except the vot
   expect(nominations).not.toContain('role="radiogroup"');
   expect([...nominations.matchAll(/aria-label="Top (?:Goalkeeper|Defender|Midfielder) nomination for/g)]).toHaveLength(9);
   expect(nominations).toContain("Submit Nominations");
+  expect(nominations).toContain("A player can only be nominated in one category");
   expect(ratings).not.toContain("Match positions & participation");
   expect(ratings).toContain("Session ratings");
+  expect(ratings).not.toContain("incomplete");
+  expect(ratings).not.toContain("keeper_assignment_incomplete");
   expect(ratings).not.toContain("Played</label>");
   if (process.env.OU_RENDER_PERFORMANCE === "1") {
     const css = readdirSync(".next/static/css").filter(f => f.endsWith(".css")).map(f => readFileSync(`.next/static/css/${f}`, "utf8")).join("\n");
     writeFileSync("/tmp/ou-performance-preview.html", `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><main style="max-width:1100px;margin:auto;padding:16px"><h1 class="page-title">Player performance</h1>${ratings}${nominations}</main></body></html>`);
   }
+});
+
+it("disables a saved nominee in every other category", () => {
+  const html = renderToStaticMarkup(<SessionNominations data={{
+    ...data,
+    session: { ...data.session, status: "scheduled" },
+    canManage: false,
+    canClose: false,
+    canNominate: true,
+    voterPlayerId: "a1",
+    nominations: [{ category: "goalkeeper", player_id: "b1" }]
+  }} />);
+  expect(html).toMatch(/aria-label="Top Defender nomination for Visiting Goalkeeper"[^>]*disabled=""/);
+  expect(html).toMatch(/aria-label="Top Midfielder nomination for Visiting Goalkeeper"[^>]*disabled=""/);
 });
 
 it("hides nomination writes when voting is closed", () => {

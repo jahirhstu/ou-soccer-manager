@@ -3,16 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updatePerformance } from "@/lib/actions/performance";
+import { nomineeSelectedInAnotherCategory, nominationCategories, type NominationCategory } from "@ou/contracts";
 import type { PerformanceData } from "../packages/contracts/src/performance";
-
-const categories = ["goalkeeper", "defender", "midfielder"] as const;
-type Category = typeof categories[number];
 
 export function SessionNominations({ data }: { data: PerformanceData }) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [message, setMessage] = useState("");
-  const [selected, setSelected] = useState<Record<Category, string>>({
+  const [selected, setSelected] = useState<Record<NominationCategory, string>>({
     goalkeeper: "",
     defender: "",
     midfielder: ""
@@ -40,7 +38,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
 
   const submitNominations = () => start(async () => {
     setMessage("");
-    const pendingCategories = categories.filter((category) => selected[category]);
+    const pendingCategories = nominationCategories.filter((category) => selected[category]);
     let saved = 0;
     for (const category of pendingCategories) {
       const playerId = selected[category];
@@ -81,7 +79,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
     <section aria-label="Nominations by player" className="grid gap-3">
       <div className="grid grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))] gap-1.5 sm:gap-2">
         <div className="flex items-end rounded-md px-2 py-2 text-xs font-semibold uppercase text-slate-500 sm:px-3">Player</div>
-        {categories.map((category) => {
+        {nominationCategories.map((category) => {
           const label = `Top ${capitalize(category)}`;
           const awarded = data.awards.filter((award) => award.category === category);
           const voteInfo = data.voteCounts?.find((entry) => entry.category === category);
@@ -98,7 +96,7 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
           </div>;
         })}
       </div>
-      <p className="text-xs text-slate-600">Choose one player in each category. The same player may be selected in multiple categories.</p>
+      <p className="text-xs text-slate-600">Choose one player in each category. A player can only be nominated in one category by each voter.</p>
       <div className="grid gap-1.5">
         {nominees.map((player) => <div
           className="grid grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))] gap-1.5 rounded-lg border border-line bg-white p-1.5 shadow-sm sm:gap-2 sm:p-2"
@@ -107,10 +105,11 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
           <div className="flex min-h-11 min-w-0 items-center px-1.5 py-1 text-xs font-medium text-ink sm:px-2 sm:text-sm">
             <span className="break-words">{player.name}</span>
           </div>
-          {categories.map((category) => {
+          {nominationCategories.map((category) => {
             const alreadyNominated = completedCategories.has(category);
             const isSelected = selected[category] === player.id;
-            const canSelect = Boolean(data.canNominate) && !data.closed && data.session.status !== "completed" && !alreadyNominated;
+            const usedInAnotherCategory = nomineeSelectedInAnotherCategory(player.id, category, data.nominations, selected);
+            const canSelect = Boolean(data.canNominate) && !data.closed && data.session.status !== "completed" && !alreadyNominated && !usedInAnotherCategory;
             return <label
               className={`flex min-h-11 min-w-0 items-center justify-center rounded-md border transition ${isSelected ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-200" : "border-transparent bg-slate-50"} ${canSelect && !busy ? "cursor-pointer hover:border-emerald-300" : "cursor-not-allowed opacity-60"}`}
               key={category}
@@ -129,13 +128,13 @@ export function SessionNominations({ data }: { data: PerformanceData }) {
         </div>)}
         {!nominees.length && <p className="rounded-lg border border-dashed border-line px-3 py-4 text-sm text-slate-500">No other session participants to nominate.</p>}
       </div>
-      {categories.some((category) => completedCategories.has(category)) && <p className="text-xs text-emerald-800">Your nomination for a completed category is recorded.</p>}
+      {nominationCategories.some((category) => completedCategories.has(category)) && <p className="text-xs text-emerald-800">Your nomination for a completed category is recorded.</p>}
     </section>
 
     {data.canNominate && !data.closed && data.session.status !== "completed" && (
       <button
         className="btn-primary justify-self-start"
-        disabled={busy || !categories.some((category) => selected[category])}
+        disabled={busy || !nominationCategories.some((category) => selected[category])}
         onClick={submitNominations}
         type="button"
       >

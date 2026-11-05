@@ -440,6 +440,11 @@ describe("integrated migration chain", () => {
       "select submit_session_performance_nomination($1,'goalkeeper',$2)",[session,player]
     )).rejects.toThrow("already nominated");
     await db.exec("rollback to savepoint duplicate_member_nomination");
+    await db.exec("savepoint duplicate_member_player_category");
+    await expect(db.query(
+      "select submit_session_performance_nomination($1,'midfielder',$2)",[session,player]
+    )).rejects.toThrow("another category");
+    await db.exec("rollback to savepoint duplicate_member_player_category");
     await db.exec("savepoint member_self_nomination");
     await expect(db.query(
       "select submit_session_performance_nomination($1,'goalkeeper',$2)",[session,guest]

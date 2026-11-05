@@ -1,6 +1,6 @@
 # Project Context and Working Memory
 
-Reviewed: 2026-11-04. Scope: changes from the preceding week, including migrations, documentation, web, native apps, shared packages, tests, and operational scripts.
+Reviewed: 2026-11-05. Scope: changes from the preceding week, including migrations, documentation, web, native apps, shared packages, tests, and operational scripts.
 
 ## Repository Snapshot
 
@@ -27,6 +27,7 @@ Reviewed: 2026-11-04. Scope: changes from the preceding week, including migratio
 5. Event-based website ratings replacing the manual match-position workflow (`104`).
 6. Played-fixture nomination availability, Guided drafting, and position-independent nomination eligibility (`105`-`107`).
 7. Session-summary Top Players/public performance integration, summary presentation changes, and compact nomination/team-builder UI refinements.
+8. Cross-category nominee prevention in web and RPC, native nomination/voting parity, and removal of obsolete goalkeeper-assignment warnings.
 
 ## Current Performance Rules
 
@@ -44,14 +45,14 @@ Authoritative sources: `supabase/migrations/104_event_based_position_ratings.sql
 
 ## Current Nomination Rules
 
-Read `105_played_fixture_nominations.sql` and `107_position_independent_session_nominations.sql` together; the latter supersedes earlier position-based eligibility.
+Read `105_played_fixture_nominations.sql`, `107_position_independent_session_nominations.sql`, and `108_unique_player_session_nominations.sql` together; `107` supersedes earlier position-based eligibility and `108` prevents a voter from reusing a nominee across categories.
 
 - Voting is player-based, not restricted to three captains. Voters need authorized program membership and a linked player, plus session roster participation or explicit manager authorization.
 - Nominations open after at least one fixture is marked played. Completed sessions are read-only; explicit voting closure also prevents submissions.
 - No self-nomination. Any other saved session roster player may be nominated for goalkeeper, defender, or midfielder, regardless of resolved position. Own-team nominations are allowed.
-- The same nominee can be selected in multiple categories. Each voter-player/category has one immutable submission; duplicate submissions are rejected.
+- A voter may nominate one player per category, and cannot nominate that same player in another category. Each voter-player/category has one immutable submission; duplicate submissions are rejected.
 - Managers have scoped voter-authorization and voting-control actions. These do not override the completed-session restriction.
-- The website uses a compact player/category selection matrix and award/vote summaries. Tied winners are supported.
+- The website uses a compact player/category selection matrix; both native apps expose nominee voting and awards in session performance. Manager authorization and voting controls are scoped to authorized sessions. Tied winners are supported.
 - Relevant files: `components/SessionNominations.tsx`, `app/sessions/[id]/nomination/page.tsx`, player/captain route helpers, and middleware.
 
 ## Team Builder and Native Boundaries
@@ -65,7 +66,7 @@ Read `105_played_fixture_nominations.sql` and `107_position_independent_session_
 
 ## Migrations and Operational Safety
 
-- Latest checked-in migration number at review: `107`. The duplicate `096` numbering issue from the earlier conversation is no longer the current inventory: `096_empty_program_context_uuid.sql` is the UUID fix.
+- Latest migration number in this worktree: `108` (`108_unique_player_session_nominations.sql` is pending deployment). The duplicate `096` numbering issue from the earlier conversation is no longer the current inventory: `096_empty_program_context_uuid.sql` is the UUID fix.
 - `093` supplies native APIs/photo permissions; `094` adds session operations; `095` adds planning/fixture functionality. Preserve these when preparing clean databases.
 - `103` reconciles legacy performance schemas and archives ambiguous position records rather than blindly replaying `097`-`102`. It intentionally blocks when legacy audit history needs manual review.
 - Development refresh/cleanup/seed tools must track new tables and dependencies. Production-to-development refresh remains strictly one-way and guarded; never reverse its direction.

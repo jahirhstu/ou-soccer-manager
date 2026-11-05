@@ -37,11 +37,12 @@ Do not satisfy that requirement by giving platform owners fake program roles.
 | `/sessions/[id]/scores`, public scores | Sports authorized captains; Manager authorized staff | Native score entry/review implemented |
 | `/public/sessions/[id]/summary` | Both session Summary | Added: podium, standings, contributor goals/assists |
 | `/public/sessions/[id]/teams` | Both session Teams | Saved rosters implemented |
+| `/sessions/[id]/nomination` | Sports session performance; Manager session performance | Native nomination voting for eligible linked players, one nominee across categories per voter, manager authorization/closure controls; device acceptance pending |
 | `/public/team-builder`, `/sessions/[id]/teams/edit` | Manager session operations; Sports only existing authorized captain scope | Native team/captain assignment, lottery/balanced order, explicit draft save/resume implemented; realtime presence and autosave pending |
 | `/sessions/[id]/fixture` | Manager session operations; captain scope if authorized | Atomic native generation implemented; individual fixture row editing pending |
 | `/sessions/[id]/lineups` | Sports assigned team members; Manager only as existing policy allows | Native formation, player and coordinate editing implemented; pitch drag-and-drop pending |
 | `/attendance` | Manager operations; authorized captains in Sports | Status/notes, roster search, pagination and atomic charge reconciliation implemented; dropout/replacement financial agreements pending |
-| `/performance` | Manager; authorized captains in Sports | Native ratings editor for saved session-team players implemented; program-wide directory pending |
+| `/performance` | Manager; authorized captains in Sports | Native match/season ratings, award summaries, and session nominations available from both apps; program-wide draft-ratings directory pending |
 | `/payments`, `/payments/new` | Manager Finance | Season payments implemented; session-linked drop-in entry pending |
 | `/payments/refund`, `/payments/carry-forward`, player credit transfer | Manager Finance | Native recording/review implemented |
 | `/payments/waiver` | Manager Finance | Pending atomic mobile-safe waiver endpoint and form |
