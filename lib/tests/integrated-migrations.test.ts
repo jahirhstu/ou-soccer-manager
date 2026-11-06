@@ -218,6 +218,18 @@ describe("integrated migration chain", () => {
     });
     expect(publicData.rows[0].data.players.find((row) => row.id === player)?.preferredPosition).toBe("forward");
   });
+  it("excludes read payment alerts but keeps unread alerts in the public scope", async () => {
+    await db.query(`insert into notifications(organization_id,player_id,season_id,amount,message,read_at)
+      values ($1,$2,$3,13,'Accepted payment',now()),($1,$2,$3,13,'Pending payment',null),
+      ($1,$2,$4,13,'Other program',null)`, [org,player,season,otherSeason]);
+    await db.exec("set local role anon");
+    const pending = await db.query("select * from scoped_public_payment_notification_keys('integration-a','soccer')");
+    expect(pending.rows).toEqual([{ player_id: player, season_id: season, amount: '13.00' }]);
+    await db.exec("reset role");
+    await db.query("update notifications set read_at=now() where player_id=$1", [player]);
+    await db.exec("set local role anon");
+    expect((await db.query("select * from scoped_public_payment_notification_keys('integration-a','soccer')")).rows).toEqual([]);
+  });
   it("keeps public season lookup and notification amounts behind the public scope", async () => {
     await db.query("update program_modules set enabled=false where program_id=$1 and module_key='public_reports'",[program]);
     await db.exec("set local role anon");
