@@ -108,3 +108,16 @@ it('cancels stale schedule revisions at the final authorization boundary',async(
   await rpc('prepare',{id:execution});await db.exec("update message_schedules set body='Edited'");
   expect(await rpc('authorize',{id:execution})).toBeNull();
 });
+it('syncs groups, exposes schedules, and materializes a future execution',async()=>{
+  await rpc('sync',{groups:[{id:'group@g.us',name:'Soccer'}]});
+  const packet=await rpc('scan');expect(packet.schedules).toHaveLength(1);expect(packet.destinations).toHaveLength(1);
+  await rpc('materialize',{schedule_id:schedule,revision:1,scheduled_at:new Date(Date.now()+60000).toISOString(),body:'Prepared message'});
+  expect((await db.query<any>('select count(*)::int count from message_executions')).rows[0].count).toBe(2);
+  await rpc('scanned',{at:new Date().toISOString()});
+  expect((await rpc('scan')).last_scan_at).toBeTruthy();
+});
+it('records an execution missed during an outage without authorizing a send',async()=>{
+  await rpc('materialize',{schedule_id:schedule,revision:1,scheduled_at:'2026-01-01T00:00:00Z',body:'Past message'});
+  const row=(await db.query<any>("select id,status from message_executions where scheduled_at='2026-01-01T00:00:00Z'")).rows[0];
+  expect(row.status).toBe('missed');expect(await rpc('authorize',{id:row.id})).toBeNull();
+});

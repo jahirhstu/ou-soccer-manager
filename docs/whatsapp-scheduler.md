@@ -6,6 +6,8 @@ Follow these steps in order. Run **Terminal** commands on the Mac that will send
 
 The walkthrough configures the existing application. You do not need a new database, Supabase CLI, Docker, Redis, Meta developer account, WhatsApp Business API, or paid worker server. This is an unofficial WhatsApp Web integration; WhatsApp may restrict accounts using it.
 
+For a high-level diagram and explanation of the components and message flow, see [WhatsApp scheduler architecture](whatsapp-scheduler-architecture.md).
+
 ## Before you start
 
 Have these available:
@@ -641,6 +643,14 @@ lsof -nP -iTCP:43821 -sTCP:LISTEN
 ```
 
 If it belongs to an existing worker, manage that worker instead of starting a second one. If another application needs that port, stop the worker, change `port` in the private configuration to an unused value such as `43822`, then start it again. Run `pair` to open the new URL; you do not need to configure a public port anywhere.
+
+### Connection is ready, but schedules do not appear in history or tests stay pending
+
+A recent heartbeat confirms the worker can report its connection state; it does not prove every processing step is succeeding. The worker now isolates command processing, schedule scans, and due-execution handling, and runs group discovery separately so a failed or slow group refresh cannot block the scheduler.
+
+Check `events.log` for `worker_processing_failed`. Entries identify the failing step and, for database requests, a safe operation/error code. They deliberately omit upstream messages that could contain private data. If the worker is running an older build, follow the update/rebuild instructions above and restart it; refreshing the website alone does not update the Mac worker.
+
+After processing recovers, expired tests and missed scheduled runs should appear as **missed**. They will not be resent automatically. Verify the next upcoming execution, and use a single confirmed test only when you intend a real message to be sent.
 
 ### Connected, but no groups / test button disabled
 

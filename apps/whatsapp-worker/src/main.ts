@@ -10,6 +10,7 @@ import { readConfig, root, persist, log } from './config.js';
 import { WhatsAppProvider, browserDoctor } from './provider.js';
 import { dispatch, type Attempt, type Result } from './dispatch.js';
 import { scheduleDeadline } from './timing.js';
+import { BackgroundWorkerStep, WorkerOperationError, processingError, runWorkerSteps, type WorkerStep } from './operations.js';
 
 const config = readConfig(), instance = randomUUID(), lock = join(root, 'worker.lock');
 try { mkdirSync(lock, { mode: 0o700 }); }
@@ -29,7 +30,7 @@ const journalRoot = join(root,'journal'); mkdirSync(journalRoot,{recursive:true,
 const db = createClient(config.supabase_url, config.publishable_key, { auth: { persistSession: false, autoRefreshToken: false } });
 async function rpc<T = any>(operation: string, data: unknown = {}): Promise<T> {
   const {data: result, error} = await db.rpc('message_worker',{p_worker_id:config.worker_id,p_token:config.token,p_instance_id:instance,p_operation:operation,p_data:data}).abortSignal(AbortSignal.timeout(4000));
-  if(error) throw new Error(`Worker RPC failed: ${operation}`);
+  if(error) throw new WorkerOperationError(operation, /^[A-Z0-9_]{1,30}$/.test(error.code ?? '') ? error.code : 'rpc_failed');
   return result as T;
 }
 const provider = new WhatsAppProvider(config);
@@ -99,6 +100,14 @@ function arm(e:Attempt) {
       .catch(()=>log('dispatch_error',{execution_id:e.id})).finally(()=>inflight.delete(e.id));
   }));
 }
+const groupSync = new BackgroundWorkerStep();
+const processingFailures = new Map<string, number>();
+function processingFailed(step: string, error: unknown) {
+  const fields = processingError(error), key = `${step}:${fields.operation ?? ''}:${fields.code}`;
+  if(Date.now()-(processingFailures.get(key) ?? 0)<10000)return;
+  processingFailures.set(key,Date.now());
+  log('worker_processing_failed',{step,...fields});
+}
 let heartbeatBusy=false;
 async function heartbeat(){
   if(heartbeatBusy||stopping)return;
@@ -107,29 +116,31 @@ async function heartbeat(){
 }
 async function tick() {
   const now=Date.now();
-  if(!replaying&&now>=nextReplay){nextReplay=now+10000;replaying=true;void recoverJournal().catch(()=>{}).finally(()=>{replaying=false;});}
-  if(now>=nextCommand){nextCommand=now+10000;
+  if(!replaying&&now>=nextReplay){nextReplay=now+10000;replaying=true;void recoverJournal().catch(error=>log('journal_recovery_failed',processingError(error))).finally(()=>{replaying=false;});}
+  const steps: WorkerStep[]=[];
+  if(now>=nextCommand){nextCommand=now+10000;steps.push({name:'commands',run:async()=>{
     for(const command of await rpc('commands')){
       if(command.command==='disconnect'){await provider.disconnect();prepared.clear();}
       if(command.command==='reconnect'){void provider.reconnect();}
       await rpc('command_complete',{id:command.id});
     }
-  }
+  }});}
   if(provider.state==='disconnected'&&now>=nextReconnect){nextReconnect=now+reconnectDelay;reconnectDelay=Math.min(reconnectDelay*2,60000);void provider.reconnect();}
   if(provider.state==='ready')reconnectDelay=1000;
-  if(provider.state==='ready'&&now>=nextSync){await rpc('sync',{groups:await provider.groups()});nextSync=now+60000;}
-  if(now>=nextScan){await scan();nextScan=now+15000;}
-  if(now<nextDue)return;
-  nextDue=now+1000;
-  const due:Attempt[]=await rpc('due');
-  const ids=new Set(due.map(e=>e.id));
-  for(const id of prepared.keys())if(!ids.has(id)){prepared.delete(id);timers.get(id)?.();timers.delete(id);}
-  for(const e of due){
-    if(inflight.has(e.id))continue;
-    if(!prepared.has(e.id)&&provider.state==='ready'&&await provider.ready()){
-      const p=await rpc<Attempt|null>('prepare',{id:e.id});if(p){prepared.set(e.id,e);arm(e);}
+  if(provider.state==='ready'&&now>=nextSync){nextSync=now+60000;groupSync.start({name:'group_sync',run:async()=>{await rpc('sync',{groups:await provider.groups()});}},processingFailed);}
+  if(now>=nextScan){nextScan=now+15000;steps.push({name:'schedule_scan',run:scan});}
+  if(now>=nextDue){nextDue=now+1000;steps.push({name:'due_executions',run:async()=>{
+    const due:Attempt[]=await rpc('due');
+    const ids=new Set(due.map(e=>e.id));
+    for(const id of prepared.keys())if(!ids.has(id)){prepared.delete(id);timers.get(id)?.();timers.delete(id);}
+    for(const e of due){
+      if(inflight.has(e.id))continue;
+      if(!prepared.has(e.id)&&provider.state==='ready'&&await provider.ready()){
+        const p=await rpc<Attempt|null>('prepare',{id:e.id});if(p){prepared.set(e.id,e);arm(e);}
+      }
     }
-  }
+  }});}
+  await runWorkerSteps(steps,processingFailed);
 }
 async function shutdown(){if(stopping)return;stopping=true;for(const cancel of timers.values())cancel();server.close();await provider.client.destroy().catch(()=>{});unlinkSync(join(lock,'owner.json'));rmdirSync(lock);process.exit(0);}
 process.on('SIGTERM',()=>void shutdown());process.on('SIGINT',()=>void shutdown());
