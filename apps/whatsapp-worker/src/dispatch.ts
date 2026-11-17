@@ -1,5 +1,5 @@
 import { dispatchDecision } from '../../../packages/communications/src/index.js';
-export interface Attempt { id: string; attempt_id: string; scheduled_at: string; body: string; group_id: string; is_test?: boolean; expires_at?: string }
+export interface Attempt { id: string; attempt_id: string; scheduled_at: string; body: string; group_id: string; is_test?: boolean; expires_at?: string; schedule_id?: string | null; schedule_revision?: number }
 export interface Result { id: string; attempt_id: string; status: 'sent'|'unknown'|'failed'|'missed'; dispatch_at: string | null; acknowledgement_at?: string; provider_message_id?: string; error?: string }
 export interface DispatchDependencies {
   now(): number;

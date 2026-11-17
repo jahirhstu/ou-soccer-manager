@@ -194,6 +194,20 @@ If you applied the file manually in SQL Editor, it may not appear in the Supabas
 
 Do **not** run database reset, cleanup, or seed commands to set up messaging. Existing players, seasons, and payments should remain intact.
 
+### Install migration 111 for efficient coordination
+
+The optimized worker also requires [migration 111](../supabase/migrations/111_efficient_whatsapp_coordination.sql), after migration 110. Check its main functions with this read-only query:
+
+```sql
+select
+  to_regprocedure('public.message_worker_coordinate(uuid,text,uuid,jsonb)') is not null as coordination_exists,
+  to_regprocedure('public.message_worker_materialize_batch(uuid,text,uuid,jsonb)') is not null as batching_exists;
+```
+
+If both are false, apply the complete migration 111 file to the intended project through your migration/release process. If both are true, do not rerun it. For a partial result, inspect the existing schema before proceeding.
+
+For an existing installation, apply migration 111 first, deploy the updated website second, and only then rebuild/restart the Mac worker. Existing workers continue using their old API during this transition. Production and development databases each need their own migration. No credentials, schedules, or activation settings need to be replaced.
+
 ## Step 5 — Configure and deploy the website on Vercel
 
 **Where: Vercel project settings.**
@@ -409,13 +423,13 @@ npx --yes pnpm@11.9.0 whatsapp pair
 
 Do not type just `http://127.0.0.1:43821` into the browser: the `pair` command opens the required private tokenized URL. The page must be opened on the Mac, not on the phone. The phone scans the code; it does not visit the URL.
 
-Return to **Website → Communications → Connections & History** and click **Refresh**. Allow roughly a minute for initial connection/group discovery.
+Return to **Website → Communications → Connections & History** and click **Refresh**. Allow roughly a minute for initial connection/group discovery. After startup, automatic group discovery runs every fifteen minutes; use **Refresh WhatsApp groups** to request it sooner.
 
 **Success:** all of the following are true:
 
 - State is `ready`.
 - Compatibility shows `passed`.
-- Heartbeat is recent; it normally updates about every ten seconds.
+- Heartbeat is recent; it normally updates about every thirty seconds.
 - Your WhatsApp groups appear under **Available groups**.
 - Automatic sending is still **OFF**.
 
@@ -428,7 +442,7 @@ If your soccer group is missing, confirm that you paired the correct personal ac
 ### First, use a private test group
 
 1. Create or choose a private WhatsApp group containing only people who expect your test message. The connected account must be a member and have permission to post.
-2. Wait about a minute for group discovery and refresh the dashboard.
+2. Choose **Refresh WhatsApp groups** in Connections & History, allow up to thirty seconds for the request to reach the worker, then refresh the dashboard.
 3. Open **Communications → Schedules → New schedule**.
 4. Enter the name `WhatsApp connection test` and message `OU Soccer WhatsApp setup test — please ignore.`
 5. Select the private test group.
@@ -624,7 +638,7 @@ If absent, run `install`. If already loaded, use `restart`. Run commands from yo
 
 ### Worker is offline/stale or logs show RPC/heartbeat failure
 
-Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migration 110 is complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Heartbeats are normally about ten seconds apart and become stale after thirty seconds.
+Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migration 110 is complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Updated workers synchronize about every thirty seconds and become stale after ninety seconds. Legacy workers continue to report every ten seconds with a thirty-second stale threshold. The dashboard uses the interval reported by the worker.
 
 ### `Worker already running` or another worker owns the lease
 
@@ -668,6 +682,26 @@ Allow about a minute for discovery and click Refresh. Verify that the paired acc
 | `cancelled` | The schedule changed, was disabled/deleted, or the prepared work became invalid before dispatch. |
 
 A local crash can leave an actual dispatch timestamp unavailable. Acknowledgement reconciliation may later change an unknown result to sent. Check WhatsApp before deciding to send again.
+
+## Efficient coordination and Free plan usage
+
+The updated worker combines its heartbeat, control requests, expiry checks, and change detection into one small request every **30 seconds**. A continuously running idle worker therefore makes approximately **2,880 coordination requests per day**, plus startup, configuration/group changes, execution authorization/results, and recovery requests. This is a design baseline, not a measurement of total project usage or a guarantee of staying under a plan allowance.
+
+Schedules and pending work are cached locally and returned again only when their versions change. Upcoming executions are prepared in batches for the existing 24-hour horizon. Local timers prepare messages before their deadlines and dispatch at the scheduled time; there is no one-second Supabase queue polling. A fresh database authorization is still required immediately before every send, and the five-second lateness rule remains in effect.
+
+- A worker lease lasts **90 seconds** and is renewed every 30 seconds. Successful synchronization is separate from the WhatsApp browser's `ready` state.
+- New schedules, test requests, reconnect/disconnect, and group-refresh requests normally reach the worker within **30 seconds**. Tests still expire after 60 seconds; configure schedules at least a minute ahead.
+- Group discovery runs at startup/reconnection, every **15 minutes**, or on request. The cloud group list is written only when it changes.
+- A stable `unknown` outcome is reported once. Failed result reports use bounded backoff up to five minutes, with evidence retained locally. The worker never retries sending the uncertain message itself.
+- Visible dashboard tabs poll lightweight status every 30 seconds. Hidden tabs do not poll; templates/destinations and execution summaries are fetched as needed rather than repeatedly returning full message history bodies.
+
+The private `rpc-metrics.json` file contains per-operation request counts and estimated JSON request/response bytes, with no payload contents, credentials, or message text. It is saved at startup, hourly, and on a clean stop. To inspect those local counters:
+
+```sh
+cat "$HOME/Library/Application Support/OU Soccer WhatsApp/rpc-metrics.json"
+```
+
+Counters cover the current worker process and exclude HTTP/TLS overhead, dashboard traffic, and the rest of the application. Supabase's Usage dashboard remains authoritative for database size and egress. No additional database writes are made for these metrics.
 
 ## Reference: templates, timing, and private files
 

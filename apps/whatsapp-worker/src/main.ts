@@ -1,16 +1,17 @@
 import { createServer } from 'node:http';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, unlinkSync, rmdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { performance } from 'node:perf_hooks';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
-import { occurrences, renderMessage, type Schedule } from '../../../packages/communications/src/index.js';
 import { readConfig, root, persist, log } from './config.js';
 import { WhatsAppProvider, browserDoctor } from './provider.js';
-import { dispatch, type Attempt, type Result } from './dispatch.js';
-import { scheduleDeadline } from './timing.js';
-import { BackgroundWorkerStep, WorkerOperationError, processingError, runWorkerSteps, type WorkerStep } from './operations.js';
+import type { Attempt, Result } from './dispatch.js';
+import { BackgroundWorkerStep, WorkerOperationError, processingError } from './operations.js';
+import { ExecutionPlanner, startCoordination, GROUP_INTERVAL_MS, type CoordinationPacket } from './coordination.js';
+import { LocalExecutionQueue } from './execution-queue.js';
+import { ResultJournal, type JournalEntry } from './result-journal.js';
+import { RpcMetrics } from './metrics.js';
 
 const config = readConfig(), instance = randomUUID(), lock = join(root, 'worker.lock');
 try { mkdirSync(lock, { mode: 0o700 }); }
@@ -26,24 +27,74 @@ catch {
   }
 }
 persist(join(lock,'owner.json'), {pid:process.pid});
-const journalRoot = join(root,'journal'); mkdirSync(journalRoot,{recursive:true,mode:0o700});
-const db = createClient(config.supabase_url, config.publishable_key, { auth: { persistSession: false, autoRefreshToken: false } });
-async function rpc<T = any>(operation: string, data: unknown = {}): Promise<T> {
-  const {data: result, error} = await db.rpc('message_worker',{p_worker_id:config.worker_id,p_token:config.token,p_instance_id:instance,p_operation:operation,p_data:data}).abortSignal(AbortSignal.timeout(4000));
-  if(error) throw new WorkerOperationError(operation, /^[A-Z0-9_]{1,30}$/.test(error.code ?? '') ? error.code : 'rpc_failed');
-  return result as T;
+const journalRoot=join(root,'journal');mkdirSync(journalRoot,{recursive:true,mode:0o700});
+const db=createClient(config.supabase_url,config.publishable_key,{auth:{persistSession:false,autoRefreshToken:false}});
+const metrics=new RpcMetrics();
+async function request<T=any>(procedure:string,operation:string,data:unknown):Promise<T>{
+  const args={p_worker_id:config.worker_id,p_token:config.token,p_instance_id:instance,...(procedure==='message_worker'?{p_operation:operation}:{}),p_data:data};
+  let response:unknown=null,failed=true;
+  try{
+    const {data:result,error}=await db.rpc(procedure,args).abortSignal(AbortSignal.timeout(4000));response=result;
+    if(error)throw new WorkerOperationError(operation,/^[A-Z0-9_]{1,30}$/.test(error.code??'')?error.code:'rpc_failed');
+    failed=false;return result as T;
+  }finally{metrics.record(operation,args,response,failed);}
 }
-const provider = new WhatsAppProvider(config);
-provider.onDiagnostic = (event, fields) => log(event, fields);
-let compatible=false, stopping=false, nextSync=0, nextScan=0, nextReconnect=0, reconnectDelay=1000, nextDue=0, nextCommand=0;
-const timers=new Map<string, () => void>();
-const inflight = new Set<string>(), prepared = new Map<string, Attempt>(), acknowledgements = new Map<string, number>();
-function journal(result: Result) {
-  persist(join(journalRoot,result.id+'.json'),result);
-  log('execution_recorded',{execution_id:result.id,status:result.status,dispatch_at:result.dispatch_at,acknowledgement_at:result.acknowledgement_at});
+const rpc=<T=any>(operation:string,data:unknown={})=>request<T>('message_worker',operation,data);
+const provider=new WhatsAppProvider(config);provider.onDiagnostic=(event,fields)=>log(event,fields);
+let compatible=false,stopping=false,ownsLease=false,nextGroups=0,nextReconnect=0,reconnectDelay=1000,groupHash='';
+let configRevision:string|undefined,workRevision:string|undefined,executions:Attempt[]=[],automaticEnabled=false;
+const failures=new Map<string,number>();
+function processingFailed(step:string,error:unknown){
+  const details=processingError(error),key=step+':'+details.code;
+  if(Date.now()-(failures.get(key)??0)<10000)return;failures.set(key,Date.now());log('worker_processing_failed',{step,...details});
 }
-async function report(result: Result) { await rpc('result',result); }
-provider.onAck = (id,ack) => { if (ack >= 1) acknowledgements.set(id,Date.now()); };
+const saved=readdirSync(journalRoot).filter(f=>/^[0-9a-f-]{36}\.json$/.test(f)).map(f=>JSON.parse(readFileSync(join(journalRoot,f),'utf8')) as JournalEntry|Result);
+const journal=new ResultJournal({
+  save:(id,entry)=>persist(join(journalRoot,id+'.json'),entry),remove:id=>unlinkSync(join(journalRoot,id+'.json')),
+  report:result=>rpc('result',result),acknowledgement:id=>provider.acknowledgement(id),now:Date.now
+},saved);
+const earlyAcks=new Map<string,number>();
+provider.onAck=(id,ack)=>{if(ack>=1){earlyAcks.set(id,Date.now());journal.acknowledge(id,Date.now());}};
+const queue=new LocalExecutionQueue({
+  now:Date.now,ready:()=>provider.ready(),prepare:id=>rpc('prepare',{id}),authorize:id=>rpc('authorize',{id}),
+  journal:result=>{journal.record(result);if(result.provider_message_id&&earlyAcks.has(result.provider_message_id))journal.acknowledge(result.provider_message_id,earlyAcks.get(result.provider_message_id)!);log('execution_recorded',{execution_id:result.id,status:result.status,dispatch_at:result.dispatch_at});},
+  send:(group,body)=>provider.send(group,body),report:result=>journal.report(result),onError:error=>processingFailed('dispatch',error)
+});
+const planner=new ExecutionPlanner(),groupSync=new BackgroundWorkerStep(),control=new BackgroundWorkerStep();
+const queuedCommands:Array<{id:string;command:string}>=[];
+const coordination=startCoordination(async()=>{
+  const packet=await request<CoordinationPacket>('message_worker_coordinate','coordinate',{state:provider.state,compatible,configuration_revision:configRevision,work_revision:workRevision});
+  if(!ownsLease)persist(join(root,'rpc-metrics.json'),metrics.snapshot());
+  ownsLease=true;
+  const configurationChanged=packet.configuration!==null;
+  configRevision=packet.configuration_revision;workRevision=packet.work_revision;automaticEnabled=packet.automatic_enabled;
+  planner.update(packet);
+  if(packet.executions!==null)executions=packet.executions;
+  // Cancel changed schedules without disturbing unrelated prepared timers; final authorization remains authoritative.
+  if(configurationChanged)queue.invalidateSchedules(packet.configuration!.schedules);
+  if(!automaticEnabled)queue.update(executions,false);
+  queuedCommands.push(...packet.commands);
+  control.start({name:'commands',run:async()=>{
+    while(queuedCommands.length){
+      const command=queuedCommands.shift()!;
+      if(command.command==='disconnect'){queue.update([],false);await provider.disconnect();}
+      if(command.command==='reconnect'){nextGroups=0;void provider.reconnect();}
+      if(command.command==='refresh_groups')nextGroups=0;
+      await rpc('command_complete',{id:command.id});
+    }
+  }},processingFailed);
+  const batch=planner.plan(Date.now());
+  if(batch){
+    for(let index=0;index<Math.max(batch.items.length,1);index+=1000){
+      const last=index+1000>=batch.items.length;
+      const result=await request<{executions:Attempt[];work_revision:string}>('message_worker_materialize_batch','materialize_batch',{
+        configuration_revision:configRevision,items:batch.items.slice(index,index+1000),...(last?{scanned_at:batch.scanned_at}:{})
+      });executions=result.executions;workRevision=result.work_revision;
+    }
+    planner.committed(batch);
+  }
+  queue.update(executions,automaticEnabled);
+},error=>{configRevision=undefined;processingFailed('coordinate',error);});
 
 const pairingToken = randomBytes(32).toString('hex'), port=config.port??43821, pairingExpires=Date.now()+10*60*1000;
 persist(join(root,'pairing.json'),{url:`http://127.0.0.1:${port}/?token=${pairingToken}`,expires_at:pairingExpires});
@@ -59,100 +110,36 @@ const server=createServer(async (req,res)=>{
 server.listen(port,'127.0.0.1');
 server.on('error',()=>{log('pairing_port_unavailable');void shutdown();});
 
-let replaying=false,nextReplay=0;
-async function recoverJournal() {
-  for(const [id,at] of acknowledgements)if(Date.now()-at>3600000)acknowledgements.delete(id);
-  for(const file of readdirSync(journalRoot).filter(f=>/^[0-9a-f-]{36}\.json$/.test(f))){
-    const path=join(journalRoot,file), result:Result=JSON.parse(readFileSync(path,'utf8'));
-    if(inflight.has(result.id))continue;
-    if(result.provider_message_id&&result.status==='unknown'&&provider.state==='ready'&&!acknowledgements.has(result.provider_message_id)){
-      const ack=await provider.acknowledgement(result.provider_message_id).catch(()=>null);
-      if(ack!==null&&ack>=1)acknowledgements.set(result.provider_message_id,Date.now());
-    }
-    if(result.provider_message_id&&acknowledgements.has(result.provider_message_id)){
-      result.status='sent'; result.acknowledgement_at=new Date(acknowledgements.get(result.provider_message_id)!).toISOString(); delete result.error; journal(result);
-    }
-    await report(result);
-    if(result.status==='sent'||result.status==='failed'||result.status==='missed'){unlinkSync(path);if(result.provider_message_id)acknowledgements.delete(result.provider_message_id);}
-    // Unknown records remain for reconciliation; they are never sent again.
-  }
+async function shutdown(){
+  if(stopping)return;stopping=true;coordination.stop();queue.stop();server.close();
+  await provider.client.destroy().catch(()=>{});
+  if(ownsLease)await request('message_worker_coordinate','release',{release:true}).catch(()=>{});
+  persist(join(root,'rpc-metrics.json'),metrics.snapshot());
+  unlinkSync(join(lock,'owner.json'));rmdirSync(lock);process.exit(0);
 }
-async function scan() {
-  const at=new Date().toISOString(), data=await rpc('scan');
-  for(const s of data.schedules as Schedule[]){
-    const from=new Date(Math.max(Date.parse(data.last_scan_at)-60000,Date.parse((s as Schedule & {updated_at:string}).updated_at))).toISOString();
-    const until=new Date(Date.now()+86400000).toISOString();
-    for(const scheduled_at of occurrences(s,from,until)){
-      let body='',error:string|undefined;
-      try{body=renderMessage(s.body,scheduled_at,s.timezone,s);}catch{error='Template variables are invalid or missing';}
-      await rpc('materialize',{schedule_id:s.id,revision:s.revision,scheduled_at,body,error});
-    }
-  }
-  await rpc('scanned',{at});
-}
-function arm(e:Attempt) {
-  if(timers.has(e.id)||inflight.has(e.id))return;
-  timers.set(e.id,scheduleDeadline(e.scheduled_at,()=>{
-    timers.delete(e.id);
-    if(!prepared.has(e.id)||stopping)return;
-    inflight.add(e.id);prepared.delete(e.id);
-    void dispatch(e,{now:Date.now,ready:()=>provider.ready(),authorize:id=>rpc('authorize',{id}),journal,send:(group,body)=>provider.send(group,body),report})
-      .catch(()=>log('dispatch_error',{execution_id:e.id})).finally(()=>inflight.delete(e.id));
-  }));
-}
-const groupSync = new BackgroundWorkerStep();
-const processingFailures = new Map<string, number>();
-function processingFailed(step: string, error: unknown) {
-  const fields = processingError(error), key = `${step}:${fields.operation ?? ''}:${fields.code}`;
-  if(Date.now()-(processingFailures.get(key) ?? 0)<10000)return;
-  processingFailures.set(key,Date.now());
-  log('worker_processing_failed',{step,...fields});
-}
-let heartbeatBusy=false;
-async function heartbeat(){
-  if(heartbeatBusy||stopping)return;
-  heartbeatBusy=true;
-  try{await rpc('heartbeat',{state:provider.state,compatible});}catch{log('heartbeat_failed');}finally{heartbeatBusy=false;}
-}
-async function tick() {
-  const now=Date.now();
-  if(!replaying&&now>=nextReplay){nextReplay=now+10000;replaying=true;void recoverJournal().catch(error=>log('journal_recovery_failed',processingError(error))).finally(()=>{replaying=false;});}
-  const steps: WorkerStep[]=[];
-  if(now>=nextCommand){nextCommand=now+10000;steps.push({name:'commands',run:async()=>{
-    for(const command of await rpc('commands')){
-      if(command.command==='disconnect'){await provider.disconnect();prepared.clear();}
-      if(command.command==='reconnect'){void provider.reconnect();}
-      await rpc('command_complete',{id:command.id});
-    }
-  }});}
-  if(provider.state==='disconnected'&&now>=nextReconnect){nextReconnect=now+reconnectDelay;reconnectDelay=Math.min(reconnectDelay*2,60000);void provider.reconnect();}
-  if(provider.state==='ready')reconnectDelay=1000;
-  if(provider.state==='ready'&&now>=nextSync){nextSync=now+60000;groupSync.start({name:'group_sync',run:async()=>{await rpc('sync',{groups:await provider.groups()});}},processingFailed);}
-  if(now>=nextScan){nextScan=now+15000;steps.push({name:'schedule_scan',run:scan});}
-  if(now>=nextDue){nextDue=now+1000;steps.push({name:'due_executions',run:async()=>{
-    const due:Attempt[]=await rpc('due');
-    const ids=new Set(due.map(e=>e.id));
-    for(const id of prepared.keys())if(!ids.has(id)){prepared.delete(id);timers.get(id)?.();timers.delete(id);}
-    for(const e of due){
-      if(inflight.has(e.id))continue;
-      if(!prepared.has(e.id)&&provider.state==='ready'&&await provider.ready()){
-        const p=await rpc<Attempt|null>('prepare',{id:e.id});if(p){prepared.set(e.id,e);arm(e);}
-      }
-    }
-  }});}
-  await runWorkerSteps(steps,processingFailed);
-}
-async function shutdown(){if(stopping)return;stopping=true;for(const cancel of timers.values())cancel();server.close();await provider.client.destroy().catch(()=>{});unlinkSync(join(lock,'owner.json'));rmdirSync(lock);process.exit(0);}
 process.on('SIGTERM',()=>void shutdown());process.on('SIGINT',()=>void shutdown());
 async function main(){
-  try{const result=await browserDoctor(config);compatible=true;log('compatibility_passed',result);}catch{log('compatibility_failed');await rpc('heartbeat',{state:'incompatible',compatible:false}).catch(()=>{});await shutdown();return;}
-  await rpc('heartbeat',{state:provider.state,compatible});
-  setInterval(()=>void heartbeat(),10000).unref();
+  try{const result=await browserDoctor(config);compatible=true;log('compatibility_passed',result);}
+  catch{log('compatibility_failed');await coordination.run();await shutdown();return;}
+  await coordination.run();
+  if(!ownsLease)throw new Error('Coordination failed; verify migration 111 and the worker credential');
   void provider.connect();
-  let lastErrorLog=0;
-  while(!stopping){const start=performance.now();try{await tick();}catch{if(Date.now()-lastErrorLog>10000){log('worker_offline_or_operation_failed');lastErrorLog=Date.now();}}
-    const nearest=Math.min(...[...prepared.values()].map(e=>Date.parse(e.scheduled_at)-Date.now()),250);
-    await new Promise(resolve=>setTimeout(resolve,Math.max(5,Math.min(250,nearest)-Math.min(performance.now()-start,200))));
+  let nextMetrics=Date.now()+3600000,recovering=false,wasReady=false;
+  while(!stopping){
+    const now=Date.now();
+    if(provider.state==='disconnected'&&now>=nextReconnect){nextReconnect=now+reconnectDelay;reconnectDelay=Math.min(reconnectDelay*2,60000);void provider.reconnect();}
+    const ready=provider.state==='ready';
+    if(ready&&!wasReady){nextGroups=0;groupHash='';}wasReady=ready;
+    if(ready)reconnectDelay=1000;
+    if(ready&&now>=nextGroups){nextGroups=now+GROUP_INTERVAL_MS;groupSync.start({name:'group_sync',run:async()=>{
+      const groups=(await provider.groups()).sort((a,b)=>a.id.localeCompare(b.id));
+      const hash=createHash('sha256').update(JSON.stringify(groups)).digest('hex');
+      if(hash!==groupHash){await rpc('sync',{groups});groupHash=hash;}
+    }},processingFailed);}
+    if(!recovering){recovering=true;void journal.tick(queue.inFlight,ready,error=>processingFailed('journal_recovery',error)).finally(()=>{recovering=false;});}
+    for(const [id,at] of earlyAcks)if(now-at>3600000)earlyAcks.delete(id);
+    if(now>=nextMetrics){persist(join(root,'rpc-metrics.json'),metrics.snapshot());nextMetrics=now+3600000;}
+    await new Promise(resolve=>setTimeout(resolve,1000));
   }
 }
-main().catch(()=>{log('worker_start_failed');void shutdown();});
+main().catch(error=>{processingFailed('startup',error);void shutdown();});

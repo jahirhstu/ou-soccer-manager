@@ -16,6 +16,7 @@ beforeAll(async()=>{
     create function organization_role(oid uuid) returns text language sql stable as $$select case when auth.uid()='${admin}'::uuid and oid='${org}'::uuid then 'admin' else 'player' end$$;
     grant usage on schema auth,public to anon,authenticated;`);
   await db.exec(readFileSync('supabase/migrations/110_whatsapp_message_scheduler.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/111_efficient_whatsapp_coordination.sql','utf8'));
 },30000);
 beforeEach(async()=>{
   await db.exec(`begin;select set_config('request.jwt.claim.sub','${admin}',true);
@@ -120,4 +121,45 @@ it('records an execution missed during an outage without authorizing a send',asy
   await rpc('materialize',{schedule_id:schedule,revision:1,scheduled_at:'2026-01-01T00:00:00Z',body:'Past message'});
   const row=(await db.query<any>("select id,status from message_executions where scheduled_at='2026-01-01T00:00:00Z'")).rows[0];
   expect(row.status).toBe('missed');expect(await rpc('authorize',{id:row.id})).toBeNull();
+});
+
+async function coordinate(data:unknown={},who=instance){return(await db.query<{result:any}>('select message_worker_coordinate($1,$2,$3,$4) result',[worker,token,who,JSON.stringify({state:'ready',compatible:true,...data as object})])).rows[0].result;}
+it('coordinates a 90-second lease and omits unchanged snapshots',async()=>{
+  const first=await coordinate();expect(first.configuration.schedules).toHaveLength(1);expect(first.executions).toHaveLength(1);
+  const second=await coordinate({configuration_revision:first.configuration_revision,work_revision:first.work_revision});
+  expect(second.configuration).toBeNull();expect(second.executions).toBeNull();
+  const row=(await db.query<any>('select heartbeat_interval_seconds,extract(epoch from lease_until-heartbeat_at)::int lease from message_worker_connections')).rows[0];
+  expect(row.heartbeat_interval_seconds).toBe(30);expect(row.lease).toBe(90);
+});
+it('detects schedule edits and new test executions through version changes',async()=>{
+  const first=await coordinate();await db.exec("update message_schedules set body='Changed'");
+  const second=await coordinate({configuration_revision:first.configuration_revision,work_revision:first.work_revision});expect(second.configuration.schedules[0].body).toBe('Changed');
+  await db.exec(`insert into message_executions(organization_id,body,group_id,scheduled_at,is_test,expires_at) values('${org}','Test','group@g.us',now(),true,now()+interval '60 seconds')`);
+  const third=await coordinate({configuration_revision:second.configuration_revision,work_revision:second.work_revision});expect(third.executions).toHaveLength(2);
+});
+it('batch materialization is atomic and does not duplicate executions',async()=>{
+  const first=await coordinate();const data={configuration_revision:first.configuration_revision,items:[{schedule_id:schedule,revision:1,scheduled_at:new Date(Date.now()+60000).toISOString(),body:'Future'}],scanned_at:new Date().toISOString()};
+  for(let n=0;n<2;n++)await db.query('select message_worker_materialize_batch($1,$2,$3,$4)',[worker,token,instance,JSON.stringify(data)]);
+  expect((await db.query<any>('select count(*)::int n from message_executions')).rows[0].n).toBe(2);
+});
+it('rejects a batch calculated before an administrator changed configuration',async()=>{
+  const first=await coordinate();await db.exec("update message_schedules set enabled=false");
+  await expect(db.query('select message_worker_materialize_batch($1,$2,$3,$4)',[worker,token,instance,JSON.stringify({configuration_revision:first.configuration_revision,items:[]})])).rejects.toThrow('Configuration changed');
+});
+it('retains fresh final authorization and releases ownership cleanly',async()=>{
+  await coordinate();await rpc('prepare',{id:execution});expect((await rpc('authorize',{id:execution})).attempt_id).toBeTruthy();
+  await coordinate({release:true});expect((await db.query<any>("select lease_until<=clock_timestamp() released from message_worker_connections")).rows[0].released).toBe(true);
+  expect((await coordinate({},'40000000-0000-4000-8000-000000000002')).fence).toBeTruthy();
+  expect((await db.query<any>('select status from message_executions')).rows[0].status).toBe('unknown');
+});
+it('uses negotiated liveness for tests and supports the legacy worker during rollback',async()=>{
+  await coordinate();await db.exec("update message_worker_connections set heartbeat_at=now()-interval '45 seconds'");
+  await db.query("select message_admin($1,'test',$2)",[org,JSON.stringify({destination_id:destination,body:'Confirmed test'})]);
+  await rpc('heartbeat',{state:'ready',compatible:true});expect((await db.query<any>('select heartbeat_interval_seconds from message_worker_connections')).rows[0].heartbeat_interval_seconds).toBe(10);
+});
+it('queues an authorized on-demand group refresh',async()=>{
+  await db.query('select message_request_group_refresh($1)',[org]);expect((await coordinate()).commands[0].command).toBe('refresh_groups');
+});
+it('does not let anonymous callers bypass the new worker authentication',async()=>{
+  await expect(db.query("select message_worker_coordinate($1,null,$2,'{}')",[worker,instance])).rejects.toThrow('Invalid worker credential');
 });

@@ -13,17 +13,33 @@ async function context() {
   await requireOrganizationAdminAuthority(db, profile.organization_id);
   return { db, organizationId: profile.organization_id as string };
 }
+const executionSummary = 'id,schedule_id,scheduled_at,status,phase,is_test,dispatch_at,acknowledgement_at,latency_ms,error,provider_message_id';
+
 export async function communicationsData() {
   const { db, organizationId } = await context();
   const results = await Promise.all([
     db.from('message_templates').select('*').eq('organization_id', organizationId).order('name'),
     db.from('message_schedules').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('created_at'),
     db.from('message_destinations').select('*').eq('organization_id', organizationId).eq('available', true).order('name'),
-    db.from('message_executions').select('*').eq('organization_id', organizationId).order('scheduled_at', { ascending: false }).limit(100),
+    db.from('message_executions').select(executionSummary).eq('organization_id', organizationId).order('scheduled_at', { ascending: false }).limit(100),
     db.rpc('message_admin', { p_organization_id: organizationId, p_operation: 'status' })
   ]);
   for (const result of results) if (result.error) throw new Error(result.error.message);
   return { templates: results[0].data ?? [], schedules: results[1].data ?? [], destinations: results[2].data ?? [], executions: results[3].data ?? [], connection: results[4].data, organizationId };
+}
+export async function communicationsStatus(configurationRevision?: string, workRevision?: string, includeHistory = false) {
+  const { db, organizationId } = await context();
+  const { data: connection, error } = await db.rpc('message_admin', { p_organization_id: organizationId, p_operation: 'status' });
+  if (error) throw new Error(error.message);
+  const configurationChanged = String(connection?.configuration_revision ?? '') !== String(configurationRevision ?? '');
+  const workChanged = String(connection?.work_revision ?? '') !== String(workRevision ?? '');
+  let executions;
+  if (includeHistory && workChanged) {
+    const result = await db.from('message_executions').select(executionSummary).eq('organization_id', organizationId).order('scheduled_at', { ascending: false }).limit(100);
+    if (result.error) throw new Error(result.error.message);
+    executions = result.data ?? [];
+  }
+  return { connection, configurationChanged, executions };
 }
 export async function communicationsMutation(operation: string, input: unknown) {
   try {
@@ -58,6 +74,9 @@ export async function communicationsMutation(operation: string, input: unknown) 
         const { error } = await db.from('message_schedules').insert({ organization_id: organizationId, name: 'OU Soccer Weekly Signup', body: signupTemplate, frequency: 'weekly', weekdays: [1], local_time: '21:00:00', timezone: 'America/Toronto', venue: 'Bell Sensplex', match_time: '7 AM – 9 AM', enabled: false });
         if (error) throw error;
       }
+    } else if (operation === 'refresh_groups') {
+      const { error } = await db.rpc('message_request_group_refresh', { p_organization_id: organizationId });
+      if (error) throw error;
     } else if (['provision', 'automation', 'reconnect', 'disconnect', 'test'].includes(operation)) {
       let payload: Record<string, unknown> = {};
       if (operation === 'automation') payload = z.object({ enabled: z.boolean() }).parse(data);
