@@ -411,7 +411,7 @@ On your phone:
 3. Choose **Link a device**, unlock if asked, and scan the QR displayed on the Mac.
 4. Wait for the local page to show `ready`.
 
-The page refreshes every five seconds. If it shows `starting` or no code, let it refresh. On slower first-time loads, WhatsApp initialization can take up to two minutes after the browser starts. A service restart can also require about thirty seconds for the previous database lease to expire. If initialization fails, the local page shows a connection issue and `events.log` records a safe diagnostic category such as `initialization_timeout`; QR contents and session data are not logged. Its local access link expires ten minutes after worker startup. To renew it, run these commands separately, wait for the worker to start, and scan again:
+The page refreshes every five seconds. If it shows `starting` or no code, let it refresh. On slower first-time loads, WhatsApp initialization can take up to two minutes after the browser starts. A clean restart releases its lease; after a crash, a replacement can wait up to ninety seconds for the old lease to expire (thirty seconds for a legacy worker). If initialization fails, the local page shows a connection issue and `events.log` records a safe diagnostic category such as `initialization_timeout`; QR contents and session data are not logged. Its local access link expires ten minutes after worker startup. To renew it, run these commands separately, wait for the worker to start, and scan again:
 
 ```sh
 npx --yes pnpm@11.9.0 whatsapp restart
@@ -638,11 +638,11 @@ If absent, run `install`. If already loaded, use `restart`. Run commands from yo
 
 ### Worker is offline/stale or logs show RPC/heartbeat failure
 
-Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migration 110 is complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Updated workers synchronize about every thirty seconds and become stale after ninety seconds. Legacy workers continue to report every ten seconds with a thirty-second stale threshold. The dashboard uses the interval reported by the worker.
+Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migrations 110 and 111 are complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Updated workers synchronize about every thirty seconds and become stale after ninety seconds. Legacy workers continue to report every ten seconds with a thirty-second stale threshold. The dashboard uses the interval reported by the worker.
 
 ### `Worker already running` or another worker owns the lease
 
-Do not start another sender. Stop any foreground diagnostic worker with Control + C, or stop the background service using its command. A database lease may take up to thirty seconds to expire after a crash. A normal restart reuses the same local account session; deleting session files is not the first troubleshooting step.
+Do not start another sender. Stop any foreground diagnostic worker with Control + C, or stop the background service using its command. A database lease may take up to ninety seconds to expire after a crash (thirty seconds for a legacy worker). A normal restart reuses the same local account session; deleting session files is not the first troubleshooting step.
 
 ### Pairing page unavailable, expired, or no QR
 
