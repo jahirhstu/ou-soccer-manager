@@ -33,6 +33,7 @@ async function rpc<T = any>(operation: string, data: unknown = {}): Promise<T> {
   return result as T;
 }
 const provider = new WhatsAppProvider(config);
+provider.onDiagnostic = (event, fields) => log(event, fields);
 let compatible=false, stopping=false, nextSync=0, nextScan=0, nextReconnect=0, reconnectDelay=1000, nextDue=0, nextCommand=0;
 const timers=new Map<string, () => void>();
 const inflight = new Set<string>(), prepared = new Map<string, Attempt>(), acknowledgements = new Map<string, number>();
@@ -52,7 +53,7 @@ const server=createServer(async (req,res)=>{
   if(req.method!=='GET'||req.headers.host!==`127.0.0.1:${port}`||Date.now()>pairingExpires||token.length!==pairingToken.length||!timingSafeEqual(Buffer.from(token),Buffer.from(pairingToken))){res.writeHead(403);res.end('Pairing unavailable. Run pnpm whatsapp pair.');return;}
   const qr=provider.qr&&Date.now()-provider.qrAt<60000?await QRCode.toDataURL(provider.qr):null;
   res.setHeader('Content-Type','text/html; charset=utf-8');
-  res.end(`<!doctype html><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="5"><title>OU Soccer WhatsApp pairing</title><main style="font:18px system-ui;max-width:600px;margin:40px auto;padding:16px"><h1>WhatsApp pairing</h1><p>Status: ${provider.state}</p>${qr?`<p>WhatsApp → Linked devices → Link a device</p><img alt="Scan with WhatsApp" width="320" src="${qr}">`:'<p>Wait for a QR code, or check connection status in Communications.</p>'}<p>This page stays on your Mac. Pairing access expires after ten minutes; restart the worker to renew it.</p></main>`);
+  res.end(`<!doctype html><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="5"><title>OU Soccer WhatsApp pairing</title><main style="font:18px system-ui;max-width:600px;margin:40px auto;padding:16px"><h1>WhatsApp pairing</h1><p>Status: ${provider.state}</p>${provider.lastError ? `<p role="alert">${provider.lastError}</p>` : ''}${qr?`<p>WhatsApp → Linked devices → Link a device</p><img alt="Scan with WhatsApp" width="320" src="${qr}">`:'<p>Wait for a QR code, or check connection status in Communications.</p>'}<p>This page stays on your Mac. Pairing access expires after ten minutes; restart the worker to renew it.</p></main>`);
 });
 server.listen(port,'127.0.0.1');
 server.on('error',()=>{log('pairing_port_unavailable');void shutdown();});

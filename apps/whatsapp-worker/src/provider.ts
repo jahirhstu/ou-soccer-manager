@@ -26,21 +26,34 @@ export async function browserDoctor(config: Partial<Config> = {}) {
 export class WhatsAppProvider {
   state = 'starting'; qr: string | null = null; qrAt = 0;
   client: InstanceType<typeof Client>;
+  lastError: string | null = null;
+  onDiagnostic: (event: string, fields: Record<string, unknown>) => void = () => {};
   private starting: Promise<void> | null = null;
   private reconnecting = false;
   onAck: (id: string, ack: number) => void = () => {};
   constructor(config: Config) {
-    this.client = new Client({ webVersionCache: { type: 'local', path: join(root, 'web-cache') }, authStrategy: new LocalAuth({ dataPath: join(root, 'session') }), puppeteer: { executablePath: browserPath(config), headless: true } });
-    this.client.on('qr', qr => { this.qr = qr; this.qrAt = Date.now(); this.state = 'qr_required'; });
-    this.client.on('ready', () => { this.state = 'ready'; this.qr = null; });
-    this.client.on('auth_failure', () => { this.state = 'auth_failure'; this.qr = null; });
-    this.client.on('disconnected', () => { this.state = 'disconnected'; this.qr = null; });
+    this.client = new Client({ authTimeoutMs: 120000, webVersionCache: { type: 'local', path: join(root, 'web-cache') }, authStrategy: new LocalAuth({ dataPath: join(root, 'session') }), puppeteer: { executablePath: browserPath(config), headless: true } });
+    this.client.on('qr', qr => { this.qr = qr; this.qrAt = Date.now(); this.state = 'qr_required'; this.lastError = null; this.onDiagnostic('whatsapp_qr_available', {}); });
+    this.client.on('ready', () => { this.state = 'ready'; this.qr = null; this.lastError = null; this.onDiagnostic('whatsapp_ready', {}); });
+    this.client.on('auth_failure', () => { this.state = 'auth_failure'; this.qr = null; this.lastError = 'WhatsApp could not authenticate the local session. Reconnect and check Linked Devices on your phone.'; this.onDiagnostic('whatsapp_auth_failure', {}); });
+    this.client.on('disconnected', reason => {
+      this.state = 'disconnected'; this.qr = null;
+      this.lastError = 'WhatsApp disconnected. The worker will attempt to reconnect.';
+      const knownReasons = ['LOGOUT', 'CONFLICT', 'UNPAIRED', 'UNPAIRED_IDLE', 'TIMEOUT', 'DEPRECATED_VERSION', 'PROXYBLOCK', 'TOS_BLOCK', 'SMB_TOS_BLOCK'];
+      this.onDiagnostic('whatsapp_disconnected', { reason: knownReasons.includes(String(reason)) ? String(reason) : 'connection_closed' });
+    });
     this.client.on('message_ack', (message, ack) => this.onAck(message.id._serialized, ack));
   }
   async connect() {
     if (this.starting) return this.starting;
     this.state = 'starting';
-    this.starting = this.client.initialize().catch(() => { if(this.state !== 'auth_failure') this.state = 'disconnected'; }).finally(() => { this.starting = null; });
+    this.onDiagnostic('whatsapp_initializing', {});
+    this.starting = this.client.initialize().catch(error => {
+      if(this.state !== 'auth_failure') this.state = 'disconnected';
+      const diagnostic = initializationDiagnostic(error);
+      this.lastError = diagnostic.message;
+      this.onDiagnostic('whatsapp_initialization_failed', { reason: diagnostic.code });
+    }).finally(() => { this.starting = null; });
     return this.starting;
   }
   async reconnect() {
@@ -57,4 +70,20 @@ export class WhatsAppProvider {
     const message = await this.client.sendMessage(group, body, { waitUntilMsgSent: false });
     return { id: message.id._serialized, ack: Number(message.ack) };
   }
+}
+
+/** Only fixed messages leave the adapter; upstream errors can contain session/QR data. */
+export function initializationDiagnostic(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (message.includes('auth timeout') || message.includes('waiting failed') || message.includes('timeout'))
+    return { code: 'initialization_timeout', message: 'WhatsApp initialization timed out before QR pairing was ready. Check the network and retry.' };
+  if (message.includes('already running') || message.includes('singleton') || message.includes('processsingleton'))
+    return { code: 'profile_in_use', message: 'The WhatsApp browser profile is already in use. Stop the other worker before reconnecting.' };
+  if (message.includes('failed to launch') || message.includes('browser was not found') || message.includes('enoent'))
+    return { code: 'browser_launch_failed', message: 'The WhatsApp browser could not start. Run the worker doctor and check the configured Chrome path.' };
+  if (message.includes('net::err_'))
+    return { code: 'network_failed', message: 'Chrome could not reach WhatsApp Web. Check the internet connection, proxy, or VPN.' };
+  if (message.includes('execution context') || message.includes('target closed') || message.includes('session closed'))
+    return { code: 'browser_context_closed', message: 'The WhatsApp page closed or reloaded during initialization. The worker will retry.' };
+  return { code: 'initialization_failed', message: 'WhatsApp initialization failed. Check the private events log for its diagnostic category; no session data was logged.' };
 }
