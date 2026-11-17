@@ -61,6 +61,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/users", label: "Users", subLabel: "Roles and mappings", icon: UserCog, roles: ["admin"], scope: "organization", requiresOrganizationAdmin: true },
       { href: "/payments", label: "Payments", subLabel: "Received amounts", icon: CreditCard, roles: ["admin"], moduleKey: "payments", requiresOrganizationAdmin: true },
       { href: "/payments/reminders", label: "Reminders", subLabel: "WhatsApp drafts", icon: MessageSquareText, roles: ["admin"], moduleKey: "payments", requiresOrganizationAdmin: true },
+      { href: "/communications", label: "Communications", subLabel: "Message scheduler", icon: MessageSquareText, roles: ["admin"], scope: "organization", requiresOrganizationAdmin: true },
       { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"], requiresOrganizationAdmin: true },
       { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"], moduleKey: "expenses", requiresOrganizationAdmin: true },
       { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"], moduleKey: "whatsapp_import", requiresOrganizationAdmin: true },

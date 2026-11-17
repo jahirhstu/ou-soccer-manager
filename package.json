@@ -22,7 +22,9 @@
     "db:dev": "tsx scripts/dev-database.ts",
     "db:migrate:dev": "tsx scripts/migrate-development.ts",
     "db:rehearse": "tsx scripts/rehearse-production.ts",
-    "db:refresh-worker": "tsx scripts/refresh/worker.ts"
+    "db:refresh-worker": "tsx scripts/refresh/worker.ts",
+    "whatsapp:build": "pnpm --filter @ou/whatsapp-worker build",
+    "whatsapp": "pnpm --filter @ou/whatsapp-worker worker"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -35,7 +37,8 @@
     "react-dom": "^19.0.0",
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.5.5",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@ou/communications": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

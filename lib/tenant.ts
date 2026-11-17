@@ -2,6 +2,7 @@ const reservedSegments = new Set([
   "_next",
   "api",
   "attendance",
+  "communications",
   "dashboard",
   "expenses",
   "favicon.ico",

@@ -24,7 +24,10 @@ export const preservedTables = [
   'organization_modules', 'programs', 'program_modules', 'program_members',
   'platform_accounts', 'platform_admin_organization_access', 'program_templates',
   'organization_enabled_programs', 'invitations', 'module_catalog', 'program_template_modules',
-  'development_refresh_targets', 'development_refresh_jobs'
+  'development_refresh_targets', 'development_refresh_jobs',
+  // Outbound accounts, schedules and history stay isolated per environment.
+  'message_worker_connections', 'message_templates', 'message_destinations',
+  'message_schedules', 'message_executions', 'message_worker_commands', 'message_worker_heartbeats'
 ] as const;
 
 export type RefreshJob = {

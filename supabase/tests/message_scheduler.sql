@@ -1,0 +1,20 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select plan(12);
+select has_table('public','message_schedules','message schedules exist');
+select has_table('public','message_executions','execution history exists');
+select ok(not has_table_privilege('anon','public.message_templates','SELECT'),'anonymous users cannot read templates');
+select ok(not has_table_privilege('authenticated','public.message_worker_connections','SELECT'),'worker credential hashes are private');
+select ok(not has_table_privilege('authenticated','public.message_executions','UPDATE'),'admins cannot fabricate dispatch outcomes');
+select ok(not has_table_privilege('authenticated','public.message_schedules','DELETE'),'history-preserving soft deletion is required');
+insert into organizations(id,name,slug) values('91000000-0000-4000-8000-000000000001','Scheduler test','scheduler-test');
+insert into message_worker_connections(id,organization_id,token_hash) values
+('92000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000001',encode(extensions.digest(repeat('a',64),'sha256'),'hex'));
+select is((select automatic_enabled from message_worker_connections where id='92000000-0000-4000-8000-000000000001'),false,'automatic sending starts disabled');
+select throws_ok($$select message_worker('92000000-0000-4000-8000-000000000001',null,'93000000-0000-4000-8000-000000000001','heartbeat','{}')$$,'P0001','Invalid worker credential','null credentials cannot authenticate');
+select lives_ok($$select message_worker('92000000-0000-4000-8000-000000000001',repeat('a',64),'93000000-0000-4000-8000-000000000001','heartbeat','{"state":"ready","compatible":true}')$$,'worker acquires a lease');
+select throws_ok($$select message_worker('92000000-0000-4000-8000-000000000001',repeat('a',64),'93000000-0000-4000-8000-000000000002','heartbeat','{"state":"ready","compatible":true}')$$,'P0001','Worker already active','concurrent instance is rejected');
+select throws_ok($$insert into message_schedules(organization_id,name,body,frequency,timezone) values('91000000-0000-4000-8000-000000000001','Invalid','Body','daily','Unknown/Zone')$$,'P0001','Invalid timezone','invalid timezones are rejected');
+select ok((select relrowsecurity from pg_class where oid='public.message_executions'::regclass),'execution history has RLS');
+select * from finish();
+rollback;

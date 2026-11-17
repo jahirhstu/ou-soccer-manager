@@ -1,0 +1,25 @@
+{
+  "name": "@ou/whatsapp-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js",
+    "doctor": "node dist/cli.js doctor",
+    "worker": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@ou/communications": "workspace:*",
+    "@supabase/supabase-js": "^2.46.1",
+    "whatsapp-web.js": "1.34.8",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.7.2",
+    "esbuild": "^0.24.2"
+  }
+}

@@ -206,3 +206,7 @@ Payments are manually recorded by admins. Payment writes create ledger entries a
 - Public reports use tenant/program-scoped RPCs. Financial values are private unless explicitly enabled.
 
 For a fresh development database, apply migrations through `supabase/migrations/090_import_program_scope.sql`. Existing development databases require migration-history reconciliation first; see [the branch integration notes](docs/develop-main-integration.md). The existing seed command bootstraps its admin as the platform owner; a comprehensive architecture-aware dataset is a separate follow-up.
+
+## Scheduled WhatsApp messaging
+
+Organization admins can manage templates, schedules, and connection/history under **Communications**. A local Mac worker posts to selected WhatsApp groups; automatic sending starts disabled. See [setup and operations](docs/whatsapp-scheduler.md).
