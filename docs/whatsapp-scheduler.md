@@ -206,7 +206,19 @@ select
 
 If both are false, apply the complete migration 111 file to the intended project through your migration/release process. If both are true, do not rerun it. For a partial result, inspect the existing schema before proceeding.
 
-For an existing installation, apply migration 111 first, deploy the updated website second, and only then rebuild/restart the Mac worker. Existing workers continue using their old API during this transition. Production and development databases each need their own migration. No credentials, schedules, or activation settings need to be replaced.
+### Install migration 112 for schedule-aware idle mode
+
+Apply [migration 112](../supabase/migrations/112_schedule_aware_whatsapp_worker.sql) after migration 111. It adds adaptive mode, next check-in, acknowledged configuration, and hourly lease support. Check the columns before applying it:
+
+```sql
+select column_name from information_schema.columns
+where table_schema='public' and table_name='message_worker_connections'
+  and column_name in ('adaptive_coordination','worker_mode','next_check_at','acknowledged_configuration_revision');
+```
+
+Four rows indicate these columns are present; also confirm migration 112 is recorded as applied. Do not rerun a completed migration. The adaptive worker refuses to start against the older coordination protocol.
+
+For an existing installation, apply migrations 111 and 112 first, deploy the updated website second, and only then rebuild/restart the Mac worker. Existing workers continue using their old API during this transition. Production and development databases each need their own migration. No credentials, schedules, or activation settings need to be replaced.
 
 ## Step 5 — Configure and deploy the website on Vercel
 
@@ -411,7 +423,7 @@ On your phone:
 3. Choose **Link a device**, unlock if asked, and scan the QR displayed on the Mac.
 4. Wait for the local page to show `ready`.
 
-The page refreshes every five seconds. If it shows `starting` or no code, let it refresh. On slower first-time loads, WhatsApp initialization can take up to two minutes after the browser starts. A clean restart releases its lease; after a crash, a replacement can wait up to ninety seconds for the old lease to expire (thirty seconds for a legacy worker). If initialization fails, the local page shows a connection issue and `events.log` records a safe diagnostic category such as `initialization_timeout`; QR contents and session data are not logged. Its local access link expires ten minutes after worker startup. To renew it, run these commands separately, wait for the worker to start, and scan again:
+The page refreshes every five seconds. If it shows `starting` or no code, let it refresh. On slower first-time loads, WhatsApp initialization can take up to two minutes after the browser starts. A clean restart releases its lease; after a crash, a replacement can wait up to 65 minutes after an idle crash, or ninety seconds after an active crash, for the old lease to expire (thirty seconds for a legacy worker). If initialization fails, the local page shows a connection issue and `events.log` records a safe diagnostic category such as `initialization_timeout`; QR contents and session data are not logged. Its local access link expires ten minutes after worker startup. To renew it, run these commands separately, wait for the worker to start, and scan again:
 
 ```sh
 npx --yes pnpm@11.9.0 whatsapp restart
@@ -423,7 +435,7 @@ npx --yes pnpm@11.9.0 whatsapp pair
 
 Do not type just `http://127.0.0.1:43821` into the browser: the `pair` command opens the required private tokenized URL. The page must be opened on the Mac, not on the phone. The phone scans the code; it does not visit the URL.
 
-Return to **Website → Communications → Connections & History** and click **Refresh**. Allow roughly a minute for initial connection/group discovery. After startup, automatic group discovery runs every fifteen minutes; use **Refresh WhatsApp groups** to request it sooner.
+Return to **Website → Communications → Connections & History** and click **Refresh**. Allow roughly a minute for initial connection/group discovery. While active, automatic group discovery runs every fifteen minutes; use **Refresh WhatsApp groups** to request it sooner.
 
 **Success:** all of the following are true:
 
@@ -638,11 +650,11 @@ If absent, run `install`. If already loaded, use `restart`. Run commands from yo
 
 ### Worker is offline/stale or logs show RPC/heartbeat failure
 
-Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migrations 110 and 111 are complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Updated workers synchronize about every thirty seconds and become stale after ninety seconds. Legacy workers continue to report every ten seconds with a thirty-second stale threshold. The dashboard uses the interval reported by the worker.
+Check internet access, then the Supabase URL/public key and the matching worker ID/token in the private file. If you replaced the credential in the website, the previous token is invalid: enter the new one and restart the worker. Check that the website and worker point to the same project, and that migrations 110, 111, and 112 are complete. Generic RPC errors can indicate any of these problems; do not assume every failure means the token was revoked. Adaptive workers synchronize every thirty seconds while active and hourly while idle. Active check-ins become overdue after ninety seconds; idle check-ins become overdue five minutes after the reported next check. Idle is an intentional browser pause, not a live confirmation that the Mac is online. Legacy workers continue to report every ten seconds with a thirty-second stale threshold. The dashboard uses the interval reported by the worker.
 
 ### `Worker already running` or another worker owns the lease
 
-Do not start another sender. Stop any foreground diagnostic worker with Control + C, or stop the background service using its command. A database lease may take up to ninety seconds to expire after a crash (thirty seconds for a legacy worker). A normal restart reuses the same local account session; deleting session files is not the first troubleshooting step.
+Do not start another sender. Stop any foreground diagnostic worker with Control + C, or stop the background service using its command. A database lease may take up to 65 minutes while idle, or ninety seconds while active, to expire after a crash (thirty seconds for a legacy worker). A normal restart reuses the same local account session; deleting session files is not the first troubleshooting step.
 
 ### Pairing page unavailable, expired, or no QR
 
@@ -685,15 +697,20 @@ A local crash can leave an actual dispatch timestamp unavailable. Acknowledgemen
 
 ## Efficient coordination and Free plan usage
 
-The updated worker combines its heartbeat, control requests, expiry checks, and change detection into one small request every **30 seconds**. A continuously running idle worker therefore makes approximately **2,880 coordination requests per day**, plus startup, configuration/group changes, execution authorization/results, and recovery requests. This is a design baseline, not a measurement of total project usage or a guarantee of staying under a plan allowance.
+The adaptive worker combines its heartbeat, controls, expiry checks, and change detection into one request. It uses **30-second coordination while active** and **hourly coordination while idle**. A full idle day has approximately **24 coordination requests**, plus startup, materialization, changes, results, and recovery. This counts RPC requests, not individual SQL statements or total project usage.
 
-Schedules and pending work are cached locally and returned again only when their versions change. Upcoming executions are prepared in batches for the existing 24-hour horizon. Local timers prepare messages before their deadlines and dispatch at the scheduled time; there is no one-second Supabase queue polling. A fresh database authorization is still required immediately before every send, and the five-second lateness rule remains in effect.
+- Starting or restarting opens a **30-minute maintenance window** for pairing, tests, and group refresh. Restart with `npx --yes pnpm@11.9.0 whatsapp restart` from this repository. The restart command gracefully stops the service before starting it again, releasing ownership on a normal shutdown.
+- With automatic sending enabled, cached enabled schedules wake the worker locally **30 minutes before each occurrence**. It stays active until **five minutes after the last occurrence**, longer if another window overlaps or a send is in flight. Recurring schedules use their configured timezone. Keep the Mac awake and online; waking does not send missed messages late.
+- Idle mode closes Chrome **without logging out**. The saved WhatsApp session is reused on wake; authentication loss may still require pairing. Group discovery and automatic browser reconnect attempts stop while idle.
+- Group discovery runs on connection, every **15 minutes while active**, or on request. The cloud list is written only when changed during the worker process.
+- New or edited schedules and automation changes reach an idle worker at its next hourly check. **Restart the Mac worker for earlier pickup.** A newly added schedule can miss its send time if it has not been synchronized. The website shows pending configuration until the worker accepts it.
+- Tests require an active, ready WhatsApp connection and still expire after 60 seconds. Restart for tests, pairing, or an immediate group refresh while idle. Other controls can wait for the next check; they do not remotely wake the Mac.
+- The active lease lasts **90 seconds**; the idle lease lasts **65 minutes**. A recent idle check-in describes the last reported intent, not continuous availability. A crash can delay a replacement until its lease expires; never launch a competing sender to bypass it.
+- Schedules and executions remain cached locally. Local timers prepare and dispatch messages; there is no one-second database queue polling. Final database authorization remains required for every send, with the five-second lateness rule unchanged.
+- Uncertain sends are never automatically resent. Durable result evidence survives restart. Recovery runs while active and at idle coordination, avoiding continuous idle retries.
+- Visible dashboard tabs poll status every 30 seconds while active and hourly while idle, with an earlier refresh at a reported wake boundary. Focus, manual refresh, and mutations also refresh status. Hidden tabs do not poll.
 
-- A worker lease lasts **90 seconds** and is renewed every 30 seconds. Successful synchronization is separate from the WhatsApp browser's `ready` state.
-- New schedules, test requests, reconnect/disconnect, and group-refresh requests normally reach the worker within **30 seconds**. Tests still expire after 60 seconds; configure schedules at least a minute ahead.
-- Group discovery runs at startup/reconnection, every **15 minutes**, or on request. The cloud group list is written only when it changes.
-- A stable `unknown` outcome is reported once. Failed result reports use bounded backoff up to five minutes, with evidence retained locally. The worker never retries sending the uncertain message itself.
-- Visible dashboard tabs poll lightweight status every 30 seconds. Hidden tabs do not poll; templates/destinations and execution summaries are fetched as needed rather than repeatedly returning full message history bodies.
+Deploy **migration 112 first**, then the website, then rebuild and restart the Mac worker. Existing fixed-interval workers keep their existing behavior until upgraded. This must be done separately for development and production databases.
 
 The private `rpc-metrics.json` file contains per-operation request counts and estimated JSON request/response bytes, with no payload contents, credentials, or message text. It is saved at startup, hourly, and on a clean stop. To inspect those local counters:
 
@@ -701,7 +718,7 @@ The private `rpc-metrics.json` file contains per-operation request counts and es
 cat "$HOME/Library/Application Support/OU Soccer WhatsApp/rpc-metrics.json"
 ```
 
-Counters cover the current worker process and exclude HTTP/TLS overhead, dashboard traffic, and the rest of the application. Supabase's Usage dashboard remains authoritative for database size and egress. No additional database writes are made for these metrics.
+Counters cover worker database RPCs and exclude Edge Function alert reports, HTTP/TLS overhead, dashboard traffic, and the rest of the application. Supabase's Usage dashboard remains authoritative for database size and egress. No additional database writes are made for these metrics.
 
 ## Reference: templates, timing, and private files
 
@@ -756,3 +773,7 @@ Historical implementation verification on November 17, 2026:
 - The live Supabase pgTAP suite, live migration, service installation, phone pairing, real sends, and login/sleep/network recovery were not performed during that implementation verification. Completing the steps above is still necessary for your actual account.
 
 This guide documents setup; rewriting it does not apply migrations, deploy the website, install the service, pair an account, or activate sending.
+
+## Failure and recovery email alerts
+
+Organization admins can configure an alert recipient in **Connections & History → Worker email alerts**. Alerts remain disabled until sender setup and a successful test email. See [email alert setup and operation](whatsapp-email-alerts.md) for migration 113, Resend verification, Edge Function secrets, independent Cron monitoring, and rollout verification.

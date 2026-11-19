@@ -8,7 +8,7 @@ afterEach(()=>vi.useRealTimers());
 const at=Date.parse('2026-11-17T15:00:00Z');
 const execution:Attempt={id:'execution',attempt_id:'attempt',body:'Hello',group_id:'group@g.us',scheduled_at:new Date(at).toISOString()};
 function packet():CoordinationPacket{return{configuration_revision:'1',work_revision:'1',automatic_enabled:true,last_scan_at:'2026-11-17T00:00:00Z',commands:[],executions:[],configuration:{destinations:[],schedules:[{id:'schedule',organization_id:'org',created_at:'2026-11-16T00:00:00Z',updated_at:'2026-11-16T00:00:00Z',revision:1,name:'Test',body:'Sunday {{next_sunday_date}}',frequency:'daily',timezone:'America/Toronto',local_time:'10:00:00',local_date:null,weekdays:[1],venue:'Bell',match_time:'7 AM',enabled:true,destination_id:null}]}};}
-it('uses approximately 2880 coordination requests per 24 idle hours without one-second polling',async()=>{
+it('retains 2880 daily coordination requests for the fixed 30-second cadence',async()=>{
   vi.useFakeTimers();const run=vi.fn(async()=>{});const loop=startCoordination(run,vi.fn());
   await loop.run();await vi.advanceTimersByTimeAsync(86400000-SYNC_INTERVAL_MS);loop.stop();expect(run).toHaveBeenCalledTimes(2880);
 });
@@ -74,4 +74,47 @@ it('keeps prepared timers for unrelated configuration changes but cancels edited
   const queue=new LocalExecutionQueue({now:Date.now,prepare:async()=>true,send,authorize:async()=>e,ready:async()=>true,journal:()=>{},report:async()=>{},onError:vi.fn()});
   queue.update([e],true);await vi.advanceTimersByTimeAsync(1);queue.invalidateSchedules([{id:'s',revision:1}]);await vi.advanceTimersByTimeAsync(9999);expect(send).toHaveBeenCalledOnce();queue.stop();
   send.mockClear();vi.setSystemTime(at-10000);queue.update([e],true);await vi.advanceTimersByTimeAsync(1);queue.invalidateSchedules([{id:'s',revision:2}]);await vi.advanceTimersByTimeAsync(10000);expect(send).not.toHaveBeenCalled();queue.stop();
+});
+
+import { WorkerActivity, IDLE_INTERVAL_MS, ACTIVE_WINDOW_MS, COOLDOWN_MS } from '../../apps/whatsapp-worker/src/coordination';
+it('provides a startup maintenance window, then uses 24 hourly idle requests per day',async()=>{
+  vi.useFakeTimers();vi.setSystemTime(at);
+  const activity=new WorkerActivity(at);
+  expect(activity.snapshot(at+ACTIVE_WINDOW_MS-1,[],false).mode).toBe('active');
+  vi.setSystemTime(at+ACTIVE_WINDOW_MS);
+  expect(activity.snapshot(Date.now(),[],false).mode).toBe('idle');
+  const run=vi.fn(async()=>{}),loop=startCoordination(run,vi.fn(),()=>activity.snapshot(Date.now(),[],false).nextWakeAt);
+  await loop.run();await vi.advanceTimersByTimeAsync(86400000-IDLE_INTERVAL_MS);loop.stop();expect(run).toHaveBeenCalledTimes(24);
+});
+it('wakes for a cached 10:30 schedule at 10:00 and keeps a five-minute cooldown',()=>{
+  const activity=new WorkerActivity(at-86400000);
+  const s={...packet().configuration!.schedules[0],frequency:'once' as const,local_date:'2026-11-17',local_time:'10:30:00'};
+  expect(activity.snapshot(at-60000,[s],true)).toEqual({mode:'idle',nextWakeAt:at});
+  expect(activity.snapshot(at,[s],true).mode).toBe('active');
+  expect(activity.snapshot(at+ACTIVE_WINDOW_MS+COOLDOWN_MS-1,[s],true).mode).toBe('active');
+  expect(activity.snapshot(at+ACTIVE_WINDOW_MS+COOLDOWN_MS,[s],true).mode).toBe('idle');
+  expect(activity.snapshot(at,[s],false).mode).toBe('idle');
+  expect(activity.snapshot(at,[],false,true).mode).toBe('active');
+});
+it('keeps overlapping windows active and respects timezone recurrence after sleep',()=>{
+  const activity=new WorkerActivity(at-86400000),s=packet().configuration!.schedules[0];
+  const later={...s,id:'later',local_time:'10:30:00'};
+  expect(activity.snapshot(at+6*60000,[s,later],true).mode).toBe('active');
+  expect(activity.snapshot(at+86400000-30*60000,[s],true).mode).toBe('active');
+  expect(activity.snapshot(at+86400000+COOLDOWN_MS,[s],true).mode).toBe('idle');
+  expect(activity.snapshot(at+6*60000,[],true).mode).toBe('idle');
+});
+it('an idle timer wakes at the cached window boundary before the next hour',async()=>{
+  vi.useFakeTimers();vi.setSystemTime(at-10*60000);
+  const activity=new WorkerActivity(at-86400000),s={...packet().configuration!.schedules[0],local_time:'10:30:00'};
+  const run=vi.fn(async()=>{}),loop=startCoordination(run,vi.fn(),()=>activity.snapshot(Date.now(),[s],true).nextWakeAt);
+  await loop.run();await vi.advanceTimersByTimeAsync(10*60000);expect(run).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(30000);expect(run).toHaveBeenCalledTimes(3);loop.stop();
+});
+it('drains a pending coordination before shutdown and prevents further requests',async()=>{
+  vi.useFakeTimers();let finish!:()=>void;
+  const loop=startCoordination(()=>new Promise<void>(resolve=>{finish=resolve;}),vi.fn());
+  const running=loop.run();await Promise.resolve();let stopped=false;
+  const stop=loop.stop().then(()=>{stopped=true;});await Promise.resolve();expect(stopped).toBe(false);
+  finish();await running;await stop;expect(stopped).toBe(true);expect(vi.getTimerCount()).toBe(0);
 });

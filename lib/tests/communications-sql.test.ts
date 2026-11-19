@@ -10,13 +10,15 @@ const token='a'.repeat(64);
 async function rpc(operation:string,data:unknown={},who=instance){const result=await db.query<{result:any}>('select message_worker($1,$2,$3,$4,$5) result',[worker,token,who,operation,JSON.stringify(data)]);return result.rows[0].result;}
 beforeAll(async()=>{
   db=new PGlite({extensions:{pgcrypto}});
-  await db.exec(`create role anon;create role authenticated;create schema auth;create schema extensions;create extension pgcrypto with schema extensions;
+  await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;create schema extensions;create extension pgcrypto with schema extensions;
     create table organizations(id uuid primary key);insert into organizations values('${org}'),('${other}');
     create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
     create function organization_role(oid uuid) returns text language sql stable as $$select case when auth.uid()='${admin}'::uuid and oid='${org}'::uuid then 'admin' else 'player' end$$;
     grant usage on schema auth,public to anon,authenticated;`);
   await db.exec(readFileSync('supabase/migrations/110_whatsapp_message_scheduler.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/111_efficient_whatsapp_coordination.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/112_schedule_aware_whatsapp_worker.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/113_whatsapp_email_alerts.sql','utf8'));
 },30000);
 beforeEach(async()=>{
   await db.exec(`begin;select set_config('request.jwt.claim.sub','${admin}',true);
@@ -162,4 +164,132 @@ it('queues an authorized on-demand group refresh',async()=>{
 });
 it('does not let anonymous callers bypass the new worker authentication',async()=>{
   await expect(db.query("select message_worker_coordinate($1,null,$2,'{}')",[worker,instance])).rejects.toThrow('Invalid worker credential');
+});
+
+it('negotiates hourly idle check-ins with a 65-minute lease and prevents a competing sender',async()=>{
+  const first=await coordinate({mode:'idle',next_check_at:new Date(Date.now()+3600000).toISOString()});
+  const row=(await db.query<any>('select worker_mode,state,heartbeat_interval_seconds,extract(epoch from lease_until-heartbeat_at)::int lease from message_worker_connections')).rows[0];
+  expect(row).toEqual({worker_mode:'idle',state:'idle',heartbeat_interval_seconds:3600,lease:3900});
+  expect(first.configuration).toBeTruthy();
+  await expect(coordinate({},'40000000-0000-4000-8000-000000000002')).rejects.toThrow('already active');
+});
+it('permits idle automation activation but rejects tests until WhatsApp is active',async()=>{
+  await coordinate({mode:'idle'});
+  await db.query("select message_admin($1,'automation',$2)",[org,JSON.stringify({enabled:true})]);
+  await expect(db.query("select message_admin($1,'test',$2)",[org,JSON.stringify({destination_id:destination,body:'Test'})])).rejects.toThrow('Connected worker');
+});
+it('returns to the active lease on wake and to legacy liveness on rollback',async()=>{
+  await coordinate({mode:'idle'});await coordinate();
+  let row=(await db.query<any>('select worker_mode,heartbeat_interval_seconds,extract(epoch from lease_until-heartbeat_at)::int lease from message_worker_connections')).rows[0];
+  expect(row).toEqual({worker_mode:'active',heartbeat_interval_seconds:30,lease:90});
+  await coordinate({mode:'idle'});await rpc('heartbeat',{state:'ready',compatible:true});
+  row=(await db.query<any>('select worker_mode,heartbeat_interval_seconds from message_worker_connections')).rows[0];expect(row).toEqual({worker_mode:'active',heartbeat_interval_seconds:10});
+});
+it('acknowledges accepted configuration after batch materialization and exposes later edits as pending',async()=>{
+  const packet=await coordinate({mode:'idle'});
+  await db.query('select message_worker_materialize_batch($1,$2,$3,$4)',[worker,token,instance,JSON.stringify({configuration_revision:packet.configuration_revision,items:[]})]);
+  let status=(await db.query<any>("select message_admin($1,'status') result",[org])).rows[0].result;
+  expect(status.acknowledged_configuration_revision).toBe(status.configuration_revision);
+  await db.exec("update message_schedules set body='New content'");
+  status=(await db.query<any>("select message_admin($1,'status') result",[org])).rows[0].result;
+  expect(status.acknowledged_configuration_revision).not.toBe(status.configuration_revision);
+});
+it('releases an idle lease for an immediate clean restart and rejects overdue idle activation',async()=>{
+  await coordinate({mode:'idle'});await coordinate({release:true});
+  await coordinate({mode:'idle'},'40000000-0000-4000-8000-000000000002');
+  await db.exec("update message_worker_connections set next_check_at=now()-interval '6 minutes'");
+  await expect(db.query("select message_admin($1,'automation',$2)",[org,JSON.stringify({enabled:true})])).rejects.toThrow('compatible connected worker');
+});
+
+async function rejectAlertSql(run:()=>Promise<unknown>,message:string){await db.exec('savepoint expected_alert_error');await expect(run()).rejects.toThrow(message);await db.exec('rollback to savepoint expected_alert_error');}
+async function enableAlerts(){
+  await db.query("select message_alert_admin($1,'save',$2)",[org,JSON.stringify({recipient:'admin@example.com'})]);
+  await db.exec("update message_alert_settings set test_succeeded_at=clock_timestamp(),enabled=true");
+}
+async function alertReport(events:unknown[],credential:string|null=token){return(await db.query<any>('select message_alert_report($1,$2,$3) result',[worker,credential,JSON.stringify(events)])).rows[0].result;}
+it('requires a tested recipient and disables alerts when the recipient changes',async()=>{
+  await db.query("select message_alert_admin($1,'save',$2)",[org,JSON.stringify({recipient:'admin@example.com'})]);
+  await rejectAlertSql(()=>db.query("select message_alert_admin($1,'enable','{\"enabled\":true}')",[org]),'successful test');
+  await db.exec('update message_alert_settings set test_succeeded_at=now(),enabled=true');
+  await alertReport([{category:'connection',failed:true}]);
+  await db.query("select message_alert_admin($1,'save',$2)",[org,JSON.stringify({recipient:'new@example.com'})]);
+  const s=(await db.query<any>('select * from message_alert_settings')).rows[0];expect(s.enabled).toBe(false);expect(s.test_succeeded_at).toBeNull();
+  expect((await db.query<any>('select status from message_alert_outbox')).rows[0].status).toBe('cancelled');
+  expect((await db.query<any>('select resolved_at from message_alert_incidents')).rows[0].resolved_at).toBeTruthy();
+});
+it('deduplicates repeated failures across restarts and queues exactly one recovery',async()=>{
+  await enableAlerts();
+  for(let i=0;i<3;i++)await alertReport([{category:'connection',failed:true}]);
+  for(let i=0;i<3;i++)await alertReport([{category:'connection',failed:false}]);
+  expect((await db.query<any>('select kind from message_alert_outbox order by created_at')).rows.map(r=>r.kind)).toEqual(['failure','recovery']);
+  await alertReport([{category:'connection',failed:true}]);expect((await db.query('select * from message_alert_incidents')).rows).toHaveLength(2);
+});
+it('does not persist incident emails while alerts are disabled and validates worker credentials',async()=>{
+  await alertReport([{category:'connection',failed:true}]);expect((await db.query('select * from message_alert_outbox')).rows).toHaveLength(0);
+  await rejectAlertSql(()=>alertReport([],null),'Invalid worker credential');
+  await rejectAlertSql(()=>alertReport([{category:'unknown',failed:true}]),'Invalid alert category');
+  await rejectAlertSql(()=>alertReport([{category:'connection'}]),'Invalid alert state');
+});
+it('monitors active and idle allowances without alerting for intentional suspension',async()=>{
+  await enableAlerts();await coordinate({mode:'idle',next_check_at:new Date(Date.now()+3600000).toISOString()});
+  await db.query('select message_alert_monitor()');expect((await db.query('select * from message_alert_incidents')).rows).toHaveLength(0);
+  await db.exec("update message_worker_connections set next_check_at=now()-interval '6 minutes'");await db.query('select message_alert_monitor()');
+  expect((await db.query<any>('select category from message_alert_incidents')).rows[0].category).toBe('worker_overdue');
+  await coordinate();await db.query('select message_alert_monitor()');
+  expect((await db.query<any>('select resolved_at from message_alert_incidents')).rows[0].resolved_at).toBeTruthy();
+  await db.exec("update message_worker_connections set heartbeat_at=now()-interval '91 seconds'");await db.query('select message_alert_monitor()');
+  expect((await db.query<any>('select count(*)::int n from message_alert_incidents where resolved_at is null')).rows[0].n).toBe(1);
+});
+it('allows normal initialization, then detects connection timeout and ignores explicit logout',async()=>{
+  await enableAlerts();await coordinate({state:'starting'});await db.query('select message_alert_monitor()');
+  expect((await db.query('select * from message_alert_incidents')).rows).toHaveLength(0);
+  await db.exec("update message_worker_connections set state_changed_at=now()-interval '121 seconds'");await db.query('select message_alert_monitor()');
+  expect((await db.query<any>('select category from message_alert_incidents')).rows[0].category).toBe('connection');
+  await coordinate({state:'logged_out'});await db.query('select message_alert_monitor()');
+  expect((await db.query('select * from message_alert_incidents')).rows).toHaveLength(1);
+});
+it('queues uncertain results in the result transaction and resolves only after confirmed delivery',async()=>{
+  await enableAlerts();await rpc('prepare',{id:execution});const attempt=await rpc('authorize',{id:execution});
+  await rpc('result',{id:execution,attempt_id:attempt.attempt_id,status:'unknown',dispatch_at:new Date().toISOString()});
+  expect((await db.query<any>('select category from message_alert_incidents')).rows[0].category).toBe('delivery_unknown');
+  await rpc('result',{id:execution,attempt_id:attempt.attempt_id,status:'unknown'});expect((await db.query('select * from message_alert_outbox')).rows).toHaveLength(1);
+  await rpc('result',{id:execution,attempt_id:attempt.attempt_id,status:'sent'});expect((await db.query('select * from message_alert_outbox')).rows).toHaveLength(2);
+});
+it('claims emails once, freezes provider payload, and sends recovery only after failure acceptance',async()=>{
+  await enableAlerts();await alertReport([{category:'connection',failed:true},{category:'connection',failed:false}]);
+  const first=(await db.query<any>('select message_alert_claim() result')).rows[0].result;expect(first).toHaveLength(1);expect(first[0].kind).toBe('failure');
+  expect((await db.query<any>('select message_alert_claim() result')).rows[0].result).toEqual([]);
+  const item=first[0];
+  for(const subject of ['original','changed'])await db.query('select message_alert_prepare($1,$2,$3)',[item.id,item.claim_id,JSON.stringify({subject})]);
+  expect((await db.query<any>('select email_payload from message_alert_outbox where id=$1',[item.id])).rows[0].email_payload.subject).toBe('original');
+  await db.query('select message_alert_complete($1,$2,$3)',[item.id,item.claim_id,'provider-id']);
+  expect((await db.query<any>('select message_alert_claim() result')).rows[0].result[0].kind).toBe('recovery');
+});
+it('retries failures with bounded attempts and rejects stale completion claims',async()=>{
+  await enableAlerts();await alertReport([{category:'coordinate',failed:true}]);
+  for(let i=0;i<5;i++){
+    const item=(await db.query<any>('select message_alert_claim() result')).rows[0].result[0];expect(item.attempts).toBe(i+1);
+    await db.query('select message_alert_complete($1,$2,null,$3)',[item.id,'90000000-0000-4000-8000-000000000001','provider_unreachable']);
+    expect((await db.query<any>('select status from message_alert_outbox')).rows[0].status).toBe('sending');
+    await db.query('select message_alert_complete($1,$2,null,$3)',[item.id,item.claim_id,'provider_unreachable']);
+    await db.exec("update message_alert_outbox set next_attempt_at=now()-interval '1 second'");
+  }
+  expect((await db.query<any>('select status from message_alert_outbox')).rows[0].status).toBe('failed');
+  expect((await db.query<any>('select message_alert_claim() result')).rows[0].result).toEqual([]);
+});
+it('only marks the current recipient tested after provider acceptance',async()=>{
+  await db.query("select message_alert_admin($1,'save',$2)",[org,JSON.stringify({recipient:'admin@example.com'})]);
+  await db.query("select message_alert_admin($1,'test')",[org]);
+  const item=(await db.query<any>('select message_alert_claim() result')).rows[0].result[0];
+  await db.query('select message_alert_complete($1,$2,$3)',[item.id,item.claim_id,'test-provider-id']);
+  await db.query("select message_alert_admin($1,'enable','{\"enabled\":true}')",[org]);
+  expect((await db.query<any>('select enabled from message_alert_settings')).rows[0].enabled).toBe(true);
+});
+it('restricts alert data and reporting to authorized administrators and the service',async()=>{
+  await enableAlerts();await db.exec('set local role authenticated');
+  await rejectAlertSql(()=>db.query('select * from message_alert_settings'),'permission denied');
+  await rejectAlertSql(()=>db.query('select message_alert_report($1,$2,\'[]\')',[worker,token]),'permission denied');
+  await rejectAlertSql(()=>db.query("select message_alert_admin($1,'status')",[other]),'Organization administrator required');
+  await db.exec('reset role');await db.exec('set local role service_role');
+  expect((await db.query<any>('select message_alert_report($1,$2,\'[]\') result',[worker,token])).rows[0].result.organization_id).toBe(org);
 });

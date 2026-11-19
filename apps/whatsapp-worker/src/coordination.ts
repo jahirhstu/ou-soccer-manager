@@ -1,9 +1,15 @@
 import { occurrences, renderMessage, type Schedule } from '../../../packages/communications/src/index.js';
 import type { Attempt } from './dispatch.js';
 export const SYNC_INTERVAL_MS = 30000;
+export const IDLE_INTERVAL_MS = 60 * 60000;
+export const ACTIVE_WINDOW_MS = 30 * 60000;
+export const COOLDOWN_MS = 5 * 60000;
 export const GROUP_INTERVAL_MS = 15 * 60000;
 export type WorkerSchedule = Schedule & { updated_at: string };
 export interface CoordinationPacket {
+  adaptive_coordination?: boolean;
+  alert_revision?: string | null;
+  alert_pending?: boolean;
   configuration_revision: string; work_revision: string; automatic_enabled: boolean;
   last_scan_at: string; commands: Array<{id:string;command:string}>;
   configuration: { schedules: WorkerSchedule[]; destinations: Array<{id:string;group_id:string}> } | null;
@@ -47,10 +53,38 @@ export class ExecutionPlanner {
   }
 }
 
-/** One independently scheduled coordination request, including during browser maintenance. */
-export function startCoordination(run:()=>Promise<void>,onError:(error:unknown)=>void) {
-  let busy=false,stopped=false;
-  const tick=async()=>{if(busy||stopped)return;busy=true;try{await run();}catch(error){onError(error);}finally{busy=false;}};
-  const timer=setInterval(()=>void tick(),SYNC_INTERVAL_MS);
-  return {run:tick,stop:()=>{stopped=true;clearInterval(timer);}};
+export type WorkerMode = 'active' | 'idle';
+/** Local schedule calculations never query Supabase. Includes the post-send cooldown. */
+export class WorkerActivity {
+  private maintenanceUntil: number;
+  constructor(startedAt: number) { this.maintenanceUntil = startedAt + ACTIVE_WINDOW_MS; }
+  maintain(now: number) { this.maintenanceUntil = Math.max(this.maintenanceUntil, now + ACTIVE_WINDOW_MS); }
+  snapshot(now: number, schedules: WorkerSchedule[], automaticEnabled: boolean, inFlight = false) {
+    let active = now < this.maintenanceUntil || inFlight;
+    let nextWakeAt = now + IDLE_INTERVAL_MS;
+    if (automaticEnabled) for (const schedule of schedules) {
+      if (!schedule.enabled) continue;
+      const dates = occurrences(schedule, new Date(now - COOLDOWN_MS + 1).toISOString(), new Date(now + IDLE_INTERVAL_MS + ACTIVE_WINDOW_MS + 1).toISOString());
+      for (const date of dates) {
+        const at = Date.parse(date);
+        if (at - ACTIVE_WINDOW_MS <= now) active = true;
+        else nextWakeAt = Math.min(nextWakeAt, at - ACTIVE_WINDOW_MS);
+      }
+    }
+    return { mode: active ? 'active' as const : 'idle' as const, nextWakeAt: active ? now + SYNC_INTERVAL_MS : nextWakeAt };
+  }
+}
+
+/** Browser work stays independent; explicit runs also reset the next coordination deadline. */
+export function startCoordination(run:()=>Promise<void>,onError:(error:unknown)=>void,nextAt:()=>number=()=>Date.now()+SYNC_INTERVAL_MS) {
+  let stopped=false,due=Date.now()+SYNC_INTERVAL_MS,pending:Promise<void>|null=null;
+  const tick=():Promise<void>=>{
+    if(stopped)return Promise.resolve();
+    if(pending)return pending;
+    pending=Promise.resolve().then(run).catch(onError).finally(()=>{pending=null;due=nextAt();});
+    return pending;
+  };
+  // A local clock check also handles wake from Mac sleep without hourly timer drift.
+  const timer=setInterval(()=>{if(Date.now()>=due)void tick();},1000);
+  return {run:tick,stop:async()=>{stopped=true;clearInterval(timer);await pending;}};
 }

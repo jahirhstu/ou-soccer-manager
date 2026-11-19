@@ -22,10 +22,12 @@ export async function communicationsData() {
     db.from('message_schedules').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('created_at'),
     db.from('message_destinations').select('*').eq('organization_id', organizationId).eq('available', true).order('name'),
     db.from('message_executions').select(executionSummary).eq('organization_id', organizationId).order('scheduled_at', { ascending: false }).limit(100),
-    db.rpc('message_admin', { p_organization_id: organizationId, p_operation: 'status' })
+    db.rpc('message_admin', { p_organization_id: organizationId, p_operation: 'status' }),
+    db.rpc('message_alert_admin', { p_organization_id: organizationId, p_operation: 'status' })
   ]);
   for (const result of results) if (result.error) throw new Error(result.error.message);
-  return { templates: results[0].data ?? [], schedules: results[1].data ?? [], destinations: results[2].data ?? [], executions: results[3].data ?? [], connection: results[4].data, organizationId };
+  const sender = await db.functions.invoke('whatsapp-alerts', { body: { action: 'status', organization_id: organizationId } });
+  return { alerts: results[5].data, alertSender: sender.error ? { senderConfigured: false, monitorConfigured: false } : sender.data, templates: results[0].data ?? [], schedules: results[1].data ?? [], destinations: results[2].data ?? [], executions: results[3].data ?? [], connection: results[4].data, organizationId };
 }
 export async function communicationsStatus(configurationRevision?: string, workRevision?: string, includeHistory = false) {
   const { db, organizationId } = await context();
@@ -39,13 +41,34 @@ export async function communicationsStatus(configurationRevision?: string, workR
     if (result.error) throw new Error(result.error.message);
     executions = result.data ?? [];
   }
-  return { connection, configurationChanged, executions };
+  let alerts;
+  if (includeHistory) {
+    const result = await db.rpc('message_alert_admin', { p_organization_id: organizationId, p_operation: 'status' });
+    if (result.error) throw new Error(result.error.message);
+    alerts = result.data;
+  }
+  return { connection, configurationChanged, executions, alerts };
 }
 export async function communicationsMutation(operation: string, input: unknown) {
   try {
     const { db, organizationId } = await context();
     const data = z.record(z.unknown()).parse(input);
-    if (operation === 'schedule') {
+    if (operation === 'alert_save' || operation === 'alert_enable') {
+      const payload = operation === 'alert_save' ? z.object({ recipient: z.string().trim().email().max(254) }).parse(data) : z.object({ enabled: z.boolean() }).parse(data);
+      if (operation === 'alert_enable' && 'enabled' in payload && payload.enabled) {
+        const status = await db.functions.invoke('whatsapp-alerts', { body: { action: 'status', organization_id: organizationId } });
+        if (status.error || !status.data?.senderConfigured || !status.data?.monitorConfigured) throw new Error('Configure the email sender and monitor secrets before enabling alerts');
+      }
+      const { error } = await db.rpc('message_alert_admin', { p_organization_id: organizationId, p_operation: operation === 'alert_save' ? 'save' : 'enable', p_data: payload });
+      if (error) throw error;
+      if (operation === 'alert_enable' && 'enabled' in payload && payload.enabled) {
+        const check = await db.functions.invoke('whatsapp-alerts', { body: { action: 'check', organization_id: organizationId } });
+        if (check.error) throw new Error('Alerts enabled; the initial check will be retried by the scheduled monitor');
+      }
+    } else if (operation === 'alert_test') {
+      const { error } = await db.functions.invoke('whatsapp-alerts', { body: { action: 'test', organization_id: organizationId } });
+      if (error) throw new Error('Test email could not be sent. Check the sender setup and delivery status; wait one minute before retrying.');
+    } else if (operation === 'schedule') {
       const schedule = scheduleSchema.parse(data);
       const dates = upcoming(schedule);
       if (schedule.enabled && !dates.length) throw new Error('Schedule must have a future execution');

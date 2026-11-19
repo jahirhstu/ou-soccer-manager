@@ -53,3 +53,16 @@ describe('connection diagnostics',()=>{
     expect(calls.initialize).toHaveBeenCalledOnce();finish();await Promise.all([first,second]);
   });
 });
+
+it('suspends without logout, ignores intentional disconnect events, and resumes saved authentication',async()=>{
+  const provider=new WhatsAppProvider(config);await provider.connect();
+  await provider.suspend();calls.on.get('disconnected')!('LOGOUT');
+  expect(calls.logout).not.toHaveBeenCalled();expect(provider.state).toBe('idle');
+  expect(await provider.ready()).toBe(false);
+  await provider.connect();calls.on.get('ready')!();expect(provider.state).toBe('ready');expect(calls.initialize).toHaveBeenCalledTimes(2);
+});
+it('does not emit a connection failure for intentional logout',async()=>{
+  const provider=new WhatsAppProvider(config),diagnostic=vi.fn();provider.onDiagnostic=diagnostic;
+  await provider.disconnect();calls.on.get('disconnected')!('LOGOUT');
+  expect(provider.state).toBe('logged_out');expect(diagnostic).not.toHaveBeenCalled();
+});

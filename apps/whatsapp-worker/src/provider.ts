@@ -30,13 +30,14 @@ export class WhatsAppProvider {
   onDiagnostic: (event: string, fields: Record<string, unknown>) => void = () => {};
   private starting: Promise<void> | null = null;
   private reconnecting = false;
+  private suspended = false;
   onAck: (id: string, ack: number) => void = () => {};
   constructor(config: Config) {
     this.client = new Client({ authTimeoutMs: 120000, webVersionCache: { type: 'local', path: join(root, 'web-cache') }, authStrategy: new LocalAuth({ dataPath: join(root, 'session') }), puppeteer: { executablePath: browserPath(config), headless: true } });
-    this.client.on('qr', qr => { this.qr = qr; this.qrAt = Date.now(); this.state = 'qr_required'; this.lastError = null; this.onDiagnostic('whatsapp_qr_available', {}); });
-    this.client.on('ready', () => { this.state = 'ready'; this.qr = null; this.lastError = null; this.onDiagnostic('whatsapp_ready', {}); });
-    this.client.on('auth_failure', () => { this.state = 'auth_failure'; this.qr = null; this.lastError = 'WhatsApp could not authenticate the local session. Reconnect and check Linked Devices on your phone.'; this.onDiagnostic('whatsapp_auth_failure', {}); });
-    this.client.on('disconnected', reason => {
+    this.client.on('qr', qr => { if (this.suspended) return; this.qr = qr; this.qrAt = Date.now(); this.state = 'qr_required'; this.lastError = null; this.onDiagnostic('whatsapp_qr_available', {}); });
+    this.client.on('ready', () => { if (this.suspended) return; this.state = 'ready'; this.qr = null; this.lastError = null; this.onDiagnostic('whatsapp_ready', {}); });
+    this.client.on('auth_failure', () => { if (this.suspended) return; this.state = 'auth_failure'; this.qr = null; this.lastError = 'WhatsApp could not authenticate the local session. Reconnect and check Linked Devices on your phone.'; this.onDiagnostic('whatsapp_auth_failure', {}); });
+    this.client.on('disconnected', reason => { if (this.suspended) return;
       this.state = 'disconnected'; this.qr = null;
       this.lastError = 'WhatsApp disconnected. The worker will attempt to reconnect.';
       const knownReasons = ['LOGOUT', 'CONFLICT', 'UNPAIRED', 'UNPAIRED_IDLE', 'TIMEOUT', 'DEPRECATED_VERSION', 'PROXYBLOCK', 'TOS_BLOCK', 'SMB_TOS_BLOCK'];
@@ -46,13 +47,14 @@ export class WhatsAppProvider {
   }
   async connect() {
     if (this.starting) return this.starting;
+    this.suspended = false;
     this.state = 'starting';
     this.onDiagnostic('whatsapp_initializing', {});
     this.starting = this.client.initialize().catch(error => {
       if(this.state !== 'auth_failure') this.state = 'disconnected';
       const diagnostic = initializationDiagnostic(error);
       this.lastError = diagnostic.message;
-      this.onDiagnostic('whatsapp_initialization_failed', { reason: diagnostic.code });
+      if(!this.suspended)this.onDiagnostic('whatsapp_initialization_failed', { reason: diagnostic.code });
     }).finally(() => { this.starting = null; });
     return this.starting;
   }
@@ -61,7 +63,15 @@ export class WhatsAppProvider {
     this.reconnecting=true; this.state='starting';
     try { await this.client.destroy().catch(() => {}); await this.connect(); } finally { this.reconnecting=false; }
   }
-  async disconnect() { this.state = 'logged_out'; this.qr = null; await this.client.logout().catch(() => {}); await this.client.destroy().catch(() => {}); this.state = 'logged_out'; }
+  /** Close Chrome while retaining LocalAuth. Explicit disconnect remains a logout. */
+  async suspend() {
+    this.suspended = true;
+    if (this.starting) await this.starting;
+    try { await this.client.destroy(); }
+    catch (error) { this.state = 'disconnected'; throw error; }
+    this.qr = null; this.state = 'idle';
+  }
+  async disconnect() { this.suspended = true; this.state = 'logged_out'; this.qr = null; await this.client.logout().catch(() => {}); await this.client.destroy().catch(() => {}); this.state = 'logged_out'; }
   async groups() { return (await this.client.getChats()).filter(chat => chat.isGroup).map(chat => ({ id: chat.id._serialized, name: chat.name })); }
   async ready() { return this.state === 'ready' && await this.client.getState() === 'CONNECTED'; }
   async acknowledgement(id: string) { const message=await this.client.getMessageById(id);return message ? Number(message.ack) : null; }

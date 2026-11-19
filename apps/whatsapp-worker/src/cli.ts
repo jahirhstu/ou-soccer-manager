@@ -46,7 +46,8 @@ async function main(){
     process.exitCode=launch('bootstrap',domain,plist);return;
   }
   if(command==='stop'){process.exitCode=launch('bootout',service);return;}
-  if(command==='restart'){const status=spawnSync('/bin/launchctl',['print',service],{stdio:'ignore'}).status;process.exitCode=status===0?launch('kickstart','-k',service):launch('bootstrap',domain,plist);return;}
+  if(command==='restart'){const status=spawnSync('/bin/launchctl',['print',service],{stdio:'ignore'}).status;if(status===0 && launch('bootout',service)!==0){process.exitCode=1;return;}
+    process.exitCode=launch('bootstrap',domain,plist);return;}
   if(command==='status'){process.exitCode=launch('print',service);return;}
   throw new Error('Commands: init, doctor, install, start, stop, restart, status, pair');
 }
