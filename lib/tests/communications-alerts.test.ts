@@ -7,12 +7,13 @@ function fakeFetch(overrides:Record<string,unknown>={}){
   return vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=String(input),name=url.split('/').pop()!;
     if(name==='message_alert_report')return Response.json({organization_id:'org',enabled:true});
-    if(name==='message_alert_admin')return Response.json({});
+    if(name==='message_alert_admin'){const args=JSON.parse(String(init?.body));return Response.json(args.p_operation==='test'?{id:'new-test'}:{deliveries:overrides.deliveries??[]});}
     if(name==='message_alert_monitor')return Response.json(null);
     if(name==='message_alert_claim')return Response.json(overrides.items??[item]);
     if(name==='message_alert_prepare')return Response.json(JSON.parse(String(init?.body)).p_email);
     if(name==='message_alert_complete')return Response.json(null);
     if(url==='https://api.resend.com/emails'){
+      if(overrides.rejectId && (init?.headers as Record<string,string>)['Idempotency-Key']===`whatsapp-alert/${overrides.rejectId}`)return Response.json({message:'Old sender rejected'},{status:403});
       if(overrides.providerError)throw new Error('PRIVATE upstream error');
       return Response.json({id:'provider-id'},{status:200});
     }
@@ -86,4 +87,19 @@ it('immediately follows up with a different failure detected during an in-flight
   const alerts=new WorkerAlerts({save:vi.fn(),send});alerts.update('connection',true);await Promise.resolve();
   alerts.update('startup',true);done({enabled:true});await alerts.flush();
   expect(send).toHaveBeenLastCalledWith([{category:'startup',failed:true}]);
+});
+it('reports success for the new test even when an older queued email fails in the same batch',async()=>{
+  const fetcher=fakeFetch({items:[{...item,id:'old-test'},{...item,id:'new-test',kind:'test'}],rejectId:'old-test',deliveries:[{id:'new-test',status:'sent'},{id:'old-test',status:'pending',error_code:'provider_http_403'}]});
+  const result=await createAlertHandler(env,fetcher)(request({action:'test',organization_id:'org'},{authorization:'Bearer USER_JWT'}));
+  expect(result.status).toBe(200);expect(await result.json()).toEqual({test:{id:'new-test',status:'sent'}});
+});
+it('reports queued rather than successful when the new test is being handled by another monitor',async()=>{
+  const fetcher=fakeFetch({items:[],deliveries:[{id:'new-test',status:'sending'}]});
+  const result=await createAlertHandler(env,fetcher)(request({action:'test',organization_id:'org'},{authorization:'Bearer USER_JWT'}));
+  expect(result.status).toBe(202);expect((await result.json()).test.status).toBe('pending');
+});
+it('still reports a failure of the newly requested test',async()=>{
+  const fetcher=fakeFetch({providerError:true,deliveries:[{id:'new-test',status:'pending',error_code:'provider_unreachable'}]});
+  const result=await createAlertHandler(env,fetcher)(request({action:'test',organization_id:'org'},{authorization:'Bearer USER_JWT'}));
+  expect(result.status).toBe(502);expect((await result.json()).test.status).toBe('failed');
 });

@@ -66,8 +66,10 @@ export async function communicationsMutation(operation: string, input: unknown) 
         if (check.error) throw new Error('Alerts enabled; the initial check will be retried by the scheduled monitor');
       }
     } else if (operation === 'alert_test') {
-      const { error } = await db.functions.invoke('whatsapp-alerts', { body: { action: 'test', organization_id: organizationId } });
-      if (error) throw new Error('Test email could not be sent. Check the sender setup and delivery status; wait one minute before retrying.');
+      const { data: delivery, error } = await db.functions.invoke('whatsapp-alerts', { body: { action: 'test', organization_id: organizationId } });
+      if (error) throw new Error('Test email could not be confirmed. Check its latest delivery status before retrying; wait one minute between tests.');
+      revalidatePath('/communications');
+      return { success: true, testEmailStatus: delivery?.test?.status === 'sent' ? 'sent' as const : 'pending' as const };
     } else if (operation === 'schedule') {
       const schedule = scheduleSchema.parse(data);
       const dates = upcoming(schedule);

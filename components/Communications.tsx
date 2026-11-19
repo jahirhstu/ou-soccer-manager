@@ -60,7 +60,7 @@ export function Communications({ initial }: { initial: Data }) {
       const result = await communicationsMutation(operation, payload);
       if (result.error) { toast.error(result.error); if (operation.startsWith('alert_')) await refresh(); return; }
       if (operation === 'provision' && 'result' in result) setCredentials(result.result);
-      toast.success(operation === 'alert_test' ? 'Test email accepted by the email provider; check your inbox' : operation === 'test' ? 'Test queued; expires in 60 seconds' : operation === 'refresh_groups' ? 'Group refresh requested; allow up to 30 seconds' : ['schedule', 'delete_schedule', 'automation', 'setup'].includes(operation) ? 'Saved. Changes apply at the next worker check; restart the Mac worker to apply sooner.' : 'Saved');
+      toast.success(operation === 'alert_test' ? ('testEmailStatus' in result && result.testEmailStatus === 'sent' ? 'Test email accepted by the email provider; check your inbox' : 'Test email queued; delivery is not yet confirmed. Refresh delivery history shortly.') : operation === 'test' ? 'Test queued; expires in 60 seconds' : operation === 'refresh_groups' ? 'Group refresh requested; allow up to 30 seconds' : ['schedule', 'delete_schedule', 'automation', 'setup'].includes(operation) ? 'Saved. Changes apply at the next worker check; restart the Mac worker to apply sooner.' : 'Saved');
       after?.(); await refresh();
     });
   }

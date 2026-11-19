@@ -28,3 +28,8 @@ it('shows accepted test delivery, current incidents, and email failures to the a
   const html=renderToStaticMarkup(<WorkerEmailAlerts alerts={{...alertSettings,settings:{...alertSettings.settings!,test_succeeded_at:new Date().toISOString()},open_incidents:[{category:'connection',execution_id:null,opened_at:new Date().toISOString()}],deliveries:[{id:'delivery',kind:'failure',status:'failed',created_at:new Date().toISOString(),error_code:'provider_http_403'}]}} sender={{senderConfigured:true,monitorConfigured:true}} pending={false} onMutate={()=>{}}/>);
   expect(html).toContain('Open issue: connection');expect(html).toContain('provider_http_403');expect(html).not.toContain('disabled="">Enable alerts');
 });
+it('keeps saved delivery attempts in a collapsed history instead of showing them as active alerts',()=>{
+  const html=renderToStaticMarkup(<WorkerEmailAlerts alerts={{...alertSettings,deliveries:[{id:'old-test',kind:'test',status:'pending',created_at:new Date().toISOString(),error_code:'provider_http_403'}]}} sender={{senderConfigured:true,monitorConfigured:true}} pending={false} onMutate={()=>{}}/>);
+  expect(html).toContain('<details');expect(html).not.toMatch(/<details[^>]*\bopen\b/);expect(html).toContain('Email delivery history (1)');
+  expect(html.indexOf('provider_http_403')).toBeGreaterThan(html.indexOf('<details'));expect(html.indexOf('provider_http_403')).toBeLessThan(html.indexOf('</details>'));
+});

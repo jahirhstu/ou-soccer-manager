@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { privateDirectory, readConfig, root, persist } from './config.js';
+import { bootstrapAfterStop } from './service.js';
 import { browserDoctor } from './provider.js';
 const label='app.ou-soccer.whatsapp', domain=`gui/${process.getuid!()}`, service=`${domain}/${label}`;
 const plist=join(homedir(),'Library/LaunchAgents',label+'.plist');
@@ -47,7 +48,11 @@ async function main(){
   }
   if(command==='stop'){process.exitCode=launch('bootout',service);return;}
   if(command==='restart'){const status=spawnSync('/bin/launchctl',['print',service],{stdio:'ignore'}).status;if(status===0 && launch('bootout',service)!==0){process.exitCode=1;return;}
-    process.exitCode=launch('bootstrap',domain,plist);return;}
+    let output='';
+    const bootstrap=()=>{const result=spawnSync('/bin/launchctl',['bootstrap',domain,plist],{encoding:'utf8'});output=(result.stdout??'')+(result.stderr??'')+(result.error?.message??'');return result.status??1;};
+    process.exitCode=await bootstrapAfterStop(bootstrap,()=>spawnSync('/bin/launchctl',['print',service],{stdio:'ignore'}).status===0,ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+    if(output)process.stderr.write(output);
+    return;}
   if(command==='status'){process.exitCode=launch('print',service);return;}
   throw new Error('Commands: init, doctor, install, start, stop, restart, status, pair');
 }

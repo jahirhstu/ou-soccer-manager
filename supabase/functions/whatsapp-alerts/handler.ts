@@ -47,6 +47,7 @@ export function createAlertHandler(env:AlertEnvironment,fetcher:typeof fetch=fet
   }
   return async(request:Request):Promise<Response>=>{
     if(request.method!=='POST')return response(405,{error:'POST required'});
+    let queuedTest:string|undefined;
     try{
       const raw=await request.text();if(raw.length>16000)return response(413,{error:'Request too large'});
       let body:Json;try{body=JSON.parse(raw);}catch{return response(400,{error:'Invalid JSON'});}
@@ -72,10 +73,20 @@ export function createAlertHandler(env:AlertEnvironment,fetcher:typeof fetch=fet
       if(body.action==='status')return response(200,{senderConfigured:configured(),monitorConfigured:!!env.monitorSecret});
       if(!configured())return response(503,{error:'Configure Resend and the verified sender in Edge Function secrets first'});
       if(body.action==='test'){
-        try{await rpc('message_alert_admin',{p_organization_id:body.organization_id,p_operation:'test'},token);}catch{return response(400,{error:'Save a recipient first and wait one minute between test emails'});}
+        try{const test=await rpc('message_alert_admin',{p_organization_id:body.organization_id,p_operation:'test'},token);queuedTest=test.id;}catch{return response(400,{error:'Save a recipient first and wait one minute between test emails'});}
       }else await rpc('message_alert_monitor',{p_organization_id:body.organization_id});
       const result=await deliver(body.organization_id);
+      if(body.action==='test'){
+        const status=await rpc('message_alert_admin',{p_organization_id:body.organization_id,p_operation:'status'},token);
+        const test=status.deliveries?.find((entry:Json)=>entry.id===queuedTest);
+        if(test?.status==='sent')return response(200,{test:{id:queuedTest,status:'sent'}});
+        if(test?.error_code||test?.status==='failed'||test?.status==='cancelled')return response(502,{error:'Test email delivery failed; check its delivery status',test:{id:queuedTest,status:'failed'}});
+        return response(202,{test:{id:queuedTest,status:'pending'}});
+      }
       return response(result.failed?502:200,result.failed?{error:'Email delivery failed; check the delivery status',...result}:result);
-    }catch{return response(503,{error:'Alert service unavailable; queued emails will be retried by the monitor'});}
+    }catch{
+      if(queuedTest)return response(202,{test:{id:queuedTest,status:'pending'}});
+      return response(503,{error:'Alert service unavailable; queued emails will be retried by the monitor'});
+    }
   };
 }
