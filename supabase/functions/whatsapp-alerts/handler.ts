@@ -25,7 +25,9 @@ async function equalSecret(a:string,b:string){
 export function createAlertHandler(env:AlertEnvironment,fetcher:typeof fetch=fetch){
   const rpc=async(name:string,args:Json,key=env.serviceKey)=>{
     const result=await fetcher(`${env.supabaseUrl}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:env.serviceKey,Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify(args),signal:AbortSignal.timeout(8000)});
-    if(!result.ok)throw new Error('database_operation_failed');return result.json();
+    if(!result.ok)throw new Error('database_operation_failed');
+    // PostgREST returns an empty body for successful void RPCs (monitor and completion).
+    const body=await result.text();return body.trim()?JSON.parse(body):null;
   };
   const configured=()=>!!env.resendKey&&!!env.from;
   async function deliver(org:string|null){

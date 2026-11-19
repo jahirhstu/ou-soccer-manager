@@ -8,10 +8,10 @@ function fakeFetch(overrides:Record<string,unknown>={}){
     const url=String(input),name=url.split('/').pop()!;
     if(name==='message_alert_report')return Response.json({organization_id:'org',enabled:true});
     if(name==='message_alert_admin'){const args=JSON.parse(String(init?.body));return Response.json(args.p_operation==='test'?{id:'new-test'}:{deliveries:overrides.deliveries??[]});}
-    if(name==='message_alert_monitor')return Response.json(null);
+    if(name==='message_alert_monitor')return overrides.emptyRpc?new Response(null,{status:204}):Response.json(null);
     if(name==='message_alert_claim')return Response.json(overrides.items??[item]);
     if(name==='message_alert_prepare')return Response.json(JSON.parse(String(init?.body)).p_email);
-    if(name==='message_alert_complete')return Response.json(null);
+    if(name==='message_alert_complete')return overrides.emptyRpc?new Response(null,{status:204}):Response.json(null);
     if(url==='https://api.resend.com/emails'){
       if(overrides.rejectId && (init?.headers as Record<string,string>)['Idempotency-Key']===`whatsapp-alert/${overrides.rejectId}`)return Response.json({message:'Old sender rejected'},{status:403});
       if(overrides.providerError)throw new Error('PRIVATE upstream error');
@@ -102,4 +102,10 @@ it('still reports a failure of the newly requested test',async()=>{
   const fetcher=fakeFetch({providerError:true,deliveries:[{id:'new-test',status:'pending',error_code:'provider_unreachable'}]});
   const result=await createAlertHandler(env,fetcher)(request({action:'test',organization_id:'org'},{authorization:'Bearer USER_JWT'}));
   expect(result.status).toBe(502);expect((await result.json()).test.status).toBe('failed');
+});
+
+it('delivers offline alerts when monitor and completion RPCs succeed with HTTP 204',async()=>{
+  const fetcher=fakeFetch({emptyRpc:true});
+  const result=await createAlertHandler(env,fetcher)(request({action:'monitor'},{'x-monitor-secret':'MONITOR_SECRET'}));
+  expect(result.status).toBe(200);expect(await result.json()).toMatchObject({sent:1,failed:0});
 });
