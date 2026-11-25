@@ -9,7 +9,7 @@ function words(value: string) {
 export function importIdentityCandidates(name: string, players: ImportIdentity[], aliases: ImportAlias[] = []) {
   const key = words(name);
   if (!key) return [];
-  const matches = (value: string) => words(value) === key || words(value).startsWith(`${key} `);
+  const matches = (value: string) => words(value).includes(key);
   const aliasIds = new Set(aliases.filter(alias => matches(alias.alias_name)).map(alias => alias.player_id));
   return players.filter(player => matches(player.display_name) || aliasIds.has(player.id));
 }
