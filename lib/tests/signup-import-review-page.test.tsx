@@ -81,3 +81,18 @@ it('labels ambiguity unresolved and updates attendance and payment impact after 
  expect(resolved).not.toContain('Resolve or ignore every player name');
  expect(resolved).not.toMatch(/<button[^>]*disabled=""[^>]*>Confirm import/);
 });
+
+it('prefills the canonical existing playground name and ID',async()=>{
+ records.playgrounds=[{id:'ground',name:'Bell Sensplex Stittsville'}];
+ const base=await mocks.parse();mocks.parse.mockResolvedValue({...base,session:{date:'2099-11-29',location:'Bell Sensplex'}});
+ const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(html.match(/<input[^>]*name="createSessionLocation"[^>]*>/)?.[0]).toContain('value="Bell Sensplex Stittsville"');
+ expect(html).toContain('name="createSessionPlaygroundId" value="ground"');
+});
+it('requires a playground selection when an exact name also partially matches another venue',async()=>{
+ records.playgrounds=[{id:'ground',name:'Bell Sensplex'},{id:'east',name:'Bell Sensplex East'}];
+ const base=await mocks.parse();mocks.parse.mockResolvedValue({...base,session:{date:'2099-11-29',location:'Bell Sensplex'}});
+ const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(html).toContain('Multiple playgrounds match');expect(html).toContain('Choose existing playground');
+ expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Confirm import/);
+});

@@ -52,3 +52,34 @@ it('automatic signup calls the same confirmation path, applies allocation and ch
  expect(result.error).toBeUndefined();expect(records.attendance.find(row=>row.player_id==='one').status).toBe('waitlisted');expect(records.attendance.find(row=>row.player_id==='two').status).toBe('confirmed');expect(records.session_player_charges.map(row=>row.player_id)).toEqual(['two']);expect(run.status).toBe('imported');
  await confirmWhatsAppImport(null,form,context);expect(records.session_player_charges).toHaveLength(1);expect(records.ledger_entries).toHaveLength(1);expect(records.whatsapp_imports.filter(row=>row.id===id)).toHaveLength(1);
 });
+
+function playgroundImport(selectedId?:string,sessionId='__create__') {
+ const raw='Date: November 29, 2099\nPlayers\n1. Wali';
+ const form=new FormData();
+ for(const [key,value] of Object.entries({rawText:raw,seasonId:season,sessionId,createSessionDate:'2099-11-29',createSessionLocation:'Bell Sensplex',createSessionPricePerSession:'13',match_Wali:'one'}))form.set(key,value);
+ if(selectedId)form.set('createSessionPlaygroundId',selectedId);
+ form.set('parsedJson',JSON.stringify({rawText:raw,importType:'session_update',confidence:'high',session:{date:'2099-11-29',location:'Bell Sensplex'},players:[{name:'Wali'}],attendance:[{playerName:'Wali',status:'confirmed'}],payments:[],teams:[],matches:[],goals:[],dropouts:[],warnings:[]}));
+ return confirmWhatsAppImport(null,form,{client:importMemoryDB(records) as any,profile:{id:'admin',role:'admin',organization_id:'org'},program:{id:'program'}});
+}
+it('saves the canonical existing playground and never inserts a playground',async()=>{
+ records.playgrounds=[{id:'ground',name:'Bell Sensplex Stittsville',organization_id:'org'}];
+ const result=await playgroundImport();expect(result.error).toBeUndefined();
+ expect(records.sessions.at(-1)).toMatchObject({playground_id:'ground',location:'Bell Sensplex Stittsville'});expect(records.playgrounds).toHaveLength(1);
+});
+it('blocks ambiguous playgrounds and accepts an explicit scoped selection',async()=>{
+ records.playgrounds=[{id:'ground',name:'Bell Sensplex',organization_id:'org'},{id:'east',name:'Bell Sensplex East',organization_id:'org'}];
+ expect((await playgroundImport()).error).toContain('Multiple playgrounds match');expect(records.sessions).toHaveLength(1);
+ expect((await playgroundImport('east')).error).toBeUndefined();expect(records.sessions.at(-1)).toMatchObject({playground_id:'east',location:'Bell Sensplex East'});
+});
+it('rejects a playground from another organization',async()=>{
+ records.playgrounds=[{id:'foreign',name:'Bell Sensplex',organization_id:'other'}];
+ expect((await playgroundImport('foreign')).error).toContain('unavailable in this organization');expect(records.sessions).toHaveLength(1);
+});
+it('preserves an assigned session playground unless explicitly changed',async()=>{
+ records.sessions[0].playground_id='assigned';records.sessions[0].location='Existing venue';
+ expect((await playgroundImport(undefined,session)).error).toBeUndefined();
+ expect(records.sessions[0]).toMatchObject({playground_id:'assigned',location:'Existing venue'});
+});
+it('keeps unmatched locations as text without creating a playground',async()=>{
+ expect((await playgroundImport()).error).toBeUndefined();expect(records.sessions.at(-1)).toMatchObject({playground_id:null,location:'Bell Sensplex'});expect(records.playgrounds).toHaveLength(0);
+});

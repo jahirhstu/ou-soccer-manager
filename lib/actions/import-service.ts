@@ -1,4 +1,4 @@
-import { importedSessionName, matchExistingImportPlayground } from "../import-session-details";
+import { importedSessionName, importPlaygroundCandidates } from "../import-session-details";
 import { createSupabaseAdminClient } from "../supabase/admin";
 import { randomUUID } from "node:crypto";
 import type { SignupRun } from "../signup-import-service";
@@ -155,7 +155,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
         if(claim.error)throw new Error('This signup is already being processed');
       }
       if(!formData.get('createSessionName'))formData.set('createSessionName',sessions.data?.[0]?.name??importedSessionName(linkedRun.target_date));
-      for(const [key,value] of Object.entries({createSessionDate:linkedRun.target_date,createSessionLocation:parsed.session?.location,createSessionStartTime:parsed.session?.startTime,createSessionEndTime:parsed.session?.endTime,createSessionPricePerSession:parsed.session?.pricePerSession}))if(value!=null)formData.set(key,String(value));
+      for(const [key,value] of Object.entries({createSessionDate:linkedRun.target_date,createSessionLocation:parsed.session?.location,createSessionStartTime:parsed.session?.startTime,createSessionEndTime:parsed.session?.endTime,createSessionPricePerSession:parsed.session?.pricePerSession}))if(value!=null && (key!=="createSessionLocation" || !formData.has(key)))formData.set(key,String(value));
     }
     const [{ data: identityPlayers, error: identityError }, { data: identityAliases, error: identityAliasError }] = await Promise.all([
       supabase.from("players").select("id,display_name").eq("organization_id", profile.organization_id),
@@ -659,15 +659,18 @@ async function resolveTargetSessionId({
   if (!requestedSessionId) return undefined;
   if (requestedSessionId !== "__create__") {
     const location = nullableFormValue(formData, "createSessionLocation");
-    const playground = location ? await findExistingPlayground(supabase, location, organizationId, parsed.rawText) : undefined;
+    const current = await supabase.from("sessions").select("playground_id,location").eq("id",requestedSessionId).eq("organization_id",organizationId).single();
+    if (current.error) throw new Error(current.error.message);
+    const preserve = Boolean(current.data?.playground_id && formValue(formData,"changePlayground") !== "yes" && !formValue(formData,"createSessionPlaygroundId"));
+    const playground = preserve ? undefined : await findExistingPlayground(supabase, location ?? "", organizationId, parsed.rawText, formValue(formData,"createSessionPlaygroundId"));
     const sessionDate = formValue(formData, "createSessionDate") || parsed.session?.date;
     if (!sessionDate) throw new Error("Parsed session needs a date before it can be updated.");
     const duration = formValue(formData, "createSessionDuration");
     const updatePayload: Record<string, unknown> = {
-      playground_id: playground?.id ?? null,
+      playground_id: preserve ? current.data.playground_id : playground?.id ?? null,
       name: formValue(formData, "createSessionName") || importedSessionName(sessionDate),
       session_date: sessionDate,
-      location: playground?.name ?? location,
+      location: preserve ? current.data.location : playground?.name ?? location,
       start_time: nullableFormValue(formData, "createSessionStartTime"),
       end_time: nullableFormValue(formData, "createSessionEndTime"),
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? null
@@ -688,7 +691,7 @@ async function resolveTargetSessionId({
 
   const duration = formValue(formData, "createSessionDuration") || parsed.session?.duration;
   const location = formValue(formData, "createSessionLocation") || parsed.session?.location || null;
-  const playground = location ? await findExistingPlayground(supabase, location, organizationId, parsed.rawText) : undefined;
+  const playground = await findExistingPlayground(supabase, location ?? "", organizationId, parsed.rawText, formValue(formData,"createSessionPlaygroundId"));
   const { data, error } = await supabase
     .from("sessions")
     .insert({
@@ -731,12 +734,20 @@ async function findExistingPlayground(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   name: string,
   organizationId: string,
-  rawText?: string
+  rawText?: string,
+  selectedId?: string
 ) {
   const { data, error } = await supabase.from("playgrounds").select("id,name").eq("organization_id", organizationId).limit(1000);
   if (error) throw new Error(error.message);
   if ((data?.length ?? 0) >= 1000) throw new Error("Playground scope exceeds the safe matching limit.");
-  return matchExistingImportPlayground(name, data ?? [], rawText);
+  if (selectedId) {
+    const selected = data?.find(p=>p.id===selectedId);
+    if (!selected) throw new Error("Selected playground is unavailable in this organization.");
+    return selected;
+  }
+  const candidates = importPlaygroundCandidates(name,data ?? [],rawText);
+  if (candidates.length > 1) throw new Error("Multiple playgrounds match. Select the correct playground before confirming.");
+  return candidates[0];
 }
 
 async function getEffectiveSessionPrice(

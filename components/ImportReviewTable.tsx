@@ -4,7 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import";
 import type { ParsedWhatsAppImport, Player, PlayerAlias, Playground, Season, Session } from "@/lib/types";
-import { importedSessionName } from "@/lib/import-session-details";
+import { importedSessionName, importPlaygroundCandidates } from "@/lib/import-session-details";
 import { previewSignupAllocation, type SignupAllocationContext } from "@/lib/signup-allocation";
 import { money } from "@/lib/utils";
 import { PlayerSelect } from "./FormControls";
@@ -114,7 +114,16 @@ export function ImportReviewTable({
   const [selectedSessionId, setSelectedSessionId] = useState(defaultSessionId);
   const selectedSeason = seasons.find((season) => season.id === selectedSeasonId);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
-  const selectedPlayground = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
+  const [locationEdit, setLocationEdit] = useState<{key:string; text:string; id:string} | null>(null);
+  const locationKey = `${selectedSessionId}:${state?.parsed?.rawText ?? ""}`;
+  const editingLocation = locationEdit?.key === locationKey ? locationEdit : null;
+  const originalLocation = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
+  const locationText = editingLocation?.text ?? originalLocation;
+  const playgroundCandidates = importPlaygroundCandidates(locationText, playgrounds, parsed?.rawText);
+  const existingPlayground = !editingLocation && selectedSession?.playground_id ? playgrounds.find(p=>p.id===selectedSession.playground_id) : undefined;
+  const selectedGround = editingLocation?.id ? playgrounds.find(p=>p.id===editingLocation.id) : existingPlayground ?? (playgroundCandidates.length===1 ? playgroundCandidates[0] : undefined);
+  const selectedPlayground = selectedGround?.name ?? locationText;
+  const ambiguousPlayground = !selectedGround && playgroundCandidates.length > 1;
 
   useEffect(() => {
     if (state?.parsed) {
@@ -307,7 +316,14 @@ export function ImportReviewTable({
                 </label>
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
                   Playground / location
-                  <input className="input bg-white" defaultValue={selectedPlayground} key={`session-location-${selectedSessionId}-${parsed.rawText.length}`} list="playground-options" name="createSessionLocation" placeholder="Location" />
+                  <input className="input bg-white" value={editingLocation && !editingLocation.id ? editingLocation.text : selectedPlayground} onChange={event=>setLocationEdit({key:locationKey,text:event.target.value,id:""})} list="playground-options" name="createSessionLocation" placeholder="Location" />
+                  <input type="hidden" name="createSessionPlaygroundId" value={selectedGround?.id ?? ""}/>
+                  <input type="hidden" name="changePlayground" value={editingLocation ? "yes" : "no"}/>
+                  {playgroundCandidates.length > 1 && <select className="input" aria-label="Choose existing playground" value={selectedGround?.id ?? ""} required={ambiguousPlayground} onChange={event=>setLocationEdit({key:locationKey,text:locationText,id:event.target.value})}>
+                    <option value="">Select the correct playground</option>
+                    {playgroundCandidates.map(ground=><option key={ground.id} value={ground.id}>{ground.name}</option>)}
+                  </select>}
+                  {ambiguousPlayground && <span className="text-sm text-amber-800">Multiple playgrounds match. Select the correct playground before confirming.</span>}
                   <datalist id="playground-options">
                     {playgrounds.map((playground) => <option key={playground.id} value={playground.name} />)}
                   </datalist>
@@ -400,7 +416,7 @@ export function ImportReviewTable({
           </details>
           {parsed.warnings.length ? <ReviewBlock title="Warnings" rows={parsed.warnings} warning /> : null}
           {allocationPreview?.draft.needs_review && <p className="text-sm text-amber-800">{allocationPreview.draft.overflow ? "Season members exceed session capacity. Resolve capacity before confirming." : "Resolve or ignore every player name before confirming. Attendance updates automatically."}</p>}
-          <button className="btn-primary w-fit" disabled={pending || confirmPending || initialImport?.status === "imported" || Boolean(allocationPreview?.draft.needs_review)}>
+          <button className="btn-primary w-fit" disabled={ambiguousPlayground || pending || confirmPending || initialImport?.status === "imported" || Boolean(allocationPreview?.draft.needs_review)}>
             {confirmPending ? "Confirming..." : "Confirm import"}
           </button>
         </form>

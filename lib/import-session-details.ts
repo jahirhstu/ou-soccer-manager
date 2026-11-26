@@ -6,20 +6,30 @@ export function importedSessionName(date: string) {
   const suffix = day % 100 >= 11 && day % 100 <= 13 ? 'th' : ({1:'st',2:'nd',3:'rd'} as Record<number,string>)[day % 10] ?? 'th';
   return `${value.toLocaleString('en-CA', {month:'long', timeZone:'UTC'})} ${day}${suffix}`;
 }
-export function matchExistingImportPlayground<T extends {id:string;name:string}>(location: string, playgrounds: T[], rawText = ''): T | undefined {
-  const words = (value:string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim().split(/\s+/).filter(Boolean);
-  const same = (a:string[],b:string[]) => a.join(' ') === b.join(' ');
-  const input = words(location);
-  const exact = playgrounds.filter(p => same(words(p.name),input));
-  if (exact.length) return exact.length === 1 ? exact[0] : undefined;
-  const contained = (name:string[],text:string[]) => {
-    let cursor=0;
-    for (const token of name) { const index=text.indexOf(token,cursor); if(index<0)return false;cursor=index+1; }
-    return name.length>0;
+export function importPlaygroundCandidates<T extends {id:string;name:string}>(location: string, playgrounds: T[], rawText = ''): T[] {
+  const normalized = (value:string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const input = normalized(location);
+  // Ordered venue words also cover addresses inserted between the venue and suburb.
+  const containsWords = (name:string, text:string) => {
+    let cursor = 0;
+    const tokens = text.split(' ');
+    for (const token of name.split(' ')) {
+      const index = tokens.indexOf(token, cursor);
+      if (index < 0) return false;
+      cursor = index + 1;
+    }
+    return Boolean(name);
   };
-  for (const text of [input,words(rawText)]) {
-    const matches=playgrounds.filter(p=>contained(words(p.name),text));
-    if(matches.length) return matches.length===1?matches[0]:undefined;
-  }
-  return undefined;
+  const matches = input ? playgrounds.filter(p => {
+    const name = normalized(p.name);
+    return Boolean(name) && (input.includes(name) || name.includes(input) || containsWords(name,input));
+  }) : [];
+  if (matches.length) return matches;
+  const text = normalized(rawText);
+  return text ? playgrounds.filter(p => containsWords(normalized(p.name),text)) : [];
+}
+
+export function matchExistingImportPlayground<T extends {id:string;name:string}>(location: string, playgrounds: T[], rawText = ''): T | undefined {
+  const matches = importPlaygroundCandidates(location, playgrounds, rawText);
+  return matches.length === 1 ? matches[0] : undefined;
 }
