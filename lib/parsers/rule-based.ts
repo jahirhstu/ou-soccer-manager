@@ -66,7 +66,8 @@ export class RuleBasedWhatsAppParser implements WhatsAppParser {
         continue;
       }
 
-      if (isGenericSeasonInfoLine(line)) continue;
+      // Announcement instructions describe availability, not individual player events.
+      if (isGenericSeasonInfoLine(line) || /\b(?:please\s+add\s+your\s+name|confirm\s+your\s+availability|others\s+can\s+also\s+sign\s*up|final\s+list\s+will\s+be\s+shared)\b/i.test(line)) continue;
 
       const matchHeader = line.match(/^game\s*(\d{1,2})\s*:?\s*$/i);
       if (matchHeader) {

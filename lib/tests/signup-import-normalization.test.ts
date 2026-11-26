@@ -36,3 +36,18 @@ it('keeps the complete rule-based and shared normalization path consistent with 
   expect(parsed.players.map(p => p.name)).toEqual(['Wali','Habib']);
   expect(orderedSignupNames(raw, parsed.players.map(p => p.name))).toEqual(['Wali','Habib']);
 });
+
+const intro = '📰 Please add your name, including pre-paid players, to confirm your availability. Others can also sign up to fill available spots. The final list will be shared based on player priority.';
+it('does not turn signup announcement prose into player names in the rule-based path', async () => {
+  const raw = `${intro}\n\n${header}\n*Address:*\nBell Sensplex\n1565 Maple Grove Rd, Stittsville`;
+  parser.mockImplementation(input => new RuleBasedWhatsAppParser().parse(input));
+  const parsed = await parseWhatsAppText(raw);
+  expect(parsed.players.map(p => p.name)).toEqual(['Wali','Habib']);
+  expect(parsed.attendance.some(row => ['Please','Others','The'].includes(row.playerName))).toBe(false);
+});
+it('uses the numbered signup roster when an LLM also infers names from introductory prose', () => {
+  expect(orderedSignupNames(`${intro}\n${header}`, ['Please','Others','The','Wali','Habib'])).toEqual(['Wali','Habib']);
+});
+it('still rejects a parsed roster that misses a real numbered player', () => {
+  expect(() => orderedSignupNames(`${intro}\n${header}`, ['Please','Others','The','Wali'])).toThrow('did not preserve the numbered roster entry: Habib');
+});

@@ -97,7 +97,9 @@ export function orderedSignupNames(rawText: string, parsedNames: string[]) {
     if (!parsed) throw new Error(`Parser did not preserve the numbered roster entry: ${name}`);
     if (!result.includes(parsed)) result.push(parsed);
   }
-  if (!result.length || parsedNames.some(n => !result.includes(n))) throw new Error(`Parsed roster differs from the numbered signup list (${parsedNames.filter(n => !result.includes(n)).join(', ')}); manual import required`);
+  if (!result.length) throw new Error('No numbered signup roster found; manual import required');
+  // Weekly signup posts contain a complete numbered roster. Prose-derived guesses
+  // cannot add participants; missing real numbered names still fail above.
   return result;
 }
 async function identityScope(db: DB, run: SignupRun) {
