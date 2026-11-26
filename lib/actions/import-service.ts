@@ -1195,9 +1195,11 @@ function extractWaitlistRosterNames(rawText: string) {
   const names: string[] = [];
   let inWaitlist = false;
   for (const rawLine of rawText.split(/\r?\n/)) {
-    const line = rawLine.trim();
+    // Normalize every heading, not only Waitlist, so formatted Address/Location
+    // headings terminate the list before street numbers can be read as players.
+    const line = rawLine.replace(/[*_\u200b-\u200f\u2060\ufeff]/g, "").trim();
     if (!line) continue;
-    if (/^(?:wait\s*list|waitlist|waiting list)(?:\s*\([^)]*\))?\s*:?\s*$/i.test(line.replace(/[*_\u200b-\u200f\u2060\ufeff]/g, ""))) {
+    if (/^(?:wait\s*list|waitlist|waiting list)(?:\s*\([^)]*\))?\s*:?\s*$/i.test(line)) {
       inWaitlist = true;
       continue;
     }
@@ -1206,7 +1208,7 @@ function extractWaitlistRosterNames(rawText: string) {
       continue;
     }
     if (!inWaitlist) continue;
-    const match = line.match(/^\s*\d{1,3}[.)]?\s*[^\p{L}\p{N}]*(.+)$/u);
+    const match = line.match(/^\s*\d{1,3}(?:[.)]\s*|\s+)[^\p{L}\p{N}]*(.+)$/u);
     if (!match) continue;
     const rawName = match[1]
       .replace(/\([^)]*\)/g, " ")
