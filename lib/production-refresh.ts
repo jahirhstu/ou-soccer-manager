@@ -27,7 +27,9 @@ export const preservedTables = [
   'development_refresh_targets', 'development_refresh_jobs',
   // Outbound accounts, schedules and history stay isolated per environment.
   'message_worker_connections', 'message_templates', 'message_destinations',
-  'message_schedules', 'message_executions', 'message_worker_commands', 'message_worker_heartbeats'
+  'message_schedules', 'message_executions', 'message_worker_commands', 'message_worker_heartbeats',
+  // Reading schedules and their review/ownership history also stay environment-local.
+  'signup_import_schedules', 'signup_import_runs', 'signup_import_attendance'
 ] as const;
 
 export type RefreshJob = {

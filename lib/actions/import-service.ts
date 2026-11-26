@@ -20,20 +20,26 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData, contex
     const profile = context?.profile ?? await getCurrentProfile();
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
     const rawText = String(formData.get("rawText") ?? "");
-    const parsed = await whatsappParser.parse(rawText);
-    sanitizeParsedNames(parsed);
-    applyDropoutAttendanceOverrides(parsed);
-    ensureSentPaymentsAreParsed(parsed);
-    ensureMatchTeamsAreParsedTeams(parsed);
-    ensureTeamPlayersAreParsedPlayers(parsed);
-    ensureTeamPlayersAreAttendance(parsed);
-    ensureRawTextWaitlistAttendance(parsed);
-    sanitizeParsedNames(parsed);
-    applyDropoutAttendanceOverrides(parsed);
+    const parsed = await parseWhatsAppText(rawText);
     return { parsed };
   } catch (error) {
     return { error: friendlyImportError(error, "parse") };
   }
+}
+
+/** Shared parser and normalization for manual and scheduled imports. */
+export async function parseWhatsAppText(rawText: string) {
+  const parsed = await whatsappParser.parse(rawText);
+  sanitizeParsedNames(parsed);
+  applyDropoutAttendanceOverrides(parsed);
+  ensureSentPaymentsAreParsed(parsed);
+  ensureMatchTeamsAreParsedTeams(parsed);
+  ensureTeamPlayersAreParsedPlayers(parsed);
+  ensureTeamPlayersAreAttendance(parsed);
+  ensureRawTextWaitlistAttendance(parsed);
+  sanitizeParsedNames(parsed);
+  applyDropoutAttendanceOverrides(parsed);
+  return parsed;
 }
 
 export async function confirmWhatsAppImport(_: unknown, formData: FormData, context?: ImportContext) {
@@ -1191,7 +1197,7 @@ function extractWaitlistRosterNames(rawText: string) {
   for (const rawLine of rawText.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    if (/^(?:wait\s*list|waitlist|waiting list)\s*:?\s*$/i.test(line)) {
+    if (/^(?:wait\s*list|waitlist|waiting list)(?:\s*\([^)]*\))?\s*:?\s*$/i.test(line.replace(/[*_\u200b-\u200f\u2060\ufeff]/g, ""))) {
       inWaitlist = true;
       continue;
     }

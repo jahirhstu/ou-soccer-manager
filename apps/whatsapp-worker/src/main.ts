@@ -13,6 +13,8 @@ import { LocalExecutionQueue } from './execution-queue.js';
 import { ResultJournal, type JournalEntry } from './result-journal.js';
 import { WorkerAlerts, alertCategories, type AlertState, type AlertCategory } from './alerts.js';
 import { RpcMetrics } from './metrics.js';
+import { SignupImportWorker } from './signup-import.js';
+import { asMessageSchedule } from '../../../packages/communications/src/signup-import.js';
 
 const config = readConfig(), instance = randomUUID(), lock = join(root, 'worker.lock');
 try { mkdirSync(lock, { mode: 0o700 }); }
@@ -79,10 +81,14 @@ const queue=new LocalExecutionQueue({
   send:(group,body)=>provider.send(group,body),report:result=>journal.report(result),onError:error=>processingFailed('dispatch',error)
 });
 const activity=new WorkerActivity(Date.now());
+const signupImporter = new SignupImportWorker(config, instance, provider);
 let mode:WorkerMode='active',idleRecovery=false;
 const planner=new ExecutionPlanner(),groupSync=new BackgroundWorkerStep(),control=new BackgroundWorkerStep();
 const queuedCommands:Array<{id:string;command:string}>=[];
-const activitySnapshot=()=>activity.snapshot(Date.now(),planner.schedules,automaticEnabled,queue.inFlight.size>0);
+const activitySnapshot=()=>activity.snapshot(Date.now(),[
+  ...planner.schedules.filter(s => automaticEnabled && s.enabled),
+  ...signupImporter.schedules.map(s => ({ ...asMessageSchedule(s), id: s.id, organization_id: s.organization_id, revision: 1, created_at: s.created_at, updated_at: s.updated_at }))
+],true,queue.inFlight.size>0 || signupImporter.processing);
 const coordination=startCoordination(async()=>{
   const snapshot=activitySnapshot();
   const packet=await request<CoordinationPacket>('message_worker_coordinate','coordinate',{state:mode==='idle'?'idle':provider.state,compatible,mode,next_check_at:new Date(snapshot.nextWakeAt).toISOString(),configuration_revision:configRevision,work_revision:workRevision});
@@ -117,6 +123,8 @@ const coordination=startCoordination(async()=>{
     planner.committed(batch);
   }
   queue.update(mode==='active'?executions:[],automaticEnabled);
+  // Reading/parsing runs outside coordination so LLM latency cannot expire the worker lease.
+  void signupImporter.tick(processingFailed);
   alerts.update('coordinate',false);
 },error=>{configRevision=undefined;processingFailed('coordinate',error);},()=>activitySnapshot().nextWakeAt);
 

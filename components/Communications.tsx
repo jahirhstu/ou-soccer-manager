@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { CalendarDays, FileText, Radio, RefreshCw } from 'lucide-react';
 import { communicationsData, communicationsStatus, communicationsMutation } from '@/lib/actions/communications';
+import { SignupImports } from './SignupImports';
 import { WorkerEmailAlerts } from './WorkerEmailAlerts';
 import { upcoming, renderMessage, type ScheduleInput } from '@ou/communications';
 
@@ -88,7 +89,8 @@ export function Communications({ initial }: { initial: Data }) {
       <p className="mt-2">Changes are picked up at the next worker check. Restart the Mac worker to apply them sooner: <code>npx --yes pnpm@11.9.0 whatsapp restart</code>.</p>
       {idle && <p className="mt-2">Restart for tests, pairing, or an immediate group refresh. Restarting opens a 30-minute active window. A new schedule may miss its sending time if the worker has not synchronized.</p>}
     </div>}
-    <nav className="flex flex-wrap gap-2" aria-label="Communications views">{[['schedules','Schedules',CalendarDays],['templates','Templates',FileText],['connections','Connections & History',Radio]].map(([key,label,Icon]) => { const TabIcon = Icon as typeof Radio; return <button key={String(key)} className={tab===key?'btn-primary':'btn-secondary'} onClick={() => setTab(String(key))}><TabIcon size={16}/>{String(label)}</button>; })}</nav>
+    <nav className="flex flex-wrap gap-2" aria-label="Communications views">{[['schedules','Schedules',CalendarDays],['signup-imports','Signup imports',CalendarDays],['templates','Templates',FileText],['connections','Connections & History',Radio]].map(([key,label,Icon]) => { const TabIcon = Icon as typeof Radio; return <button key={String(key)} className={tab===key?'btn-primary':'btn-secondary'} onClick={() => setTab(String(key))}><TabIcon size={16}/>{String(label)}</button>; })}</nav>
+    {tab === 'signup-imports' && <SignupImports/>}
     {tab === 'schedules' && <>
       <div className="flex gap-2"><button className="btn-primary" onClick={() => { setSchedule(blank); setEditing(true); }}>New schedule</button><button disabled={pending} className="btn-secondary" onClick={() => mutate('setup', {})}>Add weekly signup defaults</button></div>
       {data.schedules.map(s => <section className="panel grid gap-3 p-5" key={s.id}>

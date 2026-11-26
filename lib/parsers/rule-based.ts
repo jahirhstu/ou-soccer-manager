@@ -12,7 +12,7 @@ const namePattern = /[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g;
 
 export class RuleBasedWhatsAppParser implements WhatsAppParser {
   async parse(input: string): Promise<ParsedWhatsAppImport> {
-    const lines = input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = input.split(/\r?\n/).map((line) => line.replace(/[*_\u200b-\u200f\u2060\ufeff]/g, "").trim()).filter(Boolean);
     const players = new Map<string, ParsedWhatsAppImport["players"][number]>();
     const payments: ParsedWhatsAppImport["payments"] = [];
     const attendance: ParsedWhatsAppImport["attendance"] = [];
@@ -288,7 +288,7 @@ function extractSeasonInfo(lines: string[]): SeasonInfo {
 
 function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo, rosterSection: "confirmed" | "waitlisted" | null = null) {
   const cleaned = line.replace(/[\u2007\u2060\u034f]/g, " ").replace(/\u2060/g, " ").trim();
-  const match = cleaned.match(/^\s*\d{1,3}[.)]?\s*[^\p{L}\p{N}$]*(.+)$/u);
+  const match = cleaned.match(/^\s*\d{1,3}(?:[.)]\s*|\s+)[^\p{L}\p{N}$]*(.+)$/u);
   if (!match) return null;
 
   const body = match[1].replace(/^[^\p{L}\p{N}$]+/u, "").trim();
@@ -331,7 +331,7 @@ function parseNumberedRosterRow(line: string, seasonInfo: SeasonInfo, rosterSect
 }
 
 function detectRosterSection(line: string): "confirmed" | "waitlisted" | null | undefined {
-  if (/^(?:wait\s*list|waitlist|waiting list)\s*:?\s*$/i.test(line)) return "waitlisted";
+  if (/^(?:wait\s*list|waitlist|waiting list)(?:\s*\([^)]*\))?\s*:?\s*$/i.test(line.replace(/[*_\u200b-\u200f\u2060\ufeff]/g, ""))) return "waitlisted";
   if (/^(?:head\s*count|headcount|confirmed|confirmed players|players)\s*:?\s*$/i.test(line)) return "confirmed";
   if (/^(?:address|location|venue|interac|payment)\s*:?\s*/i.test(line)) return null;
   return undefined;
@@ -411,7 +411,7 @@ function isLikelyChatEventLine(line: string) {
 }
 
 function isGenericSeasonInfoLine(line: string) {
-  return /^(season dates?|day|time|location|total sessions|cost per session|full season cost|remaining balance|interac|rules and priority|for players who already paid)\b/i.test(line);
+  return /^(season dates?|date|day|time|location|address|max|format|drop-in|check status|note|team building|here are the boys|total sessions|cost per session|full season cost|remaining balance|interac|rules and priority|for players who already paid)\b/i.test(line);
 }
 
 function extractNames(line: string) {

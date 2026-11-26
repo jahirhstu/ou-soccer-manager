@@ -28,8 +28,8 @@ type DefaultRouteContext = {
 };
 
 export async function middleware(request: NextRequest) {
-  // This native endpoint authenticates its bearer token and program scope itself.
-  if (request.nextUrl.pathname === "/api/mobile/whatsapp") return NextResponse.next();
+  // These endpoints authenticate their own scoped credentials instead of browser cookies.
+  if (["/api/mobile/whatsapp", "/api/worker/signup-import"].includes(request.nextUrl.pathname)) return NextResponse.next();
   const tenantSlug = getTenantSlugFromPathname(request.nextUrl.pathname);
   const programSlug = tenantSlug ? getProgramSlugFromPathname(request.nextUrl.pathname) : "";
   const pathname = tenantSlug ? stripTenantFromPathname(request.nextUrl.pathname) : request.nextUrl.pathname;

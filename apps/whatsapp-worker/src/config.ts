@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { mkdirSync, statSync, readFileSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, existsSync, appendFileSync } from 'node:fs';
 export const root = resolve(process.env.OU_WHATSAPP_HOME || join(homedir(), 'Library/Application Support/OU Soccer WhatsApp'));
-export interface Config { supabase_url: string; publishable_key: string; worker_id: string; token: string; chromium_path?: string; port?: number }
+export interface Config { supabase_url: string; publishable_key: string; worker_id: string; token: string; chromium_path?: string; port?: number; app_url?: string }
 export function privateDirectory() {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   if (statSync(root).mode & 0o077) throw new Error('Worker directory must have permissions 0700');
@@ -13,6 +13,10 @@ export function readConfig(): Config {
   let c: Config;
   try { c = JSON.parse(readFileSync(path, 'utf8')); } catch { throw new Error('Invalid config.json; correct it privately'); }
   if (!/^https:\/\//.test(c.supabase_url) && !/^http:\/\/(127\.0\.0\.1|localhost):/.test(c.supabase_url)) throw new Error('HTTPS Supabase URL required');
+  if (c.app_url) {
+    const app = new URL(c.app_url);
+    if ((app.protocol !== 'https:' && !(app.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(app.hostname))) || app.username || app.password || app.search || app.hash || app.pathname !== '/') throw new Error('app_url must be an HTTPS app origin (or local development origin)');
+  }
   if (!c.publishable_key || !/^[0-9a-f-]{36}$/.test(c.worker_id) || !/^[0-9a-f]{64}$/.test(c.token)) throw new Error('Invalid worker configuration');
   if (c.port && (!Number.isInteger(c.port) || c.port<1024 || c.port>65535)) throw new Error('Invalid pairing port');
   return c;

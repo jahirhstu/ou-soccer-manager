@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const calls=vi.hoisted(()=>({ initialize:vi.fn(async()=>{}),destroy:vi.fn(async()=>{}),logout:vi.fn(async()=>{}),sendMessage:vi.fn(async()=>({id:{_serialized:'message'},ack:0})),getChats:vi.fn(async()=>[{isGroup:true,id:{_serialized:'group@g.us'},name:'Soccer'},{isGroup:false,id:{_serialized:'person@c.us'},name:'Person'}]),auth:vi.fn(),options:vi.fn(),on:new Map<string,Function>() }));
+const calls=vi.hoisted(()=>({ initialize:vi.fn(async()=>{}),destroy:vi.fn(async()=>{}),logout:vi.fn(async()=>{}),sendMessage:vi.fn(async()=>({id:{_serialized:'message'},ack:0})),getChats:vi.fn(async()=>[{isGroup:true,id:{_serialized:'group@g.us'},name:'Soccer'},{isGroup:false,id:{_serialized:'person@c.us'},name:'Person'}]),getChatById:vi.fn(),auth:vi.fn(),options:vi.fn(),on:new Map<string,Function>() }));
 vi.mock('../../apps/whatsapp-worker/node_modules/whatsapp-web.js',()=>({default:{LocalAuth:class{constructor(options:unknown){calls.auth(options);}},Client:class{
   constructor(options:unknown){calls.options(options);}
-  initialize=calls.initialize;destroy=calls.destroy;logout=calls.logout;sendMessage=calls.sendMessage;getChats=calls.getChats;
+  initialize=calls.initialize;destroy=calls.destroy;logout=calls.logout;sendMessage=calls.sendMessage;getChats=calls.getChats;getChatById=calls.getChatById;
   on(event:string,callback:Function){calls.on.set(event,callback);}
   getState=async()=>'CONNECTED';getMessageById=async()=>({ack:1});
 }}}));
@@ -65,4 +65,21 @@ it('does not emit a connection failure for intentional logout',async()=>{
   const provider=new WhatsAppProvider(config),diagnostic=vi.fn();provider.onDiagnostic=diagnostic;
   await provider.disconnect();calls.on.get('disconnected')!('LOGOUT');
   expect(provider.state).toBe('logged_out');expect(diagnostic).not.toHaveBeenCalled();
+});
+
+it('requires history coverage before treating a group scan as complete',async()=>{
+  const from='2026-11-24T02:00:00Z',until='2026-11-27T01:00:00Z';
+  const fetchMessages=vi.fn(async()=>[
+    {id:{_serialized:'boundary'},timestamp:Date.parse(from)/1000-1,body:'Earlier chat'},
+    {id:{_serialized:'signup'},timestamp:Date.parse(from)/1000+1,body:'Signup list'},
+    {id:{_serialized:'future'},timestamp:Date.parse(until)/1000+1,body:'Later update'}
+  ]);
+  calls.getChatById.mockResolvedValue({fetchMessages});
+  const result=await new WhatsAppProvider(config).history('group@g.us',from,until);
+  expect(result.complete).toBe(true);expect(result.messages.map(m=>m.id)).toEqual(['signup']);
+});
+it('does not mistake truncated available history for a complete scan',async()=>{
+  const fetchMessages=vi.fn(async()=>[{id:{_serialized:'recent'},timestamp:Date.parse('2026-11-26T12:00:00Z')/1000,body:'Signup'}]);
+  calls.getChatById.mockResolvedValue({fetchMessages});
+  expect((await new WhatsAppProvider(config).history('group@g.us','2026-11-24T02:00:00Z','2026-11-27T01:00:00Z')).complete).toBe(false);
 });
