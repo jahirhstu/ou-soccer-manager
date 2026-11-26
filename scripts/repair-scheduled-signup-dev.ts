@@ -27,14 +27,24 @@ async function main(){
   work.push({sessionId:run.session_id,actorId});
  }
  console.log(JSON.stringify({environment:'development',organizationId,finalizedFutureSessions:work.length,apply}));
- if(!apply)return;
+ if(!apply){
+  for(const item of work){
+   const [attendance,charges,session,report]=await Promise.all([db.from('attendance').select('player_id,status').eq('session_id',item.sessionId),db.from('session_player_charges').select('player_id,amount').eq('session_id',item.sessionId),db.from('sessions').select('season_id').eq('id',item.sessionId).single(),db.rpc('public_player_report')]);
+   for(const result of [attendance,charges,session,report])if(result.error)throw new Error(result.error.message);
+   const waiting=new Set(attendance.data?.filter(row=>row.status==='waitlisted').map(row=>row.player_id));
+   const rows=(report.data??[]).filter((row:any)=>row.season_id===session.data?.season_id&&waiting.has(row.player_id));
+   console.log(JSON.stringify({sessionId:item.sessionId,confirmedPlayers:attendance.data?.filter(row=>row.status==='confirmed').length,waitlistedPlayers:waiting.size,chargeCount:charges.data?.length,totalCharges:charges.data?.reduce((sum,row)=>sum+Number(row.amount),0),waitlistChargeCount:charges.data?.filter(row=>waiting.has(row.player_id)).length,publicWaitlistRows:rows.map((row:any)=>({confirmed:Number(row.confirmed_sessions),waitlisted:Number(row.waitlisted_sessions),upcomingConfirmed:row.upcoming_session,upcomingWaitlisted:row.upcoming_waitlisted_session}))}));
+  }
+  return;
+ }
  // Do not remove the old writer until the replacement website is serving requests.
  const config=JSON.parse(readFileSync(join(process.env.OU_WHATSAPP_HOME??join(homedir(),'Library/Application Support/OU Soccer WhatsApp'),'config.json'),'utf8'));
- if(config.supabase_url!==env.NEXT_PUBLIC_SUPABASE_URL)throw new Error('Worker is not configured for development');
+ const developmentApp='https://ou-soccer-manager-git-develop-jahirhstu.vercel.app';
+ if(!['https://ou-soccer-manager.vercel.app',developmentApp].includes(new URL(config.app_url).origin))throw new Error('Unexpected app origin for the private Vercel bypass credential');
  let ready=false;
  for(let attempt=0;attempt<12;attempt++){
   try{
-   const response=await fetch(`${config.app_url.replace(/\/$/,'')}/api/worker/signup-import`,{headers:config.vercel_bypass_secret?{'x-vercel-protection-bypass':config.vercel_bypass_secret}:{},redirect:'error',signal:AbortSignal.timeout(10000)});
+   const response=await fetch(`${developmentApp}/api/worker/signup-import`,{headers:config.vercel_bypass_secret?{'x-vercel-protection-bypass':config.vercel_bypass_secret}:{},redirect:'error',signal:AbortSignal.timeout(10000)});
    if(response.ok&&(await response.json()).pipeline==='shared-whatsapp-v1'){ready=true;break;}
   }catch{ /* Only the fixed readiness result is logged; credentials and response bodies stay private. */ }
   if(attempt===0)console.log('Waiting for the shared development importer deployment.');
