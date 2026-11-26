@@ -43,7 +43,7 @@ Communications → **Signup imports** reads the latest weekly signup from a conf
 
 The example form starts with Thursday 8 PM execution, Sunday sessions, Monday 9 PM signup opening, Toronto timezone, and capacity 21. These are editable defaults, not an enabled schedule. The target is the selected session weekday on or after the execution's local date.
 
-Signup imports are controlled by their own enabled schedules. The automatic outgoing-message switch does not control reading or importing. The Mac must be awake, connected, and paired. If `app_url` is absent, outgoing messaging continues normally and signup importing is inactive. If hosting protection prevents the worker from reaching the app API, the import cannot run; the worker records an endpoint failure.
+Signup imports are controlled by their own enabled schedules. The automatic outgoing-message switch does not control reading or importing. The Mac must be awake, connected, and paired. If `app_url` is absent, outgoing messaging continues normally and signup importing is inactive. If hosting protection prevents the worker from reaching the app API, the import cannot run; follow the protected-development setup below.
 
 ## Selection and allocation
 
@@ -83,3 +83,20 @@ Manual runs always prepare a draft for administrator review before attendance is
 The history reader first requests 100 messages and checks candidates immediately. It requests up to 500 and then 2,000 only when the preceding batch contains no matching signup and more history is available. These are increasing history limits, not 2,600 distinct messages. Simple list/signup checks filter candidate messages before any LLM calls. The server then checks candidates newest first, skips clearly dated messages for other sessions, and invokes the configured parser only as needed until it finds the target session's valid signup. Finding a valid signup stops history fetching immediately. A newer plausible signup that fails parsing stops the search for review instead of fetching or importing an older list. Candidates already checked are not sent to the parser again when the history limit expands.
 
 After updating this flow, deploy the updated website API before rebuilding and restarting the Mac worker. No database migration is needed for incremental searching.
+
+## Protected development deployments on Vercel
+
+If a run remains **Queued** and the worker logs `vercel_deployment_protected` (older builds show only `operation_failed`), Vercel is rejecting the request before the signup API runs. Your browser's Vercel login is not available to the Mac worker.
+
+1. In the Vercel project, open **Settings → Deployment Protection → Protection Bypass for Automation** and generate/copy an automation bypass secret. See [Vercel's instructions](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation). If Vercel requires a redeploy after creating or changing the secret, redeploy development before retrying.
+2. Add it to the Mac's private worker configuration, alongside the development website URL:
+
+   ```json
+     "app_url": "https://ou-soccer-manager-git-develop-jahirhstu.vercel.app",
+     "vercel_bypass_secret": "YOUR-VERCEL-AUTOMATION-BYPASS-SECRET"
+   ```
+
+   Keep the other configuration fields. This secret belongs only in the private Mac configuration; do not commit it or place it in browser/mobile code. The worker sends it in an HTTP header to the configured app origin and refuses redirects. The signup API still requires the separate worker ID, worker token, and active lease.
+3. From the repository root, run `npx --yes pnpm@11.9.0 whatsapp:build`, then `npx --yes pnpm@11.9.0 whatsapp restart`. The existing queued run will be picked up; another **Run now** request is not needed.
+
+Other diagnostics distinguish `worker_authorization_failed` (check that the website and worker use the same Supabase environment and matching provisioned credentials), `endpoint_not_deployed`, `endpoint_server_error`, and `endpoint_network_or_redirect_failed`. Diagnostic logs omit credentials and response bodies.

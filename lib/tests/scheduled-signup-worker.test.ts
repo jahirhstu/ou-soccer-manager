@@ -62,3 +62,37 @@ it('checks 100, 500 and 2000 batches when none contains a matching signup',async
   await new SignupImportWorker(config,'instance',{ready:async()=>true,history} as unknown as WhatsAppProvider).tick(vi.fn());
   expect(history.mock.calls.map(call=>call[3])).toEqual([100,500,2000]);expect(JSON.parse(fetcher.mock.calls[3][1].body).batch_final).toBe(true);
 });
+
+it('identifies Vercel protection without exposing the response or credentials in diagnostics',async()=>{
+  fetcher.mockResolvedValue({ok:false,status:401,headers:new Headers({'content-type':'application/json'}),json:async()=>({message:'Protected by Vercel Authentication',protection:{vercel_auth_enabled:true},private_value:'never-log-this'})});
+  const failed=vi.fn();
+  await new SignupImportWorker(config,'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(failed);
+  const error=failed.mock.calls[0][1];
+  expect(error.operation).toBe('signup_poll');expect(error.code).toBe('vercel_deployment_protected');expect(error.message).not.toContain('never-log-this');
+});
+it('sends the optional automation bypass in a header, never in the URL or JSON body',async()=>{
+  fetcher.mockResolvedValueOnce(response({schedules:[],runs:[]}));
+  await new SignupImportWorker({...config,vercel_bypass_secret:'private-bypass'},'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(vi.fn());
+  const [url,options]=fetcher.mock.calls[0];expect(options.headers['x-vercel-protection-bypass']).toBe('private-bypass');
+  expect(url).not.toContain('private-bypass');expect(options.body).not.toContain('private-bypass');expect(options.redirect).toBe('error');
+});
+it('distinguishes worker authorization failures from Vercel protection',async()=>{
+  fetcher.mockResolvedValue({ok:false,status:401,headers:new Headers({'content-type':'application/json'}),json:async()=>({error:'Worker authorization failed'})});
+  const failed=vi.fn();await new SignupImportWorker(config,'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(failed);
+  expect(failed.mock.calls[0][1].code).toBe('worker_authorization_failed');
+});
+it('identifies missing endpoints and server errors without logging their bodies',async()=>{
+  for (const [status,code] of [[404,'endpoint_not_deployed'],[500,'endpoint_server_error']] as const) {
+    fetcher.mockResolvedValue({ok:false,status,headers:new Headers({'content-type':'text/html'})});
+    const failed=vi.fn();await new SignupImportWorker(config,'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(failed);
+    expect(failed.mock.calls[0][1].code).toBe(code);
+  }
+});
+it('reports network/redirect and invalid response failures with a specific operation',async()=>{
+  fetcher.mockRejectedValueOnce(new TypeError('Secret URL must not be logged'));
+  const failed=vi.fn();await new SignupImportWorker(config,'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(failed);
+  expect(failed.mock.calls[0][1].code).toBe('endpoint_network_or_redirect_failed');expect(failed.mock.calls[0][1].message).not.toContain('Secret URL');
+  fetcher.mockResolvedValueOnce(response({unexpected:'body'}));
+  const malformed=vi.fn();await new SignupImportWorker(config,'instance',{ready:async()=>true} as unknown as WhatsAppProvider).tick(malformed);
+  expect(malformed.mock.calls[0][1].code).toBe('endpoint_invalid_response');
+});
