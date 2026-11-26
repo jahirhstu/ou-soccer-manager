@@ -4,7 +4,7 @@ Communications → **Signup imports** reads the latest weekly signup from a conf
 
 ## Setup
 
-1. Apply migrations `114_scheduled_signup_imports.sql` and `115_signup_import_session_details.sql` to the intended Supabase project and deploy the updated website. The website requires its existing `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` and parser configuration (`WHATSAPP_PARSER_PROVIDER` and the relevant provider credentials).
+1. Apply migrations through `117_waitlisted_public_status.sql` to the intended Supabase project and deploy the updated website. The website requires its existing `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` and parser configuration (`WHATSAPP_PARSER_PROVIDER` and the relevant provider credentials).
 2. Update/build and configure the worker **on the Mac that runs WhatsApp**, using the existing private configuration file:
 
    ```text
@@ -52,15 +52,19 @@ Signup imports are controlled by their own enabled schedules. The automatic outg
 - Use the source numbered list to define the roster and its order. Every numbered player must be present in the parser output; missing names block automatic import. Extra names inferred from announcement prose are excluded from the scheduled roster. Changed headings and WhatsApp formatting are supported; substantially different list structures may require manual import.
 - Resolve only unique exact player names or aliases automatically. Multiple substring candidates, unknown names, and approximate suggestions require review. Repeated entries for one resolved player consume one spot.
 - Prioritize actual season members who listed themselves, including members in the message's waitlist section. Fill remaining spots with nonmembers in source order, main list before waitlist. Everyone else becomes session waitlisted. Unlisted season members receive no reserved spot.
-- Session price may come from the message. No payment records or player charges are created by this feature.
+- Session price may come from the message. No payment receipts are inferred from signup text. Confirmed players receive session charges through the same service as manual WhatsApp import; waitlisted players receive no charge.
 
-## Sessions and review
+## One import process for automation and review
 
-When the message parses and season membership is available, a unique existing scheduled session is reused or a missing session is created. New session names use the date in words, such as **November 29th**. Playground matching reuses an existing organization playground and its canonical name even when the message includes a street address between venue words. It never creates a playground; ambiguous or unknown venues remain unlinked for manual selection. Existing explicit session names and playground selections are preserved; revisiting a prepared draft repairs generic import names and missing playground links. Multiple matching sessions, completed/cancelled sessions, or disabled program modules require intervention.
+The scheduler and manual WhatsApp importer share parsing, preparation, confirmation, and session usage/charge services. The worker only schedules runs and finds the latest message. Worker authentication and duplicate-run claiming remain database coordination operations; the separate review/finalization database writer and ownership table are removed by migration 116.
 
-If identities remain unresolved, season members exceed capacity, or parser warnings/fallbacks require review, the session and roster draft are saved. **Draft players are not attendance.** Review the original message and proposed roster in the Signup imports history. Select existing players, explicitly create a new player, or ignore an entry; save/recalculate to see the resulting priority allocation, then finalize attendance.
+When all names resolve and parser checks pass, automatic runs and **Run now** create/reuse the session, save attendance, and charge confirmed players. Session names use the date in words (for example, **November 29th**). Playground matching reuses the unique existing organization venue and its canonical name; no new playground is created. Existing attendance conflicts require manual review.
 
-If every identity and parser check passes, the first scheduled run finalizes automatically. Finalization is transactional. It writes confirmed and waitlisted attendance only. Waitlist/source ordering is retained in the saved draft and attendance notes.
+If a name is unresolved, capacity is exceeded, or parsing needs review, no new session or attendance is created. The run retains its source and diagnostic status. **View / review in WhatsApp import** opens the existing importer with the original text prefilled and parsed, the configured target selected, and the shared season-priority allocation applied. Opening this page changes no database records. Runs without an extracted message open the importer with an explanation.
+
+Resolve names on that page or explicitly choose to create a new player. Use **Recalculate signup allocation** after changing identities, then confirm through the existing import form. Confirmation recomputes identities and allocation on the server and updates the originating run only after attendance and charging succeed. Already-imported runs open as previews.
+
+An ordinary manual paste keeps explicit waitlist sections waitlisted. A scheduler-linked preview shows the shared allocation, including season-priority promotions to fill capacity. Remaining waitlisted players are uncharged. The public report excludes them from confirmed counts and upcoming confirmed sessions, and displays a separate Waitlisted label.
 
 ## Recovery and reruns
 
@@ -68,7 +72,7 @@ Occurrences have a unique database key and exclusive expiring processing claims.
 
 The worker reads the current WhatsApp text at execution/recovery time. WhatsApp edits/deletions and unavailable linked-device history can limit reconstructing the exact text that existed earlier; this is not an immutable historical archive. Only the selected signup text, content hash, message identity, parser output, and draft are retained for audit. Older reposts in the fetched batch are not saved. If parsing fails, only the candidate being parsed is kept for retry; retrying an older run clears its previously accumulated candidates.
 
-**Read latest again** creates an explicit rerun for the same session date using messages available now. Every manual rerun requires roster review before applying changes. A rerun may replace earlier attendance owned by the same schedule. Manually maintained attendance, manual edits to imported attendance, and another schedule's roster block replacement. Review/manage these records explicitly; the scheduler never silently overwrites them. Reruns do not alter completed or cancelled sessions.
+**Read latest again** creates an explicit rerun for the same session date using messages available now. Reruns use the shared automatic eligibility checks. Automatic attempts encountering existing attendance require review in the manual importer. Review/manage these records explicitly; the scheduler never silently overwrites them. Reruns do not alter completed or cancelled sessions.
 
 The history shows runs needing review, imported runs, missed executions, and errors. For parse failures, retry the saved candidate messages after correcting parser configuration, or request a new read. No group chat response or email is sent by this feature.
 
@@ -78,7 +82,7 @@ In **Communications → Signup imports**, click **Run now** on an enabled schedu
 
 The request is queued for the Mac worker's next check (normally within 30 seconds while active; up to an hour while idle). To pick it up sooner while idle, restart the worker from the repository root with `npx --yes pnpm@11.9.0 whatsapp restart`. The worker must be running and connected to WhatsApp. The schedule's regular weekly execution remains in place.
 
-Manual runs always prepare a draft for administrator review before attendance is finalized, even if every name resolves. While a run is queued or reading, **Run now** is disabled. To reread a specific earlier session date, use **Read latest again** on that run in history instead.
+Manual runs import automatically when all checks pass; unresolved or conflicting runs provide the WhatsApp import review link. While a run is queued or reading, **Run now** is disabled. To reread a specific earlier session date, use **Read latest again** on that run in history instead.
 
 The history reader first requests 100 messages and checks candidates immediately. It requests up to 500 and then 2,000 only when the preceding batch contains no matching signup and more history is available. These are increasing history limits, not 2,600 distinct messages. Simple list/signup checks filter candidate messages before any LLM calls. The server then checks candidates newest first, skips clearly dated messages for other sessions, and invokes the configured parser only as needed until it finds the target session's valid signup. Finding a valid signup stops history fetching immediately. A newer plausible signup that fails parsing stops the search for review instead of fetching or importing an older list. Candidates already checked are not sent to the parser again when the history limit expands.
 
@@ -100,3 +104,7 @@ If a run remains **Queued** and the worker logs `vercel_deployment_protected` (o
 3. From the repository root, run `npx --yes pnpm@11.9.0 whatsapp:build`, then `npx --yes pnpm@11.9.0 whatsapp restart`. The existing queued run will be picked up; another **Run now** request is not needed.
 
 Other diagnostics distinguish `worker_authorization_failed` (check that the website and worker use the same Supabase environment and matching provisioned credentials), `endpoint_not_deployed`, `endpoint_server_error`, and `endpoint_network_or_redirect_failed`. Diagnostic logs omit credentials and response bodies.
+
+## Development repair after the shared-import upgrade
+
+`scripts/repair-scheduled-signup-dev.ts` previews finalized future signup sessions in the configured development club. With `--apply`, it waits for the shared importer deployment, applies migrations 116–117, and calls the same session-usage service to fill missing charges and ledger links. It validates the development project identity, preserves existing waivers, excludes pending drafts and historical/completed sessions, and verifies waitlisted players have no charges. Production is never a target.

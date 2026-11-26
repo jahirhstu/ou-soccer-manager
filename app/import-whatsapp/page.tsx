@@ -1,13 +1,27 @@
 import { ImportReviewTable } from "@/components/ImportReviewTable";
+import { loadSignupRun, signupRunPreview } from "@/lib/signup-import-service";
+import { getCurrentProfile, getCurrentProgram } from "@/lib/supabase/server";
+import { hasPermission } from "@/lib/permissions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getRequestProgramSlug, getRequestTenantSlug } from "@/lib/tenant-server";
 import { AppShell } from "../(shell)";
 import { MessageSquareText } from "lucide-react";
 
-export default async function ImportWhatsAppPage() {
+export default async function ImportWhatsAppPage({searchParams}: {searchParams?: Promise<{signupRun?:string}>}) {
   const supabase = await createSupabaseServerClient();
   const tenantSlug = await getRequestTenantSlug();
   const programSlug = await getRequestProgramSlug();
+  let initialImport;
+  const runId=(await searchParams)?.signupRun;
+  if(runId) {
+    const profile=await getCurrentProfile(),program=await getCurrentProgram();
+    if(!profile?.organization_id || !program?.id || !hasPermission(profile.role,'manage_finance'))throw new Error('Import access required');
+    const run=await loadSignupRun(supabase as any,runId,profile.organization_id,program.id);
+    let preview,error;
+    try { preview=await signupRunPreview(supabase as any,run); }
+    catch(cause) { error=cause instanceof Error?cause.message:'Saved signup needs manual correction'; }
+    initialImport={runId:run.id,rawText:preview?.parsed.rawText??run.source_message?.body??run.incoming_messages?.[0]?.body??'',parsed:preview?.parsed,seasonId:run.configuration.season_id,sessionId:run.session_id??'__create__',selections:run.selections??{},status:run.status,error};
+  }
   const [
     { data: players },
     { data: aliases },
@@ -29,6 +43,10 @@ export default async function ImportWhatsAppPage() {
     supabase.from("attendance").select("player_id,session_id,status"),
     supabase.from("session_player_charges").select("player_id,session_id,amount,original_amount,waiver_amount")
   ]);
+  if(initialImport?.sessionId==='__create__' && initialImport.parsed?.session?.date) {
+    const matching=(sessions??[]).filter(session=>session.season_id===initialImport.seasonId&&session.session_date===initialImport.parsed?.session?.date);
+    if(matching.length===1)initialImport.sessionId=matching[0].id;
+  }
   return (
     <AppShell>
       <div className="mb-5 flex items-start gap-3">
@@ -41,6 +59,7 @@ export default async function ImportWhatsAppPage() {
         </div>
       </div>
       <ImportReviewTable
+        initialImport={initialImport}
         aliases={aliases ?? []}
         ledgerEntries={ledgerEntries ?? []}
         playerReports={playerReports ?? []}

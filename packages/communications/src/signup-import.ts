@@ -15,7 +15,7 @@ export const signupScheduleSchema = z.object({
   try { Temporal.PlainTime.from(s.opening_time); } catch { ctx.addIssue({ code: 'custom', path: ['opening_time'], message: 'Invalid signup opening time' }); }
 });
 export type SignupScheduleInput = z.infer<typeof signupScheduleSchema>;
-export type SignupSchedule = SignupScheduleInput & { id: string; organization_id: string; program_id: string; created_at: string; updated_at: string };
+export type SignupSchedule = SignupScheduleInput & { id: string; organization_id: string; program_id: string; created_at: string; updated_at: string; created_by?: string };
 export function asMessageSchedule(s: Pick<SignupScheduleInput, 'name' | 'timezone' | 'local_time' | 'weekday' | 'enabled' | 'destination_id'>): ScheduleInput {
   return { name: s.name, body: 'Signup import', destination_id: s.destination_id, timezone: s.timezone, local_time: s.local_time,
     frequency: 'weekly', weekdays: [s.weekday], local_date: null, venue: '', match_time: '', enabled: s.enabled };

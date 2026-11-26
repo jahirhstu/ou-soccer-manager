@@ -24,6 +24,8 @@ type PublicPlayerReportRow = {
   last_attended_sessions: string[] | null;
   latest_session?: string | null;
   upcoming_session?: string | null;
+  waitlisted_sessions?: number | string | null;
+  upcoming_waitlisted_session?: string | null;
 };
 
 type PublicHighlightRow = {
@@ -240,6 +242,7 @@ export default async function PublicPlayerReportPage({
                   latestSession={row.latest_session ?? row.last_attended_sessions?.[0] ?? null}
                   upcomingSession={row.upcoming_session ?? null}
                 />
+                {numberValue(row.waitlisted_sessions)>0 && <p className="mt-2 rounded bg-amber-50 p-2 text-xs font-semibold text-amber-800">Waitlisted: {row.upcoming_waitlisted_session ?? 'Upcoming session'} · {numberValue(row.waitlisted_sessions)} waitlisted session(s)</p>}
               </article>
             );
           })}

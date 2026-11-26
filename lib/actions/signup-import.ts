@@ -1,4 +1,5 @@
 'use server';
+import { tenantPath } from '../tenant';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createSupabaseServerClient, getCurrentProfile } from '../supabase/server';
@@ -6,7 +7,7 @@ import { createSupabaseAdminClient } from '../supabase/admin';
 import { requireOrganizationAdminAuthority } from '../organization-access';
 import { requireEnabledProgramModule } from '../program-access';
 import { signupScheduleSchema, signupWindow } from '../../packages/communications/src/signup-import';
-import { prepareSignupDraft, saveSignupDraft, processSignupRun, type SignupRun } from '../signup-import-service';
+import { type SignupRun } from '../signup-import-service';
 async function context() {
   const profile = await getCurrentProfile();
   if (!profile?.organization_id) throw new Error('Organization context required');
@@ -21,16 +22,18 @@ export async function signupImportData() {
     db.from('signup_import_runs').select('*').eq('organization_id', organizationId).order('scheduled_at', { ascending: false }).limit(30),
     db.from('seasons').select('id,name,program_id').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     db.from('message_destinations').select('id,name').eq('organization_id', organizationId).eq('available', true).order('name'),
-    db.from('players').select('id,display_name').eq('organization_id', organizationId).order('display_name').limit(1000)
+    db.from('players').select('id,display_name').eq('organization_id', organizationId).order('display_name').limit(1000),
+    db.from('organizations').select('slug').eq('id',organizationId),
+    db.from('programs').select('id,slug').eq('organization_id',organizationId)
   ]);
   for (const result of results) if (result.error) throw new Error(result.error.message);
-  return { schedules: results[0].data ?? [], runs: (results[1].data ?? []) as SignupRun[], seasons: results[2].data ?? [], destinations: results[3].data ?? [], players: results[4].data ?? [] };
+  const reviewLinks=Object.fromEntries((results[1].data??[]).map((run:any)=>[run.id,`${tenantPath('/import-whatsapp',(results[5].data?.[0] as any)?.slug,(results[6].data as any[])?.find(p=>p.id===run.configuration.program_id)?.slug)}?signupRun=${encodeURIComponent(run.id)}`]));
+  return { reviewLinks, schedules: results[0].data ?? [], runs: (results[1].data ?? []) as SignupRun[], seasons: results[2].data ?? [], destinations: results[3].data ?? [], players: results[4].data ?? [] };
 }
 export async function signupImportMutation(operation: string, input: unknown) {
   try {
     const { db, user, organizationId, profileId } = await context();
     const data = z.record(z.unknown()).parse(input);
-    let outcome: { id: string; status: string; session_id?: string } | undefined;
     if (operation === 'save') {
       const schedule = signupScheduleSchema.parse(data);
       const season = await db.from('seasons').select('program_id').eq('id', schedule.season_id).eq('organization_id', organizationId).single();
@@ -67,32 +70,9 @@ export async function signupImportMutation(operation: string, input: unknown) {
         const result = await db.from('signup_import_runs').insert({ organization_id: organizationId, schedule_id: run.schedule_id, scheduled_at: now, target_date: run.target_date,
           window_from: run.window_from, window_until: now, configuration: schedule.data, manual: true });
         if (result.error) throw new Error(result.error.message);
-      } else if (operation === 'create_player') {
-        if (run.status !== 'needs_review' || !run.parsed_json) throw new Error('Run is not awaiting identity review');
-        const name = z.string().min(1).max(200).parse(data.name);
-        if (!run.parsed_json.players.some(p => p.name === name)) throw new Error('Name is not in this roster');
-        const existing = await db.from('players').select('id').eq('organization_id', organizationId).ilike('display_name', name);
-        if (existing.error) throw new Error(existing.error.message);
-        if (existing.data?.length) throw new Error('A player with this name already exists; select the existing player');
-        const created = await db.from('players').insert({ organization_id: organizationId, display_name: name, status: 'active', notes: 'Created during scheduled signup identity review' }).select('id').single();
-        if (created.error) throw new Error(created.error.message);
-        return { success: true, playerId: created.data.id };
-      } else if (operation === 'retry_parse') {
-        if (run.status !== 'needs_review' || !query.data.incoming_messages?.length) throw new Error('No saved signup candidates; request a rerun');
-        try { outcome = await processSignupRun(db, { ...run, manual: true }, query.data.incoming_messages ?? [], query.data.history_complete === true, true); }
-        catch (error) {
-          await db.from('signup_import_runs').update({ error: error instanceof Error ? error.message : 'Parsing failed' }).eq('id', run.id).eq('status', 'needs_review');
-          throw error;
-        }
-      } else if (operation === 'review' || operation === 'finalize') {
-        if (!run.parsed_json || run.status !== 'needs_review') throw new Error('Run has no parsed draft to review');
-        const selections = z.record(z.string()).parse(data.selections);
-        const draft = await prepareSignupDraft(db, run, run.parsed_json, selections);
-        outcome = await saveSignupDraft(db, run, { parsed_json: run.parsed_json, draft, selections,
-          error: draft.overflow ? 'Listed season members exceed capacity; explicitly ignore entries or adjust capacity through a rerun' : null }, operation === 'finalize', true);
       } else throw new Error('Unknown signup import operation');
     }
     revalidatePath('/communications');
-    return outcome ? { success: true, status: outcome.status, runId: outcome.id, sessionId: outcome.session_id } : { success: true };
+    return { success: true };
   } catch (error) { return { error: error instanceof Error ? error.message : 'Signup import request failed' }; }
 }

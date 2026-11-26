@@ -41,10 +41,7 @@ it('requires organization administrator authority before using the worker queue'
   expect((await signupImportMutation('run_now',{id})).error).toBe('Administrator required');expect(mocks.from).not.toHaveBeenCalled();
 });
 
-it('reports a successful parser retry as a pending draft rather than finalized attendance',async()=>{
-  const row={id,status:'needs_review',organization_id:'org',configuration:{program_id:'program'},incoming_messages:[{id:'source',body:'Signup\n1. Rafiul',timestamp:1}],history_complete:false};
-  mocks.from.mockImplementation(()=>{const q:any={select:()=>q,eq:()=>q,single:async()=>({data:row,error:null})};return q;});
-  mocks.process.mockResolvedValue({id,status:'needs_review',session_id:'prepared-session'});
-  expect(await signupImportMutation('retry_parse',{id})).toEqual({success:true,status:'needs_review',runId:id,sessionId:'prepared-session'});
-  expect(mocks.process).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({manual:true}),row.incoming_messages,false,true);
+it('removes the custom review actions in favor of the WhatsApp import page',async()=>{
+  const result=await signupImportMutation('retry_parse',{id});
+  expect(result.error).toBeDefined();expect(mocks.process).not.toHaveBeenCalled();
 });

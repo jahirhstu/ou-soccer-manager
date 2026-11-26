@@ -65,6 +65,7 @@ beforeEach(() => {
         (records[table] ??= []).push(mutation);
         return query;
       },
+      upsert: (payload: any) => query.insert(payload),
       update: () => query,
       single: async () => result(),
       then: (resolve: any, reject: any) => Promise.resolve(result()).then(resolve, reject)

@@ -37,6 +37,7 @@ type SessionAttendanceRow = {
 };
 
 export function ImportReviewTable({
+  initialImport,
   aliases,
   ledgerEntries,
   playerReports,
@@ -47,6 +48,7 @@ export function ImportReviewTable({
   sessionCharges,
   sessions
 }: {
+  initialImport?: {runId:string;rawText:string;parsed?:ParsedWhatsAppImport;seasonId:string;sessionId:string;selections:Record<string,string>;status:string;error?:string};
   aliases: PlayerAlias[];
   ledgerEntries: LedgerEntryRow[];
   playerReports: PlayerReportRow[];
@@ -57,12 +59,12 @@ export function ImportReviewTable({
   sessionCharges: SessionChargeRow[];
   sessions: SessionWithPlayground[];
 }) {
-  const [state, action, pending] = useActionState(parseWhatsAppAction, null as { parsed?: ParsedWhatsAppImport; error?: string } | null);
+  const [state, action, pending] = useActionState(parseWhatsAppAction, (initialImport?.parsed ? {parsed:initialImport.parsed} : null) as { parsed?: ParsedWhatsAppImport; error?: string } | null);
   const [confirmState, confirmAction, confirmPending] = useActionState(
     confirmWhatsAppImport,
     null as { success?: boolean; message?: string; warning?: string; error?: string } | null
   );
-  const [rawText, setRawText] = useState("");
+  const [rawText, setRawText] = useState(initialImport?.rawText ?? "");
   const parsed = state?.parsed;
   const playersByName = new Map(players.map((player) => [normalizeName(player.display_name), player.id]));
   const playersById = new Map(players.map((player) => [player.id, player]));
@@ -99,8 +101,8 @@ export function ImportReviewTable({
         parsedSeasonName
       })
     : [];
-  const defaultSeasonId = matchedSeason?.id ?? (shouldOfferSeasonCreate ? "__create__" : "");
-  const defaultSessionId = matchedSession?.id ?? (shouldOfferSessionCreate && parsed?.importType === "session_update" ? "__create__" : "");
+  const defaultSeasonId = initialImport?.seasonId ?? matchedSeason?.id ?? (shouldOfferSeasonCreate ? "__create__" : "");
+  const defaultSessionId = initialImport?.sessionId ?? matchedSession?.id ?? (shouldOfferSessionCreate && parsed?.importType === "session_update" ? "__create__" : "");
   const [selectedSeasonId, setSelectedSeasonId] = useState(defaultSeasonId);
   const [selectedSessionId, setSelectedSessionId] = useState(defaultSessionId);
   const [matchSelections, setMatchSelections] = useState<Record<string, string>>({});
@@ -134,7 +136,7 @@ export function ImportReviewTable({
       setMatchSelections(Object.fromEntries(
         parsed.players.map((player) => [
           player.name,
-          getDefaultMatchValue(player.name, players, playersByName, aliasesByName)
+          (player.matchedPlayerId?.startsWith("__new__:") ? "__create__" : player.matchedPlayerId) ?? initialImport?.selections[player.name] ?? getDefaultMatchValue(player.name, players, playersByName, aliasesByName)
         ])
       ));
     }
@@ -142,7 +144,10 @@ export function ImportReviewTable({
 
   return (
     <div className="grid gap-5">
+      {initialImport?.error && <p className="panel p-4 text-sm text-amber-800">{initialImport.error}. Correct the message below and parse again.</p>}
+      {initialImport && <p className="panel p-4 text-sm">Signup run: {initialImport.status === 'imported' ? 'Already imported — preview only.' : 'Review the shared season-priority allocation, resolve names, and confirm to save attendance and charges.'}{!initialImport.rawText ? ' No extracted message is available yet.' : ''}</p>}
       <form action={action} className="grid gap-3">
+        {initialImport && <input type="hidden" name="signupRunId" value={initialImport.runId}/>}
         <textarea
           className="input min-h-56 p-3 leading-6"
           name="rawText"
@@ -163,6 +168,8 @@ export function ImportReviewTable({
 
       {parsed ? (
         <form action={confirmAction} className="grid gap-4">
+          {initialImport && <input type="hidden" name="signupRunId" value={initialImport.runId}/>}
+          {initialImport && Object.entries({...initialImport.selections,...matchSelections}).filter(([name,value])=>value==='__ignore__'&&!parsed.players.some(player=>player.name===name)).map(([name,value])=><input key={name} type="hidden" name={`match_${name}`} value={value}/>)}
           <input name="rawText" type="hidden" value={parsed.rawText} />
           <input name="parsedJson" type="hidden" value={JSON.stringify(parsed)} />
           <details className="panel overflow-hidden">
@@ -315,6 +322,7 @@ export function ImportReviewTable({
               </div>
             </div>
           </details>
+          <ReviewBlock title="Attendance" rows={parsed.attendance.map(row=>`${row.playerName}: ${row.status}`)}/>
           <ReviewBlock
             title="Teams"
             rows={(parsed.teams ?? []).map((row) => {
@@ -358,7 +366,8 @@ export function ImportReviewTable({
                     <p className="text-xs text-emerald-700">Exact player name match found.</p>
                   )}
                   <PlayerSelect
-                    emptyLabel={ambiguous ? "Select a player to confirm identity" : "Create new player if not matched"}
+                    includeCreate={Boolean(initialImport)}
+                    emptyLabel={initialImport || ambiguous ? "Select a player to confirm identity" : "Create new player if not matched"}
                     includeIgnore
                     name={`match_${player.name}`}
                     onChange={(value) => setMatchSelections((current) => ({ ...current, [player.name]: value }))}
@@ -381,7 +390,8 @@ export function ImportReviewTable({
             </div>
           </details>
           {parsed.warnings.length ? <ReviewBlock title="Warnings" rows={parsed.warnings} warning /> : null}
-          <button className="btn-primary w-fit" disabled={confirmPending}>
+          {initialImport && <button className="btn-secondary w-fit" formAction={action} disabled={pending || confirmPending}>Recalculate signup allocation</button>}
+          <button className="btn-primary w-fit" disabled={confirmPending || initialImport?.status === "imported"}>
             {confirmPending ? "Confirming..." : "Confirm import"}
           </button>
         </form>

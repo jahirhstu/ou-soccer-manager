@@ -29,7 +29,7 @@ export const preservedTables = [
   'message_worker_connections', 'message_templates', 'message_destinations',
   'message_schedules', 'message_executions', 'message_worker_commands', 'message_worker_heartbeats',
   // Reading schedules and their review/ownership history also stay environment-local.
-  'signup_import_schedules', 'signup_import_runs', 'signup_import_attendance'
+  'signup_import_schedules', 'signup_import_runs'
 ] as const;
 
 export type RefreshJob = {

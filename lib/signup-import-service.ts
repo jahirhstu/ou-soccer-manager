@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { occurrences } from '@ou/communications';
 import { allocateSignup, asMessageSchedule, likelySignup, signupWindow, type GroupMessage, type SignupSchedule } from '../packages/communications/src/signup-import';
 import { createSupabaseAdminClient } from './supabase/admin';
-import { parseWhatsAppText } from './actions/import-service';
+import { parseWhatsAppText, confirmWhatsAppImport } from './actions/import-service';
 import { normalizePlayerName, parseSessionDate } from './utils';
 import type { ParsedWhatsAppImport } from './types';
 
@@ -118,20 +118,35 @@ async function identityScope(db: DB, run: SignupRun) {
 }
 export async function prepareSignupDraft(db: DB, run: SignupRun, parsed: ParsedWhatsAppImport, selections = run.selections) {
   const { players, aliases, members } = await identityScope(db, run);
-  return allocateSignup(parsed.players.map(p => p.name), players, aliases, members, run.configuration.capacity, selections);
-}
-export async function saveSignupDraft(db: DB, run: SignupRun, payload: Record<string, unknown>, finalize: boolean, review = false) {
-  const args = { p_run_id: run.id, p_organization_id: run.organization_id, p_claim_token: run.claim_token, p_payload: payload, p_finalize: finalize, p_review: review };
-  const result = await db.rpc('signup_import_save', args);
-  if (result.error && finalize && !review) {
-    // Keep session preparation/review available when existing attendance prevents automatic application.
-    const draft = await db.rpc('signup_import_save', { ...args, p_finalize: false, p_payload: { ...payload, error: result.error.message } });
-    if (draft.error) throw new Error(draft.error.message);
-    return draft.data;
+  const choices={...selections};
+  for(const [name,value] of Object.entries(choices))if(value==='__create__') {
+    const id=`__new__:${name}`;players.push({id,display_name:name});choices[name]=id;
   }
-  if (result.error) throw new Error(result.error.message);
-  return result.data;
+  return allocateSignup(parsed.players.map(p => p.name), players, aliases, members, run.configuration.capacity, choices);
 }
+/** Apply the shared allocation to a parser result; both UI and automatic confirmation use it. */
+export function applySignupAllocation(parsed: ParsedWhatsAppImport, draft: ReturnType<typeof allocateSignup>) {
+  const prepared = structuredClone(parsed);
+  prepared.players = draft.rows.filter(row => row.status !== 'ignored').map(row => ({name:row.name,matchedPlayerId:row.player_id,confidence:'high'}));
+  prepared.attendance = draft.rows.filter(row => row.status !== 'ignored').map(row => ({playerName:row.name,matchedPlayerId:row.player_id,status:row.status === 'confirmed' ? 'confirmed' : 'waitlisted',confidence:'high'}));
+  prepared.payments=[];prepared.dropouts=[];prepared.teams=[];prepared.matches=[];prepared.goals=[];
+  return prepared;
+}
+export async function loadSignupRun(db: DB, id: string, organizationId: string, programId: string) {
+  const result=await db.from('signup_import_runs').select('*').eq('id',z.string().uuid().parse(id)).eq('organization_id',organizationId).single();
+  if(result.error || !result.data || result.data.configuration.program_id!==programId) throw new Error('Signup run is unavailable in this organization and program');
+  return result.data as SignupRun & {whatsapp_import_id?:string};
+}
+export async function signupRunPreview(db: DB, run: SignupRun, rawText?: string, selections: Record<string,string> = run.selections ?? {}) {
+  const body=rawText ?? run.source_message?.body ?? run.incoming_messages?.[0]?.body;
+  if(!body) return undefined;
+  const {parsed}=await selectSignupMessage([{id:run.source_message?.id??'saved',timestamp:Date.parse(run.window_until)/1000,body}],run.target_date,run.window_from,run.window_until);
+  const draft=await prepareSignupDraft(db,run,parsed,selections);
+  const prepared=applySignupAllocation(parsed,draft);
+  if(draft.needs_review)prepared.warnings.push('Resolve all player identities and recalculate before confirming this signup.');
+  return {parsed:prepared,draft};
+}
+
 export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMessage[], historyComplete: boolean, review = false, moreHistoryAvailable = false) {
   const retainCandidate = async (message?: GroupMessage) => {
     let query = db.from('signup_import_runs').update({ incoming_messages: message ? [message] : [], history_complete: historyComplete })
@@ -157,6 +172,14 @@ export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMe
   const draft = await prepareSignupDraft(db, run, parsed);
   const attendanceReview = Boolean(parsed.dropouts?.length || parsed.attendance?.some(row => !['confirmed', 'waitlisted'].includes(row.status)));
   const parserReview = parsed.confidence === 'low' || parsed.players.some(player => player.confidence === 'low') || parsed.parser?.fallbackUsed || Boolean(parsed.warnings?.length) || attendanceReview;
-  return saveSignupDraft(db, run, { source_message: source, parsed_json: parsed, draft, selections: run.selections,
-    error: draft.overflow ? 'Listed season members exceed capacity' : attendanceReview ? 'Message includes withdrawals or attendance changes; review and ignore unavailable players before finalizing' : parserReview ? 'Parser warnings require review' : run.manual ? 'Review the updated roster before applying this rerun' : null }, !draft.needs_review && !parserReview && !run.manual, review);
+  const prepared=applySignupAllocation(parsed,draft);
+  const reviewReason=draft.needs_review ? 'Resolve player identities or season capacity in WhatsApp import' : parserReview ? 'Parser warnings require review in WhatsApp import' : null;
+  const checkpoint=await db.from('signup_import_runs').update({source_message:source,parsed_json:prepared,draft,selections:run.selections,status:reviewReason?'needs_review':'reading',error:reviewReason,updated_at:new Date().toISOString()}).eq('id',run.id).eq('claim_token',run.claim_token);
+  if(checkpoint.error)throw new Error(checkpoint.error.message);
+  if(reviewReason)return {id:run.id,status:'needs_review'};
+  const form=new FormData();form.set('rawText',source.body);form.set('parsedJson',JSON.stringify(prepared));form.set('seasonId',run.configuration.season_id);form.set('sessionId','__create__');form.set('signupRunId',run.id);
+  for(const row of draft.rows)if(row.player_id)form.set(`match_${row.name}`,row.player_id);
+  const result=await confirmWhatsAppImport(null,form,{client:db as any,profile:{id:run.configuration.created_by!,role:'admin',organization_id:run.organization_id},program:{id:run.configuration.program_id},automaticSignup:true,signupClaimToken:run.claim_token??undefined});
+  if(result.error)throw new Error(result.error);
+  return {id:run.id,status:'imported'};
 }

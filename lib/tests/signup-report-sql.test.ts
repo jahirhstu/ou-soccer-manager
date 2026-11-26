@@ -49,6 +49,7 @@ beforeAll(async () => {
   `);
   await db.exec(previousSql.slice(previousSql.indexOf("create or replace view public.player_season_payment_summary")));
   await db.exec(readFileSync("supabase/migrations/079_public_report_signup_roster.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/117_waitlisted_public_status.sql", "utf8").split("-- Scoped wrappers")[0]);
 }, 30000);
 
 beforeEach(async () => { await db.exec("begin"); });
@@ -80,9 +81,11 @@ describe("public signup roster SQL", () => {
 
   it("fixes the previous report's omission without requiring another import", async () => {
     await signup();
+    await db.exec("drop function public.public_player_report()");
     await db.exec(previousReport);
     expect((await report()).map((row) => row.player_name)).toEqual(["Jahir", "Shomi"]);
     await db.exec(readFileSync("supabase/migrations/079_public_report_signup_roster.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/117_waitlisted_public_status.sql", "utf8").split("-- Scoped wrappers")[0]);
     expect((await report()).map((row) => row.player_name)).toEqual(["Jahir", "Mash", "Shomi"]);
   });
 
@@ -136,4 +139,13 @@ describe("public signup roster SQL", () => {
     ]);
     expect(await report()).toHaveLength(2);
   });
+});
+
+it('keeps waitlist-only players visible without confirmed counts or an upcoming confirmed session',async()=>{
+ const upcoming='88888888-8888-4888-8888-888888888888';
+ await db.exec(`insert into sessions values('${upcoming}','${fall}','2099-11-29','scheduled',13,'November 29th',now());insert into attendance values('${outsider}','${upcoming}','waitlisted');`);
+ const waiting=(await report()).find(row=>row.player_id===outsider)!;
+ expect(waiting).toBeDefined();expect(Number(waiting.confirmed_sessions)).toBe(0);expect(waiting.upcoming_session).toBeNull();expect(Number(waiting.waitlisted_sessions)).toBe(1);expect(waiting.upcoming_waitlisted_session).toBe('November 29th');expect(Number(waiting.estimated_used_amount)).toBe(0);
+ await db.exec(`update attendance set status='confirmed' where player_id='${outsider}' and session_id='${upcoming}'`);
+ const confirmed=(await report()).find(row=>row.player_id===outsider)!;expect(Number(confirmed.confirmed_sessions)).toBe(1);expect(Number(confirmed.waitlisted_sessions)).toBe(0);expect(confirmed.upcoming_session).toBe('November 29th');expect(confirmed.upcoming_waitlisted_session).toBeNull();
 });

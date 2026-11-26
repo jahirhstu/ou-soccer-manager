@@ -1,4 +1,7 @@
 import { importedSessionName, matchExistingImportPlayground } from "../import-session-details";
+import { createSupabaseAdminClient } from "../supabase/admin";
+import { randomUUID } from "node:crypto";
+import type { SignupRun } from "../signup-import-service";
 import { revalidatePath } from "next/cache";
 import { whatsappParser } from "../parsers";
 import { whatsappInputSchema } from "../schemas";
@@ -14,6 +17,8 @@ export type ImportContext = {
   client: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   profile: { id: string; role: "admin"; organization_id: string };
   program: { id: string };
+  automaticSignup?: boolean;
+  signupClaimToken?: string;
 };
 
 export async function parseWhatsAppAction(_: unknown, formData: FormData, context?: ImportContext) {
@@ -21,6 +26,16 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData, contex
     const profile = context?.profile ?? await getCurrentProfile();
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
     const rawText = String(formData.get("rawText") ?? "");
+    if (formData.get("signupRunId")) {
+      const db=context?.client ?? await createSupabaseServerClient();
+      const program=context?.program ?? await getCurrentProgram();
+      if(!profile?.organization_id || !program?.id)throw new Error("Select the signup organization and program");
+      const {loadSignupRun,signupRunPreview}=await import("../signup-import-service");
+      const run=await loadSignupRun(db as any,String(formData.get("signupRunId")),profile.organization_id,program.id);
+      const selections=Object.fromEntries([...formData.entries()].filter(([key,value])=>key.startsWith("match_")&&value).map(([key,value])=>[key.slice(6),String(value)]));
+      const preview=await signupRunPreview(db as any,run,rawText,{...run.selections,...selections});
+      return {parsed:preview?.parsed};
+    }
     const parsed = await parseWhatsAppText(rawText);
     return { parsed };
   } catch (error) {
@@ -44,6 +59,9 @@ export async function parseWhatsAppText(rawText: string) {
 }
 
 export async function confirmWhatsAppImport(_: unknown, formData: FormData, context?: ImportContext) {
+  let linkedRun: SignupRun | undefined;
+  let linkedClient: ImportContext["client"] | undefined;
+  let linkedToken: string | undefined;
   try {
     const profile = context?.profile ?? await getCurrentProfile();
     if (!hasPermission(profile?.role, "manage_finance")) return { error: unauthorizedImportMessage(profile) };
@@ -80,15 +98,70 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
     ensureRawTextWaitlistAttendance(parsed);
     sanitizeParsedNames(parsed);
     applyDropoutAttendanceOverrides(parsed);
+    removeIgnoredRows(parsed, ignoredNames);
 
     const supabase = context?.client ?? await createSupabaseServerClient();
     const program = context?.program ?? await getCurrentProgram();
     if (!program?.id || !profile.organization_id) throw new Error("Choose an organization and program before importing.");
     await requireEnabledProgramModule(supabase, profile.organization_id, program.id, "whatsapp_import");
+    if(formData.get("signupRunId")) {
+      const {loadSignupRun,prepareSignupDraft,applySignupAllocation}=await import("../signup-import-service");
+      linkedRun=await loadSignupRun(supabase as any,String(formData.get("signupRunId")),profile.organization_id,program.id);
+      linkedClient=context?.client ?? createSupabaseAdminClient() as any;
+      if(linkedRun.status==='imported')return {success:true,message:'This signup has already been imported.',sessionId:linkedRun.session_id};
+      if(input.seasonId!==linkedRun.configuration.season_id || parsed.session?.date!==linkedRun.target_date)throw new Error('Signup target must match its configured season and date');
+      const selections=Object.fromEntries([...matches,...[...ignoredNames].map(name=>[name,'__ignore__'] as [string,string])]);
+      let draft=await prepareSignupDraft(supabase as any,linkedRun,parsed,{...linkedRun.selections,...selections});
+      if(draft.needs_review)throw new Error('Resolve every player identity and season capacity before importing');
+      if(!draft.rows.some(row=>row.status==='confirmed'))throw new Error('The signup has no confirmed players');
+      for(const row of draft.rows.filter(row=>row.player_id?.startsWith('__new__:'))) {
+        if(context?.automaticSignup)throw new Error('Automatic imports cannot create players');
+        const existing=await supabase.from('players').select('id').eq('organization_id',profile.organization_id).eq('display_name',row.name).limit(2);
+        if(existing.error)throw new Error(existing.error.message);
+        if((existing.data?.length??0)>1)throw new Error('Multiple existing players require explicit selection');
+        let id=existing.data?.[0]?.id;
+        if(!id) {
+          const created=await supabase.from('players').insert({organization_id:profile.organization_id,display_name:row.name,status:'active',notes:'Explicitly created during WhatsApp signup review'}).select('id').single();
+          if(created.error)throw new Error(created.error.message);id=created.data.id;
+        }
+        selections[row.name]=id;matches.set(row.name,id);
+      }
+      draft=await prepareSignupDraft(supabase as any,linkedRun,parsed,{...linkedRun.selections,...selections});
+      const prepared=applySignupAllocation(parsed,draft);Object.assign(parsed,prepared);
+      for(const row of draft.rows)if(row.player_id)matches.set(row.name,row.player_id);
+      // Bind repeat attempts to one import history record and one unique session/date.
+      const sessions=await supabase.from('sessions').select('id,status,name').eq('season_id',input.seasonId).eq('organization_id',profile.organization_id).eq('session_date',linkedRun.target_date).limit(2);
+      if(sessions.error)throw new Error(sessions.error.message);
+      if((sessions.data?.length??0)>1)throw new Error('Multiple sessions match this signup date');
+      if(sessions.data?.[0]) {
+        input.sessionId=sessions.data[0].id;
+        if(sessions.data[0].status!=='scheduled')throw new Error('Signup session is completed or cancelled');
+        const existing=await supabase.from('attendance').select('player_id,status').eq('session_id',input.sessionId);
+        if(existing.error)throw new Error(existing.error.message);
+        if(existing.data?.some(row=>!draft.rows.some(planned=>planned.player_id===row.player_id)))throw new Error('This session has attendance outside the signup roster; review it in the session before importing');
+        if(context?.automaticSignup && existing.data?.length && (!linkedRun.session_id || existing.data.some(row=>draft.rows.find(planned=>planned.player_id===row.player_id)?.status!==row.status)))throw new Error('Existing attendance requires review in WhatsApp import');
+      } else input.sessionId='__create__';
+      if(context?.automaticSignup) {
+        if(linkedRun.status!=='reading' || linkedRun.claim_token!==context.signupClaimToken || !linkedRun.claim_until || Date.parse(linkedRun.claim_until)<=Date.now())throw new Error('Signup claim expired');
+        const schedule=await supabase.from('signup_import_schedules').select('enabled,updated_at').eq('id',linkedRun.schedule_id).single();
+        if(schedule.error || !schedule.data?.enabled || schedule.data.updated_at!==linkedRun.configuration.updated_at)throw new Error('Signup schedule changed or was disabled');
+        const owner=await supabase.from('message_worker_connections').select('id').eq('organization_id',linkedRun.organization_id).eq('instance_id',linkedRun.claimed_by).gt('lease_until',new Date().toISOString()).limit(1);
+        if(owner.error || !owner.data?.length)throw new Error('Worker lease lost');
+        linkedToken=linkedRun.claim_token??undefined;
+      } else {
+        if(linkedRun.status!=='needs_review')throw new Error('This signup is already being processed');
+        linkedToken=randomUUID();
+        const claim=await linkedClient!.from('signup_import_runs').update({status:'reading',claim_token:linkedToken,claim_until:new Date(Date.now()+600000).toISOString()}).eq('id',linkedRun.id).eq('status','needs_review').select('id').single();
+        if(claim.error)throw new Error('This signup is already being processed');
+      }
+      if(!formData.get('createSessionName'))formData.set('createSessionName',sessions.data?.[0]?.name??importedSessionName(linkedRun.target_date));
+      for(const [key,value] of Object.entries({createSessionDate:linkedRun.target_date,createSessionLocation:parsed.session?.location,createSessionStartTime:parsed.session?.startTime,createSessionEndTime:parsed.session?.endTime,createSessionPricePerSession:parsed.session?.pricePerSession}))if(value!=null)formData.set(key,String(value));
+    }
     const [{ data: identityPlayers, error: identityError }, { data: identityAliases, error: identityAliasError }] = await Promise.all([
       supabase.from("players").select("id,display_name").eq("organization_id", profile.organization_id),
       supabase.from("player_aliases").select("player_id,alias_name").eq("organization_id", profile.organization_id)
     ]);
+    for(const [name,id] of matches)if(id==='__create__')matches.delete(name);
     if (identityError || identityAliasError) throw new Error(identityError?.message ?? identityAliasError?.message);
     if ((identityPlayers?.length ?? 0) >= 1000 || (identityAliases?.length ?? 0) >= 1000) throw new Error("Player matching scope exceeds the safe review limit. Contact your administrator before importing.");
     assertImportIdentitySelections((parsed.players ?? []).map((player: { name: string }) => player.name), identityPlayers ?? [], identityAliases ?? [], matches);
@@ -120,6 +193,10 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
       actorId: profile.id,
       organizationId: profile.organization_id
     });
+    if(linkedRun && targetSessionId) {
+      const checkpoint=await linkedClient!.from('signup_import_runs').update({session_id:targetSessionId}).eq('id',linkedRun.id).eq('claim_token',linkedToken);
+      if(checkpoint.error)throw new Error(checkpoint.error.message);
+    }
     const targetSession = targetSessionId ? await getSessionStatusForImport(supabase, targetSessionId) : null;
     ensureParsedPlayersAreAttendance(parsed, Boolean(targetSessionId));
 
@@ -180,7 +257,8 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
 
     const { data: importRow, error } = await supabase
       .from("whatsapp_imports")
-      .insert({
+      .upsert({
+        ...(linkedRun ? {id:linkedRun.id} : {}),
         organization_id: profile.organization_id,
         season_id: targetSeasonId,
         session_id: targetSessionId,
@@ -310,9 +388,15 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
       });
     }
 
+    const nonBillable=(parsed.attendance??[]).filter((row:any)=>row.matchedPlayerId&&!['confirmed','played','replacement'].includes(normalizedImportedAttendanceStatus(row.status,targetSession))).map((row:any)=>row.matchedPlayerId);
+    if(targetSessionId && nonBillable.length) {
+      const charges=await supabase.from('session_player_charges').select('source,waiver_amount').eq('session_id',targetSessionId).in('player_id',nonBillable);
+      if(charges.error)throw new Error(charges.error.message);
+      if(charges.data?.some(row=>row.source!=='whatsapp_import'||Number(row.waiver_amount??0)>0))throw new Error('Non-billable players have manual or waived charges; review those fees before changing attendance');
+    }
     for (const row of parsed.attendance ?? []) {
       if (!row.matchedPlayerId || !targetSessionId) continue;
-      await supabase.from("attendance").upsert(
+      const {error:attendanceError}=await supabase.from("attendance").upsert(
         {
           session_id: targetSessionId,
           player_id: row.matchedPlayerId,
@@ -321,6 +405,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
         },
         { onConflict: "session_id,player_id" }
       );
+      if(attendanceError)throw new Error(attendanceError.message);
     }
 
     for (const goal of parsed.goals ?? []) {
@@ -388,12 +473,18 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
       revalidatePath(`/sessions/${targetSessionId}`);
       revalidatePath(`/public/sessions/${targetSessionId}/teams`);
     }
+    if(linkedRun) {
+      const saved=await linkedClient!.from('signup_import_runs').update({status:'imported',session_id:targetSessionId,parsed_json:parsed,selections:{...Object.fromEntries(matches),...Object.fromEntries([...ignoredNames].map(name=>[name,'__ignore__']))},error:null,claim_until:null,updated_at:new Date().toISOString()}).eq('id',linkedRun.id).eq('claim_token',linkedToken);
+      if(saved.error)throw new Error(saved.error.message);
+      revalidatePath('/communications');
+    }
     const paymentSummary = `${importedPayments} payments recorded, ${existingPayments} already recorded.`;
     const warning = skippedPayments
       ? ` ${skippedPayments} payments skipped because no valid player-specific amount was confirmed. Review the payment rows before retrying.`
       : undefined;
-    return { success: true, message: `WhatsApp import confirmed. ${paymentSummary}`, warning };
+    return { success: true, message: `WhatsApp import confirmed. ${paymentSummary}`, warning, sessionId:targetSessionId };
   } catch (error) {
+    if(linkedRun && linkedClient && linkedToken)await linkedClient.from('signup_import_runs').update({status:'needs_review',error:error instanceof Error?error.message:'Import failed',claim_until:null}).eq('id',linkedRun.id).eq('claim_token',linkedToken).eq('status','reading');
     return { error: friendlyImportError(error, "confirm") };
   }
 }

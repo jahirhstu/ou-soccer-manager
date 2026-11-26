@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { workerInput, workerOrganization, pollSignupRuns, processSignupRun, type SignupRun } from '@/lib/signup-import-service';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
+export function GET() { return NextResponse.json({service:'signup-import',pipeline:'shared-whatsapp-v1'}); }
 const inputSchema = workerInput.extend({ ready: z.boolean().optional(), action: z.enum(['poll', 'submit']), run_id: z.string().uuid().optional(), claim_token: z.string().uuid().optional(),
   batch_final: z.boolean().optional(), history_complete: z.boolean().optional(), messages: z.array(z.object({ id: z.string().min(1).max(500), timestamp: z.number().int().nonnegative(), body: z.string().max(30000) })).max(2000).optional() });
 export async function POST(request: Request) {
