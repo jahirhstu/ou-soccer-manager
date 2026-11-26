@@ -55,7 +55,7 @@ export async function pollSignupRuns(db: DB, organizationId: string, instanceId:
 export class SignupMessageNotFoundError extends Error {}
 
 /** Newest plausible target-date list wins; parser failure never falls back to an older list. */
-export async function selectSignupMessage(messages: GroupMessage[], targetDate: string, from: string, until: string, parse = parseWhatsAppText) {
+export async function selectSignupMessage(messages: GroupMessage[], targetDate: string, from: string, until: string, parse = parseWhatsAppText, onCandidate?: (message: GroupMessage) => Promise<void>) {
   const candidates = messages.filter(m => m.timestamp * 1000 >= Date.parse(from) && m.timestamp * 1000 <= Date.parse(until) && likelySignup(m.body))
     .sort((a, b) => b.timestamp - a.timestamp || b.id.localeCompare(a.id));
   for (let i = 0; i < candidates.length; i++) {
@@ -65,6 +65,7 @@ export async function selectSignupMessage(messages: GroupMessage[], targetDate: 
     const explicitDate = dateLine ? parseSessionDate(dateLine) : undefined;
     if (explicitDate && explicitDate !== targetDate) continue;
     if (i > 0 && candidates[i - 1].timestamp === message.timestamp) throw new Error('Conflicting signup messages have the same timestamp');
+    await onCandidate?.(message);
     const parsed = await parse(message.body);
     if (!parsed.session?.date) throw new Error('Latest signup message has no clear session date');
     if (parsed.session.date !== targetDate) {
@@ -130,10 +131,21 @@ export async function saveSignupDraft(db: DB, run: SignupRun, payload: Record<st
   return result.data;
 }
 export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMessage[], historyComplete: boolean, review = false, moreHistoryAvailable = false) {
+  const retainCandidate = async (message?: GroupMessage) => {
+    let query = db.from('signup_import_runs').update({ incoming_messages: message ? [message] : [], history_complete: historyComplete })
+      .eq('id', run.id).eq('organization_id', run.organization_id).eq('status', review ? 'needs_review' : 'reading');
+    if (!review) query = query.eq('claim_token', run.claim_token);
+    const result = await query;
+    if (result.error) throw new Error(result.error.message);
+  };
+  // Each repost is a full snapshot. Keep only the candidate actually being parsed,
+  // including failures, so retries never preserve the rest of the fetched batch.
+  await retainCandidate();
   let selected: Awaited<ReturnType<typeof selectSignupMessage>>;
-  try { selected = await selectSignupMessage(messages, run.target_date, run.window_from, run.window_until); }
+  try { selected = await selectSignupMessage(messages, run.target_date, run.window_from, run.window_until, parseWhatsAppText, retainCandidate); }
   catch (error) {
     if (error instanceof SignupMessageNotFoundError) {
+      await retainCandidate();
       if (moreHistoryAvailable) return { status: 'searching', id: run.id };
       if (!historyComplete) throw new Error('No matching signup found within the available WhatsApp history; manual review required');
     }

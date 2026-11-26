@@ -36,13 +36,13 @@ function mockRun(row: ReturnType<typeof claimedRun>) {
   });
   return updates;
 }
-it('keeps the claim reading and retains earlier evidence when requesting the next batch',async()=>{
+it('keeps the claim reading without retaining older candidates when requesting the next batch',async()=>{
   const row=claimedRun(),updates=mockRun(row);
   const result=await POST(new Request('https://app.example.com/api/worker/signup-import',{method:'POST',body:JSON.stringify({...credentials,action:'submit',run_id:row.id,claim_token:row.claim_token,messages:[],history_complete:false,batch_final:false})}));
-  expect(await result.json()).toMatchObject({status:'searching'});expect(updates).toHaveLength(1);expect(updates[0].incoming_messages).toEqual(row.incoming_messages);expect(updates[0].status).toBeUndefined();
+  expect(await result.json()).toMatchObject({status:'searching'});expect(updates.every(update=>update.status===undefined)).toBe(true);expect(updates.at(-1).incoming_messages).toEqual([]);
 });
 it('marks the newest signup parse failure for review instead of requesting another batch',async()=>{
   const row=claimedRun(),updates=mockRun(row);mocks.parse.mockRejectedValue(new Error('Parser unavailable'));
   const result=await POST(new Request('https://app.example.com/api/worker/signup-import',{method:'POST',body:JSON.stringify({...credentials,action:'submit',run_id:row.id,claim_token:row.claim_token,messages:[{id:'latest',timestamp:Date.parse('2026-11-26T22:00:00Z')/1000,body:'Signup\nDate: November 29, 2026\n1. Rafiul'}],history_complete:false,batch_final:false})}));
-  expect(await result.json()).toMatchObject({status:'needs_review'});expect(updates[0].incoming_messages).toHaveLength(2);expect(updates[1]).toMatchObject({status:'needs_review',error:'Parser unavailable'});expect(mocks.parse).toHaveBeenCalledTimes(1);
+  expect(await result.json()).toMatchObject({status:'needs_review'});expect(updates[0].incoming_messages).toEqual([]);expect(updates[1].incoming_messages.map((message:any)=>message.id)).toEqual(['latest']);expect(updates[2]).toMatchObject({status:'needs_review',error:'Parser unavailable'});expect(mocks.parse).toHaveBeenCalledTimes(1);
 });

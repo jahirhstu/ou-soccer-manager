@@ -8,13 +8,14 @@ const parsed: ParsedWhatsAppImport={rawText:raw,importType:'session_update',conf
 const run={id:'run',organization_id:'org',configuration:{season_id:'season',program_id:'program',capacity:1},target_date:'2026-11-29',window_from:'2026-11-24T02:00:00Z',window_until:'2026-11-27T01:00:00Z',claim_token:'claim',selections:{},manual:false} as SignupRun;
 const message={id:'source',timestamp:Date.parse('2026-11-26T22:00:00Z')/1000,body:raw};
 const tables: string[]=[];
+const evidence: any[]=[];
 let records: Record<string,unknown[]>;
 const rpc=vi.fn();
 function db() {
-  return {from(table: string){tables.push(table);const q:any={select:()=>q,eq:()=>q,limit:()=>q,then:(resolve:Function)=>Promise.resolve({data:records[table]??[],error:null}).then(resolve as any)};return q;},rpc} as unknown as Parameters<typeof processSignupRun>[0];
+  return {from(table: string){tables.push(table);const q:any={select:()=>q,eq:()=>q,limit:()=>q,update:(value:unknown)=>{evidence.push(value);return q;},then:(resolve:Function)=>Promise.resolve({data:records[table]??[],error:null}).then(resolve as any)};return q;},rpc} as unknown as Parameters<typeof processSignupRun>[0];
 }
 beforeEach(()=>{
-  tables.length=0;rpc.mockReset();rpc.mockResolvedValue({data:{id:'run',status:'imported'},error:null});parser.mockReset();parser.mockResolvedValue(structuredClone(parsed));
+  tables.length=0;evidence.length=0;rpc.mockReset();rpc.mockResolvedValue({data:{id:'run',status:'imported'},error:null});parser.mockReset();parser.mockResolvedValue(structuredClone(parsed));
   records={players:[{id:'rafiul',display_name:'Rafiul'},{id:'guest',display_name:'Guest'}],player_aliases:[],whatsapp_imports:[{parsed_json:{players:[{matchedPlayerId:'rafiul'}]}}]};
 });
 it('uses the existing parser and applies membership allocation without writing payments',async()=>{
@@ -22,7 +23,7 @@ it('uses the existing parser and applies membership allocation without writing p
   expect(parser).toHaveBeenCalledWith(raw);
   const args=rpc.mock.calls[0][1];expect(args.p_finalize).toBe(true);
   expect(args.p_payload.draft.rows.map((r:any)=>r.status)).toEqual(['confirmed','waitlisted']);
-  expect(tables).toEqual(['players','player_aliases','whatsapp_imports']);
+  expect(tables.filter(table=>table!=='signup_import_runs')).toEqual(['players','player_aliases','whatsapp_imports']);
 });
 it('saves an unresolved draft instead of finalizing attendance',async()=>{
   records.players=[{id:'rafiul',display_name:'Rafiul'}];
@@ -64,4 +65,15 @@ it('does not request more history or try an older list after the newest parser f
   parser.mockRejectedValue(new Error('Parser unavailable'));
   await expect(processSignupRun(db(),run,[message,{...message,id:'older',timestamp:message.timestamp-100}],false,false,true)).rejects.toThrow('Parser unavailable');
   expect(parser).toHaveBeenCalledTimes(1);expect(rpc).not.toHaveBeenCalled();
+});
+
+it('parses and saves only the newest qualifying complete repost',async()=>{
+  await processSignupRun(db(),run,[{...message,id:'older',timestamp:message.timestamp-100},message],false,false,true);
+  expect(parser).toHaveBeenCalledTimes(1);expect(evidence.at(-1).incoming_messages).toEqual([message]);
+  expect(evidence.every(update=>update.incoming_messages.length<=1)).toBe(true);
+});
+it('replaces legacy saved batches with only the failed newest candidate for review',async()=>{
+  parser.mockRejectedValue(new Error('Parser unavailable'));
+  await expect(processSignupRun(db(),{...run,incoming_messages:[{...message,id:'legacy-old'}]},[{...message,id:'older',timestamp:message.timestamp-100},message],false,false,true)).rejects.toThrow('Parser unavailable');
+  expect(evidence[0].incoming_messages).toEqual([]);expect(evidence.at(-1).incoming_messages).toEqual([message]);expect(parser).toHaveBeenCalledTimes(1);
 });

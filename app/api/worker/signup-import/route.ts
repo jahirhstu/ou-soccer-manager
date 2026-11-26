@@ -25,9 +25,6 @@ export async function POST(request: Request) {
     if (row.status !== 'reading') return NextResponse.json({ status: row.status }); // Response loss is safe to retry.
     if (!row.claim_until || Date.parse(row.claim_until) <= Date.now()) return NextResponse.json({ error: 'Run claim expired' }, { status: 409 });
     run = row;
-    const messages = [...new Map([...(run.incoming_messages ?? []), ...(input.messages ?? [])].map(message => [message.id, message])).values()];
-    const evidence = await db.from('signup_import_runs').update({ incoming_messages: messages, history_complete: input.history_complete === true }).eq('id', run.id).eq('claim_token', run.claim_token).eq('status', 'reading');
-    if (evidence.error) throw evidence.error;
     const saved = await processSignupRun(db, run, input.messages ?? [], input.history_complete === true, false, input.batch_final === false);
     return NextResponse.json({ status: saved.status, run_id: saved.id });
   } catch (error) {
