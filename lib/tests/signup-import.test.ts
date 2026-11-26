@@ -54,6 +54,8 @@ beforeEach(() => {
     };
     const query: any = {
       select: () => query,
+      limit: () => query,
+      order: () => query,
       maybeSingle: async () => { const response = result(); return { ...response, data: Array.isArray(response.data) ? response.data[0] ?? null : response.data }; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
       insert: (payload: any) => {
@@ -96,6 +98,22 @@ describe("signup payment amount validation", () => {
 });
 
 describe("Fall signup confirmation", () => {
+  it.each([false, true])("normalizes saved preview times and respects explicitly cleared fields (%s)", async cleared => {
+    const data = form();
+    data.set('sessionId', '__create__');
+    data.set('parsedJson', JSON.stringify({
+      rawText, importType:'session_update', confidence:'high',
+      session:{date:'2026-11-29',startTime:'7AM',endTime:'9 AM'},
+      players:[],payments:[],attendance:[],dropouts:[],teams:[],matches:[],goals:[],warnings:[]
+    }));
+    if (cleared) {
+      data.set('createSessionStartTime','');
+      data.set('createSessionEndTime','');
+    }
+    const result = await confirmWhatsAppImport(null, data);
+    expect(result).not.toHaveProperty('error');
+    expect(records.sessions[0]).toMatchObject({start_time:cleared ? null : '07:00',end_time:cleared ? null : '09:00'});
+  });
   it("blocks ambiguous names before creating any import or payment records", async () => {
     records.player_aliases = [{ organization_id: "org", player_id: "player-1", alias_name: "Jahir", normalized_alias: "jahir" }];
     const result = await confirmWhatsAppImport(null, form());

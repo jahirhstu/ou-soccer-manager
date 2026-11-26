@@ -11,6 +11,15 @@ function llmResult(rawText: string): ParsedWhatsAppImport {
   return {rawText,importType:'session_update',confidence:'high',session:{date:'2026-11-29'},players:[{name:'Wali',confidence:'high'},{name:'Habib',confidence:'high'}],payments:[],attendance:[],dropouts:[],teams:[],matches:[],goals:[],warnings:[]};
 }
 beforeEach(() => { parser.mockReset(); });
+it.each(['7AM – 9AM', '7 AM – 9 AM'])('normalizes the formatted signup time %s', async time => {
+ const raw = `${intro}\n*Date:* Sunday, November 29, 2026\n*Time:* ${time}\n*Max:* 21 Players\n*Format:* 7v7 – 3 Teams\n*Here are the boys*\n1. Wali\n*Waitlist*\n1. Habib\n*Address:*\nBell Sensplex\n1565 Maple Grove Rd, Stittsville`;
+ parser.mockImplementation(input => new RuleBasedWhatsAppParser().parse(input));
+ expect((await parseWhatsAppText(raw)).session).toMatchObject({date:'2026-11-29', startTime:'07:00', endTime:'09:00'});
+ const result = llmResult(raw);
+ result.session = {...result.session, startTime:'7 AM', endTime:'9AM'};
+ parser.mockResolvedValue(result);
+ expect((await parseWhatsAppText(raw)).session).toMatchObject({startTime:'07:00',endTime:'09:00'});
+});
 it('does not append a street address after the formatted Address heading to an LLM roster', async () => {
   const raw = `${header}\n*Address:*\nBell Sensplex\n1565 Maple Grove Rd, Stittsville`;
   parser.mockResolvedValue(llmResult(raw));

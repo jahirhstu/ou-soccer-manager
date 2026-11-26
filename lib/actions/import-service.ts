@@ -1,4 +1,4 @@
-import { importedSessionName, importPlaygroundCandidates } from "../import-session-details";
+import { importedSessionName, importPlaygroundCandidates, normalizeImportedTime } from "../import-session-details";
 import { createSupabaseAdminClient } from "../supabase/admin";
 import { randomUUID } from "node:crypto";
 import type { SignupRun } from "../signup-import-service";
@@ -46,6 +46,10 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData, contex
 /** Shared parser and normalization for manual and scheduled imports. */
 export async function parseWhatsAppText(rawText: string) {
   const parsed = await whatsappParser.parse(rawText);
+  if (parsed.session) {
+    parsed.session.startTime = normalizeImportedTime(parsed.session.startTime);
+    parsed.session.endTime = normalizeImportedTime(parsed.session.endTime);
+  }
   sanitizeParsedNames(parsed);
   applyDropoutAttendanceOverrides(parsed);
   ensureSentPaymentsAreParsed(parsed);
@@ -515,7 +519,7 @@ function friendlyImportError(error: unknown, step: "parse" | "confirm") {
   const message = error instanceof Error ? error.message : String(error);
   const prefix = step === "parse" ? "Could not parse the WhatsApp message." : "Could not confirm the WhatsApp import.";
 
-  if (/invalid input syntax for type time/i.test(message)) {
+  if (/invalid input syntax for type time|invalid imported time/i.test(message)) {
     return `${prefix} One of the parsed time values is not valid. Review the session start/end time fields and use HH:MM format, or leave them blank.`;
   }
 
@@ -671,8 +675,8 @@ async function resolveTargetSessionId({
       name: formValue(formData, "createSessionName") || importedSessionName(sessionDate),
       session_date: sessionDate,
       location: preserve ? current.data.location : playground?.name ?? location,
-      start_time: nullableFormValue(formData, "createSessionStartTime"),
-      end_time: nullableFormValue(formData, "createSessionEndTime"),
+      start_time: normalizeImportedTime(nullableFormValue(formData, "createSessionStartTime")) ?? null,
+      end_time: normalizeImportedTime(nullableFormValue(formData, "createSessionEndTime")) ?? null,
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? null
     };
     if (seasonId) updatePayload.season_id = seasonId;
@@ -700,8 +704,8 @@ async function resolveTargetSessionId({
       name: formValue(formData, "createSessionName") || importedSessionName(sessionDate),
       session_date: sessionDate,
       location: playground?.name ?? location,
-      start_time: formValue(formData, "createSessionStartTime") || parsed.session?.startTime || null,
-      end_time: formValue(formData, "createSessionEndTime") || parsed.session?.endTime || null,
+      start_time: normalizeImportedTime(formData.has("createSessionStartTime") ? nullableFormValue(formData, "createSessionStartTime") : parsed.session?.startTime) ?? null,
+      end_time: normalizeImportedTime(formData.has("createSessionEndTime") ? nullableFormValue(formData, "createSessionEndTime") : parsed.session?.endTime) ?? null,
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? parsed.session?.pricePerSession ?? null,
       status: "scheduled",
       notes: duration ? `Duration: ${duration}. Created from WhatsApp import.` : "Created from WhatsApp import",

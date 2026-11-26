@@ -1,4 +1,9 @@
 import { expect,it } from 'vitest';
+import { normalizeImportedTime } from '../import-session-details';
+it.each([['7AM','07:00'],['7 AM','07:00'],['9AM','09:00'],['12 AM','00:00'],['12PM','12:00'],['7:30 PM','19:30'],['07:00','07:00'],['09:00:00','09:00:00'],['',''],['24:00',null],['13AM',null],['7:60 AM',null]])('normalizes imported time %s', (input, expected) => {
+ if (expected === null) expect(() => normalizeImportedTime(input)).toThrow();
+ else expect(normalizeImportedTime(input)).toBe(expected || undefined);
+});
 import { importedSessionName,matchExistingImportPlayground,importPlaygroundCandidates } from '../import-session-details';
 it.each([['2026-11-29','November 29th'],['2026-12-01','December 1st'],['2026-12-02','December 2nd'],['2026-12-03','December 3rd'],['2026-12-11','December 11th'],['2026-12-12','December 12th'],['2026-12-13','December 13th'],['2026-12-21','December 21st']])('names %s as %s',(date,name)=>expect(importedSessionName(date)).toBe(name));
 it('rejects invalid dates',()=>expect(()=>importedSessionName('2026-02-30')).toThrow('Invalid session date'));
