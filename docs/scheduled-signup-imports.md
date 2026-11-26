@@ -62,7 +62,7 @@ When all names resolve and parser checks pass, automatic runs and **Run now** cr
 
 If a name is unresolved, capacity is exceeded, or parsing needs review, no new session or attendance is created. The run retains its source and diagnostic status. **View / review in WhatsApp import** opens the existing importer with the original text prefilled and parsed, the configured target selected, and the shared season-priority allocation applied. Opening this page changes no database records. Runs without an extracted message open the importer with an explanation.
 
-Resolve names on that page or explicitly choose to create a new player. Use **Recalculate signup allocation** after changing identities, then confirm through the existing import form. Confirmation recomputes identities and allocation on the server and updates the originating run only after attendance and charging succeed. Already-imported runs open as previews.
+Resolve names on that page or explicitly choose to create a new player. Attendance allocation and estimated charges update automatically when identities change; then confirm through the existing import form. Confirmation recomputes identities and allocation on the server and updates the originating run only after attendance and charging succeed. Already-imported runs open as previews.
 
 An ordinary manual paste keeps explicit waitlist sections waitlisted. A scheduler-linked preview shows the shared allocation, including season-priority promotions to fill capacity. Remaining waitlisted players are uncharged. The public report excludes them from confirmed counts and upcoming confirmed sessions, and displays a separate Waitlisted label.
 

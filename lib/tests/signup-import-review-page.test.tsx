@@ -20,7 +20,7 @@ beforeEach(()=>{
 it('opens the existing page with text prefilled, parsed, and allocated without importing',async()=>{
  const before=JSON.stringify(records);
  const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
- expect(mocks.parse).toHaveBeenCalledWith(raw);expect(html).toContain('Habib: confirmed');expect(html).toContain('Wali: waitlisted');expect(html).toContain('Recalculate signup allocation');expect(html).toContain(`name="signupRunId" value="${id}"`);expect(JSON.stringify(records)).toBe(before);
+ expect(mocks.parse).toHaveBeenCalledWith(raw);expect(html).toContain('Habib: confirmed');expect(html).toContain('Wali: waitlisted');expect(html).not.toContain('Recalculate signup allocation');expect(html).toContain(`name="signupRunId" value="${id}"`);expect(JSON.stringify(records)).toBe(before);
 });
 it('rejects another program run before parsing its message',async()=>{
  records.signup_import_runs[0].configuration.program_id='other-program';
@@ -41,7 +41,7 @@ it('keeps the saved text editable when parsing fails instead of losing the revie
 it('preserves explicit ignores when the prepared roster omits that name',async()=>{
  records.signup_import_runs[0].selections={Wali:'__ignore__'};
  const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
- expect(html).toContain('name="match_Wali" value="__ignore__"');expect(html).toContain('Habib: confirmed');
+ expect(html).toContain('name="match_Wali"');expect(html).toContain('value="__ignore__" selected=""');expect(html).toContain('Habib: confirmed');
 });
 
 function impactRow(html:string,name:string) {return [...html.matchAll(/<tr>[\s\S]*?<\/tr>/g)].map(match=>match[0]).find(row=>row.includes(name))??'';}
@@ -63,4 +63,21 @@ it('shows no additional charge when a fee already exists',async()=>{
  records.session_player_charges=[{session_id:'existing',player_id:'two',amount:13}];
  const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
  expect(impactRow(html,'Habib')).toContain('No balance change');expect(impactRow(html,'Habib')).not.toContain('Charge added');
+});
+
+
+it('labels ambiguity unresolved and updates attendance and payment impact after membership resolution',async()=>{
+ records.players.push({id:'ros',display_name:'Habib Ros',organization_id:'org'});
+ records.seasons[0].price_per_session=13;
+ const unresolved=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(unresolved).toContain('Habib: unresolved');
+ expect(unresolved).toContain('Resolve or ignore every player name');
+ expect(unresolved).toMatch(/<button[^>]*disabled=""[^>]*>Confirm import/);
+ expect(impactRow(unresolved,'Wali')).toContain('Charge added');
+ records.signup_import_runs[0].selections={Habib:'two'};
+ const resolved=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(resolved).toContain('Habib: confirmed');expect(resolved).toContain('Wali: waitlisted');
+ expect(impactRow(resolved,'Habib')).toContain('Charge added');expect(impactRow(resolved,'Wali')).toContain('No balance change');
+ expect(resolved).not.toContain('Resolve or ignore every player name');
+ expect(resolved).not.toMatch(/<button[^>]*disabled=""[^>]*>Confirm import/);
 });

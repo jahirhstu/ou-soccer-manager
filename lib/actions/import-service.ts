@@ -32,9 +32,9 @@ export async function parseWhatsAppAction(_: unknown, formData: FormData, contex
       if(!profile?.organization_id || !program?.id)throw new Error("Select the signup organization and program");
       const {loadSignupRun,signupRunPreview}=await import("../signup-import-service");
       const run=await loadSignupRun(db as any,String(formData.get("signupRunId")),profile.organization_id,program.id);
-      const selections=Object.fromEntries([...formData.entries()].filter(([key,value])=>key.startsWith("match_")&&value).map(([key,value])=>[key.slice(6),String(value)]));
+      const selections=Object.fromEntries([...formData.entries()].filter(([key])=>key.startsWith("match_")).map(([key,value])=>[key.slice(6),String(value)]));
       const preview=await signupRunPreview(db as any,run,rawText,{...run.selections,...selections});
-      return {parsed:preview?.parsed};
+      return {parsed:preview?.parsed,allocation:preview?.allocation};
     }
     const parsed = await parseWhatsAppText(rawText);
     return { parsed };
@@ -110,7 +110,7 @@ export async function confirmWhatsAppImport(_: unknown, formData: FormData, cont
       linkedClient=context?.client ?? createSupabaseAdminClient() as any;
       if(linkedRun.status==='imported')return {success:true,message:'This signup has already been imported.',sessionId:linkedRun.session_id};
       if(input.seasonId!==linkedRun.configuration.season_id || parsed.session?.date!==linkedRun.target_date)throw new Error('Signup target must match its configured season and date');
-      const selections=Object.fromEntries([...matches,...[...ignoredNames].map(name=>[name,'__ignore__'] as [string,string])]);
+      const selections=Object.fromEntries([...formData.entries()].filter(([key])=>key.startsWith("match_")).map(([key,value])=>[cleanImportedPlayerName(key.slice(6)),String(value)]));
       let draft=await prepareSignupDraft(supabase as any,linkedRun,parsed,{...linkedRun.selections,...selections});
       if(draft.needs_review)throw new Error('Resolve every player identity and season capacity before importing');
       if(!draft.rows.some(row=>row.status==='confirmed'))throw new Error('The signup has no confirmed players');

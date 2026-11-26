@@ -1,3 +1,5 @@
+import { applySignupAllocation, previewSignupAllocation, type SignupAllocationContext } from "./signup-allocation";
+export { applySignupAllocation } from "./signup-allocation";
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { occurrences } from '@ou/communications';
@@ -118,19 +120,7 @@ async function identityScope(db: DB, run: SignupRun) {
 }
 export async function prepareSignupDraft(db: DB, run: SignupRun, parsed: ParsedWhatsAppImport, selections = run.selections) {
   const { players, aliases, members } = await identityScope(db, run);
-  const choices={...selections};
-  for(const [name,value] of Object.entries(choices))if(value==='__create__') {
-    const id=`__new__:${name}`;players.push({id,display_name:name});choices[name]=id;
-  }
-  return allocateSignup(parsed.players.map(p => p.name), players, aliases, members, run.configuration.capacity, choices);
-}
-/** Apply the shared allocation to a parser result; both UI and automatic confirmation use it. */
-export function applySignupAllocation(parsed: ParsedWhatsAppImport, draft: ReturnType<typeof allocateSignup>) {
-  const prepared = structuredClone(parsed);
-  prepared.players = draft.rows.filter(row => row.status !== 'ignored').map(row => ({name:row.name,matchedPlayerId:row.player_id,confidence:'high'}));
-  prepared.attendance = draft.rows.filter(row => row.status !== 'ignored').map(row => ({playerName:row.name,matchedPlayerId:row.player_id,status:row.status === 'confirmed' ? 'confirmed' : 'waitlisted',confidence:'high'}));
-  prepared.payments=[];prepared.dropouts=[];prepared.teams=[];prepared.matches=[];prepared.goals=[];
-  return prepared;
+  return previewSignupAllocation(parsed, {names:parsed.players.map(p=>p.name),players,aliases,memberIds:[...members],capacity:run.configuration.capacity}, selections).draft;
 }
 export async function loadSignupRun(db: DB, id: string, organizationId: string, programId: string) {
   const result=await db.from('signup_import_runs').select('*').eq('id',z.string().uuid().parse(id)).eq('organization_id',organizationId).single();
@@ -141,10 +131,10 @@ export async function signupRunPreview(db: DB, run: SignupRun, rawText?: string,
   const body=rawText ?? run.source_message?.body ?? run.incoming_messages?.[0]?.body;
   if(!body) return undefined;
   const {parsed}=await selectSignupMessage([{id:run.source_message?.id??'saved',timestamp:Date.parse(run.window_until)/1000,body}],run.target_date,run.window_from,run.window_until);
-  const draft=await prepareSignupDraft(db,run,parsed,selections);
-  const prepared=applySignupAllocation(parsed,draft);
-  if(draft.needs_review)prepared.warnings.push('Resolve all player identities and recalculate before confirming this signup.');
-  return {parsed:prepared,draft};
+  const scope=await identityScope(db,run);
+  const allocation: SignupAllocationContext = {names:parsed.players.map(player=>player.name),players:scope.players,aliases:scope.aliases,memberIds:[...scope.members],capacity:run.configuration.capacity};
+  const {draft,parsed:prepared}=previewSignupAllocation(parsed,allocation,selections);
+  return {parsed:prepared,draft,allocation};
 }
 
 export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMessage[], historyComplete: boolean, review = false, moreHistoryAvailable = false) {

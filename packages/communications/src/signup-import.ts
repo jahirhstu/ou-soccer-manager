@@ -46,7 +46,7 @@ export function allocateSignup(names: string[], players: ImportIdentity[], alias
     // Suggestions are not sufficient for unattended imports: exact name/alias plus one candidate required.
     const key = identityKey(name);
     const exact = candidates.length === 1 && (identityKey(candidates[0].display_name) === key || aliases.some(a => a.player_id === candidates[0].id && identityKey(a.alias_name) === key));
-    const id = selected || (exact ? candidates[0].id : undefined);
+    const id = selected || (selected !== '' && exact ? candidates[0].id : undefined);
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);
     rows.push({ name, player_id: id, candidates, member: Boolean(id && members.has(id)), status: id ? 'waitlisted' : 'unresolved', order: rows.length });

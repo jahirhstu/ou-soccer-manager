@@ -20,7 +20,7 @@ export default async function ImportWhatsAppPage({searchParams}: {searchParams?:
     let preview,error;
     try { preview=await signupRunPreview(supabase as any,run); }
     catch(cause) { error=cause instanceof Error?cause.message:'Saved signup needs manual correction'; }
-    initialImport={runId:run.id,rawText:preview?.parsed.rawText??run.source_message?.body??run.incoming_messages?.[0]?.body??'',parsed:preview?.parsed,seasonId:run.configuration.season_id,sessionId:run.session_id??'__create__',selections:run.selections??{},status:run.status,error};
+    initialImport={runId:run.id,rawText:preview?.parsed.rawText??run.source_message?.body??run.incoming_messages?.[0]?.body??'',parsed:preview?.parsed,allocation:preview?.allocation,seasonId:run.configuration.season_id,sessionId:run.session_id??'__create__',selections:run.selections??{},status:run.status,error};
   }
   const [
     { data: players },

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import";
 import type { ParsedWhatsAppImport, Player, PlayerAlias, Playground, Season, Session } from "@/lib/types";
 import { importedSessionName } from "@/lib/import-session-details";
+import { previewSignupAllocation, type SignupAllocationContext } from "@/lib/signup-allocation";
 import { money } from "@/lib/utils";
 import { PlayerSelect } from "./FormControls";
 import { importIdentityCandidates } from "@/packages/contracts/src/import-identity";
@@ -48,7 +49,7 @@ export function ImportReviewTable({
   sessionCharges,
   sessions
 }: {
-  initialImport?: {runId:string;rawText:string;parsed?:ParsedWhatsAppImport;seasonId:string;sessionId:string;selections:Record<string,string>;status:string;error?:string};
+  initialImport?: {runId:string;rawText:string;parsed?:ParsedWhatsAppImport;allocation?:SignupAllocationContext;seasonId:string;sessionId:string;selections:Record<string,string>;status:string;error?:string};
   aliases: PlayerAlias[];
   ledgerEntries: LedgerEntryRow[];
   playerReports: PlayerReportRow[];
@@ -59,13 +60,19 @@ export function ImportReviewTable({
   sessionCharges: SessionChargeRow[];
   sessions: SessionWithPlayground[];
 }) {
-  const [state, action, pending] = useActionState(parseWhatsAppAction, (initialImport?.parsed ? {parsed:initialImport.parsed} : null) as { parsed?: ParsedWhatsAppImport; error?: string } | null);
+  const [state, action, pending] = useActionState(parseWhatsAppAction, (initialImport?.parsed ? {parsed:initialImport.parsed,allocation:initialImport.allocation} : null) as { parsed?: ParsedWhatsAppImport; allocation?: SignupAllocationContext; error?: string } | null);
   const [confirmState, confirmAction, confirmPending] = useActionState(
     confirmWhatsAppImport,
     null as { success?: boolean; message?: string; warning?: string; error?: string } | null
   );
   const [rawText, setRawText] = useState(initialImport?.rawText ?? "");
-  const parsed = state?.parsed;
+  const [matchSelections, setMatchSelections] = useState<Record<string, string>>(initialImport?.selections ?? {});
+  const allocationContext = state?.allocation;
+  const allocationPreview = state?.parsed && allocationContext
+    ? previewSignupAllocation(state.parsed, allocationContext, matchSelections)
+    : undefined;
+  const parsed = allocationPreview?.parsed ?? state?.parsed;
+  const matchPlayers = allocationContext ? allocationContext.names.map(name => ({name})) : parsed?.players ?? [];
   const playersByName = new Map(players.map((player) => [normalizeName(player.display_name), player.id]));
   const playersById = new Map(players.map((player) => [player.id, player]));
   const aliasesByName = new Map(aliases.map((alias) => [alias.normalized_alias, alias]));
@@ -105,19 +112,18 @@ export function ImportReviewTable({
   const defaultSessionId = initialImport?.sessionId ?? matchedSession?.id ?? (shouldOfferSessionCreate && parsed?.importType === "session_update" ? "__create__" : "");
   const [selectedSeasonId, setSelectedSeasonId] = useState(defaultSeasonId);
   const [selectedSessionId, setSelectedSessionId] = useState(defaultSessionId);
-  const [matchSelections, setMatchSelections] = useState<Record<string, string>>({});
   const selectedSeason = seasons.find((season) => season.id === selectedSeasonId);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
   const selectedPlayground = selectedSession?.playgrounds?.name ?? selectedSession?.location ?? parsed?.session?.location ?? "";
 
   useEffect(() => {
-    if (parsed) {
-      toast.success(`Message parsed successfully via ${parserMethodLabel(parsed)}.`);
+    if (state?.parsed) {
+      toast.success(`Message parsed successfully via ${parserMethodLabel(state.parsed)}.`);
     }
     if (state?.error) {
       toast.error(state.error);
     }
-  }, [parsed, state?.error]);
+  }, [state?.parsed, state?.error]);
 
   useEffect(() => {
     if (confirmState?.success) {
@@ -133,10 +139,10 @@ export function ImportReviewTable({
     setSelectedSeasonId(defaultSeasonId);
     setSelectedSessionId(defaultSessionId);
     if (parsed) {
-      setMatchSelections(Object.fromEntries(
-        parsed.players.map((player) => [
+      setMatchSelections((current) => Object.fromEntries(
+        matchPlayers.map((player) => [
           player.name,
-          (player.matchedPlayerId?.startsWith("__new__:") ? "__create__" : player.matchedPlayerId) ?? initialImport?.selections[player.name] ?? getDefaultMatchValue(player.name, players, playersByName, aliasesByName)
+          (allocationContext ? current[player.name] ?? initialImport?.selections[player.name] : state?.parsed?.players.find(row=>row.name===player.name)?.matchedPlayerId) ?? getDefaultMatchValue(player.name, players, playersByName, aliasesByName)
         ])
       ));
     }
@@ -148,6 +154,7 @@ export function ImportReviewTable({
       {initialImport && <p className="panel p-4 text-sm">Signup run: {initialImport.status === 'imported' ? 'Already imported — preview only.' : 'Review the shared season-priority allocation, resolve names, and confirm to save attendance and charges.'}{!initialImport.rawText ? ' No extracted message is available yet.' : ''}</p>}
       <form action={action} className="grid gap-3">
         {initialImport && <input type="hidden" name="signupRunId" value={initialImport.runId}/>}
+        {initialImport && Object.entries({...initialImport.selections,...matchSelections}).map(([name,value])=><input key={name} type="hidden" name={`match_${name}`} value={value}/>)}
         <textarea
           className="input min-h-56 p-3 leading-6"
           name="rawText"
@@ -169,7 +176,7 @@ export function ImportReviewTable({
       {parsed ? (
         <form action={confirmAction} className="grid gap-4">
           {initialImport && <input type="hidden" name="signupRunId" value={initialImport.runId}/>}
-          {initialImport && Object.entries({...initialImport.selections,...matchSelections}).filter(([name,value])=>value==='__ignore__'&&!parsed.players.some(player=>player.name===name)).map(([name,value])=><input key={name} type="hidden" name={`match_${name}`} value={value}/>)}
+          {initialImport && Object.entries({...initialImport.selections,...matchSelections}).filter(([name,value])=>value==='__ignore__'&&!matchPlayers.some(player=>player.name===name)).map(([name,value])=><input key={name} type="hidden" name={`match_${name}`} value={value}/>)}
           <input name="rawText" type="hidden" value={parsed.rawText} />
           <input name="parsedJson" type="hidden" value={JSON.stringify(parsed)} />
           <details className="panel overflow-hidden">
@@ -324,7 +331,7 @@ export function ImportReviewTable({
               </div>
             </div>
           </details>
-          <ReviewBlock title="Attendance" rows={parsed.attendance.map(row=>`${row.playerName}: ${row.status}`)}/>
+          <ReviewBlock title="Attendance" rows={allocationPreview ? allocationPreview.draft.rows.filter(row=>row.status!=="ignored").map(row=>`${row.name}: ${row.status}`) : parsed.attendance.map(row=>`${row.playerName}: ${row.status}`)}/>
           <ReviewBlock
             title="Teams"
             rows={(parsed.teams ?? []).map((row) => {
@@ -339,7 +346,7 @@ export function ImportReviewTable({
           <details className="panel overflow-hidden" open>
             <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink">Match names</summary>
             <div className="grid gap-2 border-t border-line p-4 md:grid-cols-2">
-              {[...parsed.players]
+              {[...matchPlayers]
                 .sort((a, b) => matchPriority(a.name, players, playersByName, aliasesByName) - matchPriority(b.name, players, playersByName, aliasesByName))
                 .map((player) => {
                   const candidates = importIdentityCandidates(player.name, players, aliases);
@@ -392,8 +399,8 @@ export function ImportReviewTable({
             </div>
           </details>
           {parsed.warnings.length ? <ReviewBlock title="Warnings" rows={parsed.warnings} warning /> : null}
-          {initialImport && <button className="btn-secondary w-fit" formAction={action} disabled={pending || confirmPending}>Recalculate signup allocation</button>}
-          <button className="btn-primary w-fit" disabled={confirmPending || initialImport?.status === "imported"}>
+          {allocationPreview?.draft.needs_review && <p className="text-sm text-amber-800">{allocationPreview.draft.overflow ? "Season members exceed session capacity. Resolve capacity before confirming." : "Resolve or ignore every player name before confirming. Attendance updates automatically."}</p>}
+          <button className="btn-primary w-fit" disabled={pending || confirmPending || initialImport?.status === "imported" || Boolean(allocationPreview?.draft.needs_review)}>
             {confirmPending ? "Confirming..." : "Confirm import"}
           </button>
         </form>
