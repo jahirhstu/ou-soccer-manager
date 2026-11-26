@@ -43,3 +43,24 @@ it('preserves explicit ignores when the prepared roster omits that name',async()
  const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
  expect(html).toContain('name="match_Wali" value="__ignore__"');expect(html).toContain('Habib: confirmed');
 });
+
+function impactRow(html:string,name:string) {return [...html.matchAll(/<tr>[\s\S]*?<\/tr>/g)].map(match=>match[0]).find(row=>row.includes(name))??'';}
+it('previews a charge for a new session before the session record exists and uses its parsed price',async()=>{
+ records.seasons[0].price_per_session=12;
+ mocks.parse.mockResolvedValueOnce({...await mocks.parse(),session:{date:'2099-11-29',pricePerSession:13}});
+ const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(impactRow(html,'Habib')).toContain('Charge added');expect(impactRow(html,'Habib')).toContain('-$13.00');expect(impactRow(html,'Wali')).toContain('No balance change');expect(impactRow(html,'Wali')).not.toContain('-$13.00');expect(records.sessions).toHaveLength(0);
+});
+it('does not hide a missing charge merely because existing attendance is already confirmed',async()=>{
+ records.signup_import_runs[0].session_id='existing';
+ records.sessions=[{id:'existing',season_id:'season',session_date:'2099-11-29',name:'November 29th',price_per_session:13}];
+ records.attendance=[{session_id:'existing',player_id:'two',status:'confirmed'}];
+ const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(impactRow(html,'Habib')).toContain('Charge added');expect(impactRow(html,'Habib')).toContain('-$13.00');
+});
+it('shows no additional charge when a fee already exists',async()=>{
+ records.signup_import_runs[0].session_id='existing';records.sessions=[{id:'existing',season_id:'season',session_date:'2099-11-29',name:'November 29th',price_per_session:13}];
+ records.session_player_charges=[{session_id:'existing',player_id:'two',amount:13}];
+ const html=renderToStaticMarkup(await ImportPage({searchParams:Promise.resolve({signupRun:id})}));
+ expect(impactRow(html,'Habib')).toContain('No balance change');expect(impactRow(html,'Habib')).not.toContain('Charge added');
+});

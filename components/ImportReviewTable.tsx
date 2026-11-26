@@ -250,6 +250,8 @@ export function ImportReviewTable({
             seasonId={selectedSeasonId === "__create__" ? undefined : selectedSeasonId}
             selectedSeason={selectedSeason}
             selectedSession={selectedSession}
+            creatingSession={selectedSessionId === "__create__"}
+            requireExplicitIdentity={Boolean(initialImport)}
             sessionAttendance={sessionAttendance}
             sessionCharges={sessionCharges}
           />
@@ -614,6 +616,8 @@ function ImpactPreview({
   seasonId,
   selectedSeason,
   selectedSession,
+  creatingSession = false,
+  requireExplicitIdentity = false,
   sessionAttendance,
   sessionCharges
 }: {
@@ -627,6 +631,8 @@ function ImpactPreview({
   seasonId?: string;
   selectedSeason?: Season;
   selectedSession?: SessionWithPlayground;
+  creatingSession?: boolean;
+  requireExplicitIdentity?: boolean;
   sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
 }) {
@@ -641,6 +647,8 @@ function ImpactPreview({
     seasonId,
     selectedSeason,
     selectedSession,
+    creatingSession,
+    requireExplicitIdentity,
     sessionAttendance,
     sessionCharges
   });
@@ -713,6 +721,8 @@ function buildImpactRows({
   seasonId,
   selectedSeason,
   selectedSession,
+  creatingSession = false,
+  requireExplicitIdentity = false,
   sessionAttendance,
   sessionCharges
 }: {
@@ -726,10 +736,12 @@ function buildImpactRows({
   seasonId?: string;
   selectedSeason?: Season;
   selectedSession?: SessionWithPlayground;
+  creatingSession?: boolean;
+  requireExplicitIdentity?: boolean;
   sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
 }) {
-  const sessionPrice = Number(selectedSession?.price_per_session ?? selectedSeason?.price_per_session ?? parsed.session?.pricePerSession ?? 0);
+  const sessionPrice = Number(selectedSession?.price_per_session ?? parsed.session?.pricePerSession ?? selectedSeason?.price_per_session ?? 0);
   const names = new Set<string>();
   parsed.players.forEach((row) => names.add(row.name));
   parsed.attendance.forEach((row) => names.add(row.playerName));
@@ -741,7 +753,7 @@ function buildImpactRows({
 
   return Array.from(names)
     .map((name) => {
-      const match = resolvePreviewMatch(name, matchSelections, players, playersByName, aliasesByName);
+      const match = resolvePreviewMatch(name, matchSelections, players, playersByName, aliasesByName, !requireExplicitIdentity);
       if (match.ignored) return null;
       const playerId = match.playerId;
       const currentBalance = playerId ? getCurrentBalance(playerReports, playerId, seasonId) : 0;
@@ -760,6 +772,7 @@ function buildImpactRows({
         playerId,
         playerName: name,
         selectedSession,
+        creatingSession,
         sessionAttendance,
         sessionCharges,
         sessionPrice,
@@ -850,6 +863,7 @@ function estimateSessionCharge({
   playerId,
   playerName,
   selectedSession,
+  creatingSession = false,
   sessionAttendance,
   sessionCharges,
   sessionPrice,
@@ -859,23 +873,20 @@ function estimateSessionCharge({
   playerId?: string;
   playerName: string;
   selectedSession?: SessionWithPlayground;
+  creatingSession?: boolean;
   sessionAttendance: SessionAttendanceRow[];
   sessionCharges: SessionChargeRow[];
   sessionPrice: number;
   createsNewPlayer: boolean;
 }) {
-  if ((!playerId && !createsNewPlayer) || !selectedSession || !sessionPrice) return 0;
+  if ((!playerId && !createsNewPlayer) || (!selectedSession && !creatingSession) || !sessionPrice) return 0;
   const attendance = getImportAttendanceForPlayer(parsed.attendance, playerName);
   if (!attendance) return 0;
-  if (createsNewPlayer) return ["confirmed", "played", "replacement"].includes(attendance.status) ? sessionPrice : 0;
+  if (createsNewPlayer || !selectedSession) return ["confirmed", "played", "replacement"].includes(attendance.status) ? sessionPrice : 0;
   const existingCharge = sessionCharges.find((charge) => charge.player_id === playerId && charge.session_id === selectedSession.id);
-  const existingAttendance = sessionAttendance.find((row) => row.player_id === playerId && row.session_id === selectedSession.id);
-  const existingBillable = isBillableAttendanceStatus(existingAttendance?.status);
-  const existingNonBillable = Boolean(existingAttendance?.status && !existingBillable);
   const billable = ["confirmed", "played", "replacement"].includes(attendance.status);
-  if (billable) return existingCharge || existingBillable ? 0 : sessionPrice;
-  if (existingNonBillable) return 0;
-  return existingCharge || existingBillable ? -Number(existingCharge?.amount ?? sessionPrice) : 0;
+  if (billable) return existingCharge ? 0 : sessionPrice;
+  return existingCharge ? -Number(existingCharge.amount) : 0;
 }
 
 function getImportAttendanceForPlayer(attendanceRows: ParsedWhatsAppImport["attendance"], playerName: string) {
@@ -919,12 +930,14 @@ function resolvePreviewMatch(
   matchSelections: Record<string, string>,
   players: Player[],
   playersByName: Map<string, string>,
-  aliasesByName: Map<string, PlayerAlias>
+  aliasesByName: Map<string, PlayerAlias>,
+  allowImplicitNewPlayer = true
 ) {
   const selected = matchSelections[name] ?? getDefaultMatchValue(name, players, playersByName, aliasesByName);
+  if (selected === "__create__") return { ignored: false, createsNew: true, playerId: undefined };
   if (selected === "__ignore__") return { ignored: true, createsNew: false, playerId: undefined };
   if (!selected && importIdentityCandidates(name, players, Array.from(aliasesByName.values())).length > 1) return { ignored: false, createsNew: false, playerId: undefined };
-  if (!selected) return { ignored: false, createsNew: true, playerId: undefined };
+  if (!selected) return { ignored: false, createsNew: allowImplicitNewPlayer, playerId: undefined };
   return { ignored: false, createsNew: false, playerId: selected };
 }
 
