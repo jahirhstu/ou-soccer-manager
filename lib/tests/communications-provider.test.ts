@@ -83,3 +83,10 @@ it('does not mistake truncated available history for a complete scan',async()=>{
   calls.getChatById.mockResolvedValue({fetchMessages});
   expect((await new WhatsAppProvider(config).history('group@g.us','2026-11-24T02:00:00Z','2026-11-27T01:00:00Z')).complete).toBe(false);
 });
+
+it('fetches only the requested batch instead of expanding history internally',async()=>{
+  const fetchMessages=vi.fn(async()=>Array.from({length:100},(_,i)=>({id:{_serialized:String(i)},timestamp:Date.parse('2026-11-26T12:00:00Z')/1000,body:'Chat'})));
+  calls.getChatById.mockResolvedValue({fetchMessages});
+  const batch=await new WhatsAppProvider(config).history('group@g.us','2026-11-24T02:00:00Z','2026-11-27T01:00:00Z',100);
+  expect(fetchMessages).toHaveBeenCalledTimes(1);expect(fetchMessages).toHaveBeenCalledWith({limit:100});expect(batch.has_more).toBe(true);expect(batch.complete).toBe(false);
+});

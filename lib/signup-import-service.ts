@@ -52,6 +52,8 @@ export async function pollSignupRuns(db: DB, organizationId: string, instanceId:
     group_id: destinations.data?.find(d => d.id === run.configuration.destination_id)?.group_id })) };
 }
 
+export class SignupMessageNotFoundError extends Error {}
+
 /** Newest plausible target-date list wins; parser failure never falls back to an older list. */
 export async function selectSignupMessage(messages: GroupMessage[], targetDate: string, from: string, until: string, parse = parseWhatsAppText) {
   const candidates = messages.filter(m => m.timestamp * 1000 >= Date.parse(from) && m.timestamp * 1000 <= Date.parse(until) && likelySignup(m.body))
@@ -75,7 +77,7 @@ export async function selectSignupMessage(messages: GroupMessage[], targetDate: 
     parsed.players = names.map(name => parsed.players.find(p => p.name === name)!);
     return { source: { ...message, hash: createHash('sha256').update(message.body).digest('hex') }, parsed };
   }
-  throw new Error('No weekly signup message found for the target session date');
+  throw new SignupMessageNotFoundError('No weekly signup message found for the target session date');
 }
 
 /** The message's list order, rather than an LLM's output order, breaks priority ties. */
@@ -127,9 +129,17 @@ export async function saveSignupDraft(db: DB, run: SignupRun, payload: Record<st
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
-export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMessage[], historyComplete: boolean, review = false) {
-  if (!historyComplete) throw new Error('WhatsApp history does not cover the signup window; manual review required');
-  const { source, parsed } = await selectSignupMessage(messages, run.target_date, run.window_from, run.window_until);
+export async function processSignupRun(db: DB, run: SignupRun, messages: GroupMessage[], historyComplete: boolean, review = false, moreHistoryAvailable = false) {
+  let selected: Awaited<ReturnType<typeof selectSignupMessage>>;
+  try { selected = await selectSignupMessage(messages, run.target_date, run.window_from, run.window_until); }
+  catch (error) {
+    if (error instanceof SignupMessageNotFoundError) {
+      if (moreHistoryAvailable) return { status: 'searching', id: run.id };
+      if (!historyComplete) throw new Error('No matching signup found within the available WhatsApp history; manual review required');
+    }
+    throw error;
+  }
+  const { source, parsed } = selected;
   const draft = await prepareSignupDraft(db, run, parsed);
   const attendanceReview = Boolean(parsed.dropouts?.length || parsed.attendance?.some(row => !['confirmed', 'waitlisted'].includes(row.status)));
   const parserReview = parsed.confidence === 'low' || parsed.players.some(player => player.confidence === 'low') || parsed.parser?.fallbackUsed || Boolean(parsed.warnings?.length) || attendanceReview;

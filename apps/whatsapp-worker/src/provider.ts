@@ -75,20 +75,16 @@ export class WhatsAppProvider {
   async groups() { return (await this.client.getChats()).filter(chat => chat.isGroup).map(chat => ({ id: chat.id._serialized, name: chat.name })); }
   async ready() { return this.state === 'ready' && await this.client.getState() === 'CONNECTED'; }
   async acknowledgement(id: string) { const message=await this.client.getMessageById(id);return message ? Number(message.ack) : null; }
-  async history(group: string, from: string, until: string) {
+  async history(group: string, from: string, until: string, limit = 100) {
     if (!group.endsWith('@g.us')) throw new Error('Group source required');
+    if (![100, 500, 2000].includes(limit)) throw new Error('Invalid history batch limit');
     const chat = await this.client.getChatById(group);
-    let messages: Awaited<ReturnType<typeof chat.fetchMessages>> = [];
-    let complete = false;
-    for (const limit of [100, 500, 2000]) {
-      messages = await chat.fetchMessages({ limit });
-      complete = messages.some(message => message.timestamp * 1000 <= Date.parse(from));
-      if (complete || messages.length < limit) break;
-    }
-    // A short result alone does not prove WhatsApp Web has all earlier history.
-    return { complete, messages: messages.filter(message => message.timestamp * 1000 >= Date.parse(from)
-      && message.timestamp * 1000 <= Date.parse(until) && message.body && message.body.length <= 30000)
-      .map(message => ({ id: message.id._serialized, timestamp: message.timestamp, body: message.body })) };
+    const messages = await chat.fetchMessages({ limit });
+    const complete = messages.some(message => message.timestamp * 1000 <= Date.parse(from));
+    return { complete, has_more: !complete && messages.length >= limit && limit < 2000,
+      messages: messages.filter(message => message.timestamp * 1000 >= Date.parse(from)
+        && message.timestamp * 1000 <= Date.parse(until) && message.body && message.body.length <= 30000)
+        .map(message => ({ id: message.id._serialized, timestamp: message.timestamp, body: message.body })) };
   }
   async send(group: string, body: string) {
     if (!group.endsWith('@g.us')) throw new Error('Group destination required');

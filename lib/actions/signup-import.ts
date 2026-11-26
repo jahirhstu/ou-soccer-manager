@@ -77,8 +77,8 @@ export async function signupImportMutation(operation: string, input: unknown) {
         if (created.error) throw new Error(created.error.message);
         return { success: true, playerId: created.data.id };
       } else if (operation === 'retry_parse') {
-        if (run.status !== 'needs_review' || !query.data.history_complete) throw new Error('Complete message history is required; request a rerun');
-        try { await processSignupRun(db, { ...run, manual: true }, query.data.incoming_messages ?? [], true, true); }
+        if (run.status !== 'needs_review' || !query.data.incoming_messages?.length) throw new Error('No saved signup candidates; request a rerun');
+        try { await processSignupRun(db, { ...run, manual: true }, query.data.incoming_messages ?? [], query.data.history_complete === true, true); }
         catch (error) {
           await db.from('signup_import_runs').update({ error: error instanceof Error ? error.message : 'Parsing failed' }).eq('id', run.id).eq('status', 'needs_review');
           throw error;

@@ -39,8 +39,9 @@ it('prepares the draft if existing attendance prevents automatic finalization',a
   await processSignupRun(db(),run,[message],true);
   expect(rpc).toHaveBeenCalledTimes(2);expect(rpc.mock.calls[1][1].p_finalize).toBe(false);expect(rpc.mock.calls[1][1].p_payload.error).toContain('manual attendance');
 });
-it('rejects incomplete history before parsing or database mutations',async()=>{
-  await expect(processSignupRun(db(),run,[message],false)).rejects.toThrow('history');expect(parser).not.toHaveBeenCalled();expect(rpc).not.toHaveBeenCalled();
+it('accepts a valid latest signup before history reaches the opening time',async()=>{
+  await processSignupRun(db(),run,[message],false,false,true);
+  expect(parser).toHaveBeenCalledWith(raw);expect(rpc.mock.calls[0][1].p_finalize).toBe(true);
 });
 it('does not assume payment records imply season membership',async()=>{
   records.whatsapp_imports=[];
@@ -50,4 +51,17 @@ it('does not assume payment records imply season membership',async()=>{
 it('lets an administrator reparse a saved draft without depending on a live worker lease',async()=>{
   await processSignupRun(db(),{...run,manual:true},[message],true,true);
   expect(rpc.mock.calls[0][1].p_review).toBe(true);expect(rpc.mock.calls[0][1].p_finalize).toBe(false);
+});
+
+it('requests another history batch only when no matching signup was found',async()=>{
+  const result=await processSignupRun(db(),run,[],false,false,true);
+  expect(result.status).toBe('searching');expect(rpc).not.toHaveBeenCalled();expect(parser).not.toHaveBeenCalled();
+});
+it('sends exhausted history with no match to review',async()=>{
+  await expect(processSignupRun(db(),run,[],false,false,false)).rejects.toThrow('No matching signup');expect(rpc).not.toHaveBeenCalled();
+});
+it('does not request more history or try an older list after the newest parser failure',async()=>{
+  parser.mockRejectedValue(new Error('Parser unavailable'));
+  await expect(processSignupRun(db(),run,[message,{...message,id:'older',timestamp:message.timestamp-100}],false,false,true)).rejects.toThrow('Parser unavailable');
+  expect(parser).toHaveBeenCalledTimes(1);expect(rpc).not.toHaveBeenCalled();
 });

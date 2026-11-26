@@ -18,12 +18,18 @@ export class SignupImportWorker {
       this.schedules = packet.schedules;
       this.processing = packet.runs.length > 0;
       for (const run of packet.runs) {
-        let messages: Array<{ id: string; timestamp: number; body: string }> = [], complete = false;
-        if (run.group_id && await this.provider.ready()) {
-          const history = await this.provider.history(run.group_id, run.from, run.until);
-          messages = history.messages.filter(m => likelySignup(m.body)); complete = history.complete;
+        const seen = new Set<string>();
+        for (const limit of [100, 500, 2000]) {
+          const history = run.group_id && await this.provider.ready()
+            ? await this.provider.history(run.group_id, run.from, run.until, limit)
+            : { messages: [], complete: false, has_more: false };
+          const messages = history.messages.filter(m => likelySignup(m.body) && !seen.has(m.id));
+          messages.forEach(message => seen.add(message.id));
+          const result = await this.request('submit', { run_id: run.id, claim_token: run.claim_token, messages,
+            history_complete: history.complete, batch_final: !history.has_more });
+          // A valid roster (including a review draft) or parse failure ends the search.
+          if (result.status !== 'searching' || !history.has_more) break;
         }
-        await this.request('submit', { run_id: run.id, claim_token: run.claim_token, messages, history_complete: complete });
       }
       this.retryAfter = 0;
     } catch (error) { this.retryAfter = Date.now() + 60000; onFailure('signup_import', error); }
