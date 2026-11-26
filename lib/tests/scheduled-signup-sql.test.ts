@@ -27,9 +27,10 @@ beforeAll(async () => {
     create table program_modules(program_id uuid,module_key text,enabled boolean);
     create table seasons(id uuid primary key,organization_id uuid,program_id uuid);insert into seasons values('${season}','${org}','${program}');
     create table players(id uuid primary key,organization_id uuid);insert into players values('${player}','${org}');
-    create table sessions(id uuid primary key default gen_random_uuid(),organization_id uuid,program_id uuid,season_id uuid,session_date date,name text,location text,start_time time,end_time time,price_per_session numeric,status text,created_by uuid,notes text);
+    create table playgrounds(id uuid primary key default gen_random_uuid(),organization_id uuid,name text);
+    create table sessions(id uuid primary key default gen_random_uuid(),organization_id uuid,program_id uuid,season_id uuid,session_date date,name text,playground_id uuid references playgrounds(id),location text,start_time time,end_time time,price_per_session numeric,status text,created_by uuid,notes text);
     create table attendance(session_id uuid references sessions(id),player_id uuid references players(id),status text,created_by uuid,notes text,primary key(session_id,player_id));`);
-  for (const file of ['110_whatsapp_message_scheduler.sql','114_scheduled_signup_imports.sql']) await db.exec(readFileSync(`supabase/migrations/${file}`,'utf8'));
+  for (const file of ['110_whatsapp_message_scheduler.sql','114_scheduled_signup_imports.sql','115_signup_import_session_details.sql']) await db.exec(readFileSync(`supabase/migrations/${file}`,'utf8'));
 },30000);
 beforeEach(async () => {
   await db.exec(`begin;select set_config('request.jwt.claim.sub','${admin}',true);
@@ -118,4 +119,29 @@ it('allows a reviewed rerun to replace attendance owned by the same schedule',as
   await db.exec(`insert into players values('90000000-0000-4000-8000-000000000002','${org}')`);
   const saved=await save(true,true,content);expect(saved.status).toBe('imported');
   const rows=(await db.query<any>('select * from attendance order by player_id')).rows;expect(rows).toHaveLength(2);expect(rows[0].status).toBe('waitlisted');expect((await db.query<any>('select * from signup_import_attendance')).rows.every(r=>r.run_id===run.id)).toBe(true);
+});
+
+it('names a new session November 29th and reuses a playground embedded in the full address',async()=>{
+  await db.exec(`insert into playgrounds(id,organization_id,name) values('${dest}','${org}','Bell Sensplex Stittsville'),('${worker}','${org}','Bells Sensplex')`);
+  const content=payload();content.parsed_json.session.location='Bell Sensplex 1565 Maple Grove Rd, Stittsville';
+  await save(false,false,content);
+  const session=(await db.query<any>('select * from sessions')).rows[0];
+  expect(session.name).toBe('November 29th');expect(session.playground_id).toBe(dest);expect(session.location).toBe('Bell Sensplex Stittsville');
+  expect((await db.query('select * from playgrounds')).rows).toHaveLength(2);
+});
+it('repairs a generic prepared draft name and missing playground link during review',async()=>{
+  await db.exec(`insert into playgrounds(id,organization_id,name) values('${dest}','${org}','Bell Sensplex')`);
+  const draft=await save(false);
+  await db.exec(`update sessions set name='Weekly soccer',playground_id=null,location='Bell Sensplex 1565 Maple Grove Rd' where id='${draft.session_id}'`);
+  await save(false,true);
+  const session=(await db.query<any>('select * from sessions')).rows[0];expect(session.name).toBe('November 29th');expect(session.playground_id).toBe(dest);
+});
+it('does not guess between multiple existing playgrounds or create one on no match',async()=>{
+  await db.exec(`insert into playgrounds(organization_id,name) values('${org}','Bell Sensplex'),('${org}','Bell Sensplex Stittsville')`);
+  const content=payload();content.parsed_json.session.location='Bell Sensplex 1565 Maple Grove Rd, Stittsville';await save(false,false,content);
+  expect((await db.query<any>('select * from sessions')).rows[0].playground_id).toBeNull();expect((await db.query('select * from playgrounds')).rows).toHaveLength(2);
+});
+it('never matches another organization playground',async()=>{
+  await db.exec(`insert into playgrounds(organization_id,name) values('${other}','Bell Sensplex')`);
+  await save(false);expect((await db.query<any>('select * from sessions')).rows[0].playground_id).toBeNull();
 });

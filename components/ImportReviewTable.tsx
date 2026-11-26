@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { confirmWhatsAppImport, parseWhatsAppAction } from "@/lib/actions/import";
 import type { ParsedWhatsAppImport, Player, PlayerAlias, Playground, Season, Session } from "@/lib/types";
+import { importedSessionName } from "@/lib/import-session-details";
 import { money } from "@/lib/utils";
 import { PlayerSelect } from "./FormControls";
 import { importIdentityCandidates } from "@/packages/contracts/src/import-identity";
@@ -67,7 +68,7 @@ export function ImportReviewTable({
   const playersById = new Map(players.map((player) => [player.id, player]));
   const aliasesByName = new Map(aliases.map((alias) => [alias.normalized_alias, alias]));
   const parsedSeasonName = parsed?.season?.name ?? guessSeasonName(parsed);
-  const parsedSessionName = parsed?.session?.name;
+  const parsedSessionName = defaultImportedSessionName(parsed);
   const parsedSessionDate = parsed?.session?.date;
   const matchedSeasonByName = parsedSeasonName ? seasons.find((season) => normalizeName(season.name) === normalizeName(parsedSeasonName)) : undefined;
   const matchedSession = parsed ? findMatchingSession(parsed, sessions) : undefined;
@@ -533,6 +534,12 @@ function buildFixWarnings({
   }
 
   return warnings;
+}
+
+function defaultImportedSessionName(parsed?: ParsedWhatsAppImport) {
+  if (!parsed?.session?.date) return parsed?.session?.name;
+  try { return importedSessionName(parsed.session.date); }
+  catch { return parsed.session.name; }
 }
 
 function guessSeasonName(parsed?: ParsedWhatsAppImport) {

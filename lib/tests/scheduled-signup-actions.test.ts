@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks=vi.hoisted(()=>({from:vi.fn(),authority:vi.fn(),module:vi.fn(),revalidate:vi.fn()}));
+const mocks=vi.hoisted(()=>({from:vi.fn(),authority:vi.fn(),module:vi.fn(),revalidate:vi.fn(),process:vi.fn()}));
 vi.mock('../supabase/server',()=>({getCurrentProfile:async()=>({id:'admin',organization_id:'org'}),createSupabaseServerClient:async()=>({})}));
 vi.mock('../supabase/admin',()=>({createSupabaseAdminClient:()=>({from:mocks.from})}));
 vi.mock('../organization-access',()=>({requireOrganizationAdminAuthority:mocks.authority}));
 vi.mock('../program-access',()=>({requireEnabledProgramModule:mocks.module}));
-vi.mock('../signup-import-service',()=>({prepareSignupDraft:vi.fn(),saveSignupDraft:vi.fn(),processSignupRun:vi.fn()}));
+vi.mock('../signup-import-service',()=>({prepareSignupDraft:vi.fn(),saveSignupDraft:vi.fn(),processSignupRun:mocks.process}));
 vi.mock('next/cache',()=>({revalidatePath:mocks.revalidate}));
 import { signupImportMutation } from '../actions/signup-import';
 const id='10000000-0000-4000-8000-000000000001';
@@ -39,4 +39,12 @@ it('does not queue another request while the schedule already has an active run'
 it('requires organization administrator authority before using the worker queue',async()=>{
   mocks.authority.mockRejectedValue(new Error('Administrator required'));
   expect((await signupImportMutation('run_now',{id})).error).toBe('Administrator required');expect(mocks.from).not.toHaveBeenCalled();
+});
+
+it('reports a successful parser retry as a pending draft rather than finalized attendance',async()=>{
+  const row={id,status:'needs_review',organization_id:'org',configuration:{program_id:'program'},incoming_messages:[{id:'source',body:'Signup\n1. Rafiul',timestamp:1}],history_complete:false};
+  mocks.from.mockImplementation(()=>{const q:any={select:()=>q,eq:()=>q,single:async()=>({data:row,error:null})};return q;});
+  mocks.process.mockResolvedValue({id,status:'needs_review',session_id:'prepared-session'});
+  expect(await signupImportMutation('retry_parse',{id})).toEqual({success:true,status:'needs_review',runId:id,sessionId:'prepared-session'});
+  expect(mocks.process).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({manual:true}),row.incoming_messages,false,true);
 });

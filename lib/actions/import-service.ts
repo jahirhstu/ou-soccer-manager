@@ -1,3 +1,4 @@
+import { importedSessionName, matchExistingImportPlayground } from "../import-session-details";
 import { revalidatePath } from "next/cache";
 import { whatsappParser } from "../parsers";
 import { whatsappInputSchema } from "../schemas";
@@ -567,15 +568,15 @@ async function resolveTargetSessionId({
   if (!requestedSessionId) return undefined;
   if (requestedSessionId !== "__create__") {
     const location = nullableFormValue(formData, "createSessionLocation");
-    const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId, organizationId) : null;
+    const playground = location ? await findExistingPlayground(supabase, location, organizationId, parsed.rawText) : undefined;
     const sessionDate = formValue(formData, "createSessionDate") || parsed.session?.date;
     if (!sessionDate) throw new Error("Parsed session needs a date before it can be updated.");
     const duration = formValue(formData, "createSessionDuration");
     const updatePayload: Record<string, unknown> = {
-      playground_id: playgroundId,
-      name: nullableFormValue(formData, "createSessionName"),
+      playground_id: playground?.id ?? null,
+      name: formValue(formData, "createSessionName") || importedSessionName(sessionDate),
       session_date: sessionDate,
-      location,
+      location: playground?.name ?? location,
       start_time: nullableFormValue(formData, "createSessionStartTime"),
       end_time: nullableFormValue(formData, "createSessionEndTime"),
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? null
@@ -596,15 +597,15 @@ async function resolveTargetSessionId({
 
   const duration = formValue(formData, "createSessionDuration") || parsed.session?.duration;
   const location = formValue(formData, "createSessionLocation") || parsed.session?.location || null;
-  const playgroundId = location ? await findOrCreatePlayground(supabase, location, actorId, organizationId) : null;
+  const playground = location ? await findExistingPlayground(supabase, location, organizationId, parsed.rawText) : undefined;
   const { data, error } = await supabase
     .from("sessions")
     .insert({
       season_id: seasonId,
-      playground_id: playgroundId,
-      name: formValue(formData, "createSessionName") || parsed.session?.name || null,
+      playground_id: playground?.id ?? null,
+      name: formValue(formData, "createSessionName") || importedSessionName(sessionDate),
       session_date: sessionDate,
-      location,
+      location: playground?.name ?? location,
       start_time: formValue(formData, "createSessionStartTime") || parsed.session?.startTime || null,
       end_time: formValue(formData, "createSessionEndTime") || parsed.session?.endTime || null,
       price_per_session: numberValue(formData, "createSessionPricePerSession") ?? parsed.session?.pricePerSession ?? null,
@@ -635,29 +636,16 @@ function numberValue(formData: FormData, key: string) {
   return Number.isFinite(number) ? number : undefined;
 }
 
-async function findOrCreatePlayground(
+async function findExistingPlayground(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   name: string,
-  actorId: string,
-  organizationId: string
+  organizationId: string,
+  rawText?: string
 ) {
-  const cleaned = name.trim();
-  const { data: existing, error: existingError } = await supabase
-    .from("playgrounds")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .ilike("name", cleaned)
-    .maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (existing) return existing.id;
-
-  const { data, error } = await supabase
-    .from("playgrounds")
-    .insert({ organization_id: organizationId, name: cleaned, created_by: actorId })
-    .select("id")
-    .single();
+  const { data, error } = await supabase.from("playgrounds").select("id,name").eq("organization_id", organizationId).limit(1000);
   if (error) throw new Error(error.message);
-  return data.id;
+  if ((data?.length ?? 0) >= 1000) throw new Error("Playground scope exceeds the safe matching limit.");
+  return matchExistingImportPlayground(name, data ?? [], rawText);
 }
 
 async function getEffectiveSessionPrice(

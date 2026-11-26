@@ -19,13 +19,13 @@ export function SignupImports() {
   const run = data?.runs.find(r => r.id === reviewId);
   function mutate(operation: string, payload: Record<string, unknown>, after?: (result: { playerId?: string }) => void) {
     start(async () => { const result = await signupImportMutation(operation, payload); if (result.error) { toast.error(result.error); return; }
-      toast.success(operation === 'run_now' ? 'Import queued for the next worker check. If the Mac worker is idle, restart it to pick this up sooner. Review the draft before finalizing attendance.' : operation === 'rerun' ? 'Rerun queued for the worker; the new roster will require review' : 'Saved'); after?.(result); await refresh(); });
+      toast.success(operation === 'run_now' ? 'Import queued for the next worker check. If the Mac worker is idle, restart it to pick this up sooner. Review the draft before finalizing attendance.' : operation === 'rerun' ? 'Rerun queued for the worker; the new roster will require review' : 'status' in result && result.status === 'needs_review' ? 'Session and draft prepared. Attendance is not finalized: resolve names and click Finalize attendance.' : 'status' in result && result.status === 'imported' ? 'Attendance finalized successfully' : 'Saved'); if ('runId' in result && result.runId) setReviewId(result.runId); after?.(result); await refresh(); });
   }
   function review(value: SignupRun) { setReviewId(value.id); setSelections(value.selections ?? {}); setSearch(''); }
   return <div className="grid gap-4">
     <div className="panel grid gap-3 p-4"><h2 className="font-semibold">Scheduled signup imports</h2>
       <p className="text-sm text-slate-600">Read the latest signup at execution time, prioritize listed season members, and fill remaining spots in message order. Unresolved identities prepare a session and draft roster for review.</p>
-      <p className="text-xs text-slate-500">Requires database migration 114 and an updated Mac worker configured with the website URL. Import schedules work independently of automatic outgoing messages.</p>
+      <p className="text-xs text-slate-500">Requires database migrations 114–115 and an updated Mac worker configured with the website URL. Import schedules work independently of automatic outgoing messages.</p>
       <div className="flex gap-2"><button className="btn-primary" onClick={() => { setSchedule(blank); setEditing(true); }}>Add import schedule</button><button className="btn-secondary" onClick={() => void refresh()}>Refresh</button></div>
     </div>
     {error && <p role="alert" className="panel p-4 text-rose-700">{error}</p>}
@@ -51,6 +51,7 @@ export function SignupImports() {
     {!data?.runs.length && <p className="text-sm text-slate-500">No import runs yet.</p>}
     {data?.runs.map(value => <div key={value.id} className="panel grid gap-2 p-4"><div className="flex flex-wrap justify-between gap-2"><strong>Session {value.target_date}</strong><span>{value.status.replaceAll('_', ' ')}</span></div>
       <p className="text-xs text-slate-500">Execution: {new Date(value.scheduled_at).toLocaleString('en-CA', { timeZone: value.configuration.timezone, timeZoneName: 'short' })}</p>
+      {value.status === 'needs_review' && value.session_id && <p className="text-sm text-amber-800">Session prepared with a draft roster. Attendance is empty until names are resolved and you click Finalize attendance.</p>}
       {value.error && <p className="text-sm text-amber-800">{value.error}</p>}
       {value.session_id && <a className="text-sm underline" href={`/sessions/${value.session_id}`}>Open prepared session</a>}
       <div className="flex gap-2"><button className="btn-secondary" onClick={() => review(value)}>View / review</button><button className="btn-secondary" disabled={pending || ['queued', 'reading'].includes(value.status)} onClick={() => { if (window.confirm('Read the latest signup for this session again? The new roster will require review before attendance changes.')) mutate('rerun', { id: value.id }); }}>Read latest again</button></div>

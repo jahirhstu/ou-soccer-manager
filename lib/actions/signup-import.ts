@@ -30,6 +30,7 @@ export async function signupImportMutation(operation: string, input: unknown) {
   try {
     const { db, user, organizationId, profileId } = await context();
     const data = z.record(z.unknown()).parse(input);
+    let outcome: { id: string; status: string; session_id?: string } | undefined;
     if (operation === 'save') {
       const schedule = signupScheduleSchema.parse(data);
       const season = await db.from('seasons').select('program_id').eq('id', schedule.season_id).eq('organization_id', organizationId).single();
@@ -78,7 +79,7 @@ export async function signupImportMutation(operation: string, input: unknown) {
         return { success: true, playerId: created.data.id };
       } else if (operation === 'retry_parse') {
         if (run.status !== 'needs_review' || !query.data.incoming_messages?.length) throw new Error('No saved signup candidates; request a rerun');
-        try { await processSignupRun(db, { ...run, manual: true }, query.data.incoming_messages ?? [], query.data.history_complete === true, true); }
+        try { outcome = await processSignupRun(db, { ...run, manual: true }, query.data.incoming_messages ?? [], query.data.history_complete === true, true); }
         catch (error) {
           await db.from('signup_import_runs').update({ error: error instanceof Error ? error.message : 'Parsing failed' }).eq('id', run.id).eq('status', 'needs_review');
           throw error;
@@ -87,11 +88,11 @@ export async function signupImportMutation(operation: string, input: unknown) {
         if (!run.parsed_json || run.status !== 'needs_review') throw new Error('Run has no parsed draft to review');
         const selections = z.record(z.string()).parse(data.selections);
         const draft = await prepareSignupDraft(db, run, run.parsed_json, selections);
-        await saveSignupDraft(db, run, { parsed_json: run.parsed_json, draft, selections,
+        outcome = await saveSignupDraft(db, run, { parsed_json: run.parsed_json, draft, selections,
           error: draft.overflow ? 'Listed season members exceed capacity; explicitly ignore entries or adjust capacity through a rerun' : null }, operation === 'finalize', true);
       } else throw new Error('Unknown signup import operation');
     }
     revalidatePath('/communications');
-    return { success: true };
+    return outcome ? { success: true, status: outcome.status, runId: outcome.id, sessionId: outcome.session_id } : { success: true };
   } catch (error) { return { error: error instanceof Error ? error.message : 'Signup import request failed' }; }
 }

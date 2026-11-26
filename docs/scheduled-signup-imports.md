@@ -4,7 +4,7 @@ Communications → **Signup imports** reads the latest weekly signup from a conf
 
 ## Setup
 
-1. Apply migration `114_scheduled_signup_imports.sql` to the intended Supabase project and deploy the updated website. The website requires its existing `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` and parser configuration (`WHATSAPP_PARSER_PROVIDER` and the relevant provider credentials).
+1. Apply migrations `114_scheduled_signup_imports.sql` and `115_signup_import_session_details.sql` to the intended Supabase project and deploy the updated website. The website requires its existing `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` and parser configuration (`WHATSAPP_PARSER_PROVIDER` and the relevant provider credentials).
 2. Update/build and configure the worker **on the Mac that runs WhatsApp**, using the existing private configuration file:
 
    ```text
@@ -56,7 +56,7 @@ Signup imports are controlled by their own enabled schedules. The automatic outg
 
 ## Sessions and review
 
-When the message parses and season membership is available, a unique existing scheduled session is reused or a missing session is created. Existing session metadata is preserved. Multiple matching sessions, completed/cancelled sessions, or disabled program modules require intervention.
+When the message parses and season membership is available, a unique existing scheduled session is reused or a missing session is created. New session names use the date in words, such as **November 29th**. Playground matching reuses an existing organization playground and its canonical name even when the message includes a street address between venue words. It never creates a playground; ambiguous or unknown venues remain unlinked for manual selection. Existing explicit session names and playground selections are preserved; revisiting a prepared draft repairs generic import names and missing playground links. Multiple matching sessions, completed/cancelled sessions, or disabled program modules require intervention.
 
 If identities remain unresolved, season members exceed capacity, or parser warnings/fallbacks require review, the session and roster draft are saved. **Draft players are not attendance.** Review the original message and proposed roster in the Signup imports history. Select existing players, explicitly create a new player, or ignore an entry; save/recalculate to see the resulting priority allocation, then finalize attendance.
 
