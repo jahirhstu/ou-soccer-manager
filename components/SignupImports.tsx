@@ -19,7 +19,7 @@ export function SignupImports() {
   const run = data?.runs.find(r => r.id === reviewId);
   function mutate(operation: string, payload: Record<string, unknown>, after?: (result: { playerId?: string }) => void) {
     start(async () => { const result = await signupImportMutation(operation, payload); if (result.error) { toast.error(result.error); return; }
-      toast.success(operation === 'rerun' ? 'Rerun queued for the worker; the new roster will require review' : 'Saved'); after?.(result); await refresh(); });
+      toast.success(operation === 'run_now' ? 'Import queued for the next worker check. If the Mac worker is idle, restart it to pick this up sooner. Review the draft before finalizing attendance.' : operation === 'rerun' ? 'Rerun queued for the worker; the new roster will require review' : 'Saved'); after?.(result); await refresh(); });
   }
   function review(value: SignupRun) { setReviewId(value.id); setSelections(value.selections ?? {}); setSearch(''); }
   return <div className="grid gap-4">
@@ -45,7 +45,7 @@ export function SignupImports() {
     </form>}
     {data?.schedules.map(s => <div key={s.id} className="panel grid gap-2 p-4"><div className="flex justify-between gap-2"><strong>{s.name}</strong><span>{s.enabled ? 'Enabled' : 'Disabled'}</span></div>
       <p className="text-sm">{weekdays[s.weekday - 1]} · {s.local_time} · {s.timezone} · capacity {s.capacity}</p><p className="text-sm">{data.seasons.find(v => v.id === s.season_id)?.name} · {data.destinations.find(v => v.id === s.destination_id)?.name}</p>
-      <div className="flex gap-2"><button className="btn-secondary" onClick={() => { setSchedule(s as SignupScheduleInput & { id: string }); setEditing(true); }}>Edit</button><button disabled={pending} className="btn-secondary" onClick={() => mutate('save', { ...s, enabled: !s.enabled })}>{s.enabled ? 'Disable' : 'Enable'}</button></div>
+      <div className="flex gap-2"><button className="btn-secondary" onClick={() => { setSchedule(s as SignupScheduleInput & { id: string }); setEditing(true); }}>Edit</button><button disabled={pending} className="btn-secondary" onClick={() => mutate('save', { ...s, enabled: !s.enabled })}>{s.enabled ? 'Disable' : 'Enable'}</button><button className="btn-primary" disabled={pending || !s.enabled || data.runs.some(r => r.schedule_id === s.id && ['queued', 'reading'].includes(r.status))} title={!s.enabled ? 'Enable this schedule to run it manually' : undefined} onClick={() => { if (window.confirm('Read the latest signup now for the upcoming configured session day? This prepares a draft for review before changing attendance. The Mac worker must be running.')) mutate('run_now', { id: s.id }); }}>Run now</button></div>
     </div>)}
     <h2 className="font-semibold">Import history and review queue</h2>
     {!data?.runs.length && <p className="text-sm text-slate-500">No import runs yet.</p>}

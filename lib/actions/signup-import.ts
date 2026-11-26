@@ -5,7 +5,7 @@ import { createSupabaseServerClient, getCurrentProfile } from '../supabase/serve
 import { createSupabaseAdminClient } from '../supabase/admin';
 import { requireOrganizationAdminAuthority } from '../organization-access';
 import { requireEnabledProgramModule } from '../program-access';
-import { signupScheduleSchema } from '../../packages/communications/src/signup-import';
+import { signupScheduleSchema, signupWindow } from '../../packages/communications/src/signup-import';
 import { prepareSignupDraft, saveSignupDraft, processSignupRun, type SignupRun } from '../signup-import-service';
 async function context() {
   const profile = await getCurrentProfile();
@@ -39,6 +39,19 @@ export async function signupImportMutation(operation: string, input: unknown) {
       const query = data.id ? db.from('signup_import_schedules').update(payload).eq('id', z.string().uuid().parse(data.id)).eq('organization_id', organizationId)
         : db.from('signup_import_schedules').insert({ ...payload, created_by: profileId });
       const result = await query;
+      if (result.error) throw new Error(result.error.message);
+    } else if (operation === 'run_now') {
+      const id = z.string().uuid().parse(data.id);
+      const schedule = await db.from('signup_import_schedules').select('*').eq('id', id).eq('organization_id', organizationId).eq('enabled', true).single();
+      if (schedule.error || !schedule.data) throw new Error('Enable the schedule before running it manually');
+      await requireEnabledProgramModule(user, organizationId, schedule.data.program_id, 'whatsapp_import');
+      const active = await db.from('signup_import_runs').select('id').eq('organization_id', organizationId).eq('schedule_id', id).in('status', ['queued', 'reading']).limit(1).maybeSingle();
+      if (active.error) throw new Error(active.error.message);
+      if (active.data) throw new Error('This schedule already has a queued or running import');
+      const now = new Date().toISOString();
+      const window = signupWindow(schedule.data, now);
+      const result = await db.from('signup_import_runs').insert({ organization_id: organizationId, schedule_id: id, scheduled_at: now,
+        target_date: window.target_date, window_from: window.from, window_until: window.until, configuration: schedule.data, manual: true });
       if (result.error) throw new Error(result.error.message);
     } else {
       const id = z.string().uuid().parse(data.id);
