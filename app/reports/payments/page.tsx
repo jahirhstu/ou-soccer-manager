@@ -87,13 +87,13 @@ export default async function PaymentReportPage({
         </div>
       </div>
       <p className="mb-4 text-sm text-slate-600">Each record shows one player’s totals for one season. Charged includes posted upcoming session fees. Open details for sessions, waivers, refunds, and transfers.</p>
-      <form className="panel mb-5 grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-        <label className="text-sm">Season<select className="input mt-1" defaultValue={filters.season ?? ""} name="season">
+      <form className="panel mb-5 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_auto]">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Season<select className="input block w-full min-w-0 max-w-full truncate" defaultValue={filters.season ?? ""} name="season">
           <option value="">All seasons</option>
           {seasons.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select></label>
-        <label className="text-sm">Player<input className="input mt-1" defaultValue={filters.player ?? ""} name="player" placeholder="Search player" /></label>
-        <label className="text-sm">Session<select className="input mt-1" defaultValue={filters.sessionId ?? ""} name="sessionId">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Player<input className="input block w-full min-w-0 max-w-full truncate" defaultValue={filters.player ?? ""} name="player" placeholder="Search player" /></label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Session<select className="input block w-full min-w-0 max-w-full truncate" defaultValue={filters.sessionId ?? ""} name="sessionId">
           <option value="">All sessions</option>
           {(sessions ?? []).map((session) => {
             const playgroundName = (session as any).playgrounds?.name ?? session.location;
@@ -104,22 +104,22 @@ export default async function PaymentReportPage({
             );
           })}
         </select></label>
-        <label className="text-sm">Status<select className="input mt-1" defaultValue={filters.status ?? "all"} name="status">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Status<select className="input block w-full min-w-0 max-w-full truncate" defaultValue={filters.status ?? "all"} name="status">
           <option value="all">All statuses</option>
           <option value="owes">Owes</option>
           <option value="credit">Has credit</option>
           <option value="settled">Settled</option>
           <option value="no_payment">No payment</option>
         </select></label>
-        <label className="text-sm">Sort by<select className="input mt-1" name="sort" defaultValue={sortKey(filters.sort)}>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Sort by<select className="input block w-full min-w-0 max-w-full truncate" name="sort" defaultValue={sortKey(filters.sort)}>
           <option value="player">Player A–Z</option><option value="season">Season A–Z</option>
           <option value="status">Status A–Z</option><option value="paid">Paid: highest first</option>
           <option value="used">Charged: highest first</option><option value="balance">Balance: credit to owing</option>
         </select></label>
-        <label className="text-sm">Records per page<select className="input mt-1" name="pageSize" defaultValue={pageSize}>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">Records per page<select className="input block w-full min-w-0 max-w-full truncate" name="pageSize" defaultValue={pageSize}>
           {[10, 25, 50].map(size => <option key={size} value={size}>{size}</option>)}
         </select></label>
-        <button className="btn-primary justify-center">Apply</button>
+        <button type="submit" className="btn-primary h-10 w-auto self-end justify-self-start whitespace-nowrap">Apply</button>
       </form>
       <PaymentReportTable rows={pageRows} />
       <nav aria-label="Payment report pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
