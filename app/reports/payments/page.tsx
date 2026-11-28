@@ -1,20 +1,21 @@
-import { DataTable } from "@/components/DataTable";
-import { cn, money } from "@/lib/utils";
+import { PaymentReportTable } from "@/components/PaymentReportTable";
+import Link from "next/link";
 import { compareNumberDesc, compareText } from "@/lib/sorting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AppShell } from "../../(shell)";
 import { Download } from "lucide-react";
 
-type SortKey = "player" | "season" | "status" | "paid" | "played" | "remaining" | "used" | "waived" | "credit" | "owes";
+type SortKey = "player" | "season" | "status" | "paid" | "used" | "balance";
+type Filters = { player?: string; sessionId?: string; status?: string; season?: string; sort?: string; page?: string; pageSize?: string };
 
 export default async function PaymentReportPage({
   searchParams
 }: {
-  searchParams: Promise<{ player?: string; sessionId?: string; status?: string; sort?: string }>;
+  searchParams: Promise<Filters>;
 }) {
   const filters = await searchParams;
   const supabase = await createSupabaseServerClient();
-  const [{ data }, { data: sessions }, { data: sessionAttendance }, { data: transfers }] = await Promise.all([
+  const results = await Promise.all([
     supabase.from("player_season_payment_summary").select("*"),
     supabase.from("sessions").select("id,name,session_date,location,playgrounds(name)").order("session_date", { ascending: false }),
     filters.sessionId
@@ -22,6 +23,9 @@ export default async function PaymentReportPage({
       : Promise.resolve({ data: null }),
     supabase.from("player_season_transfer_summary").select("player_id,season_id,transfer_in_amount,transfer_out_amount,debt_transfer_in_amount,debt_transfer_out_amount")
   ]);
+  for (const result of results) if ("error" in result && result.error) throw new Error(result.error.message);
+  const [{ data }, { data: sessions }, { data: sessionAttendance }, { data: transfers }] = results;
+  const seasons = [...new Map((data ?? []).map(row => [row.season_id, row.season_name])).entries()];
   const transferByPlayerSeason = new Map((transfers ?? []).map((row) => [`${row.player_id}:${row.season_id}`, row]));
   const attendedPlayerIds = new Set((sessionAttendance ?? []).map((row) => row.player_id));
   const rowsWithTransfers = (data ?? []).map((row) => ({ ...row,
@@ -31,11 +35,23 @@ export default async function PaymentReportPage({
     debt_transfer_out_amount: transferByPlayerSeason.get(`${row.player_id}:${row.season_id}`)?.debt_transfer_out_amount ?? 0
   }));
   const filteredRows = sortRows(rowsWithTransfers.filter((row) => {
+    if (filters.season && row.season_id !== filters.season) return false;
     if (filters.player && !String(row.player_name ?? "").toLowerCase().includes(filters.player.toLowerCase())) return false;
     if (filters.sessionId && !attendedPlayerIds.has(row.player_id)) return false;
     if (filters.status && filters.status !== "all" && paymentStatus(row) !== filters.status) return false;
     return true;
   }), sortKey(filters.sort));
+  const pageSize = [10, 25, 50].includes(Number(filters.pageSize)) ? Number(filters.pageSize) : 25;
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const requestedPage = Number(filters.page);
+  const page = Math.min(totalPages, Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1);
+  const pageRows = filteredRows.slice((page - 1) * pageSize, page * pageSize).map(row => ({ ...row, report_status: paymentStatus(row) }));
+  const pageHref = (target: number) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value && key !== "page") params.set(key, value);
+    params.set("page", String(target));
+    return `/reports/payments?${params}`;
+  };
   const csv = [
     "Player,Season,Amount paid,Paid sessions,Billable sessions,Remaining sessions,Used,Waived,Refunded,Credit transfer in,Credit transfer out,Owing transfer in,Owing transfer out,Credit,Refund due,Owes",
     ...filteredRows.map((row) =>
@@ -56,7 +72,7 @@ export default async function PaymentReportPage({
         row.credit_amount,
         row.refund_due_amount,
         row.owes_money
-      ].join(",")
+      ].map(csvCell).join(",")
     )
   ].join("\n");
   return (
@@ -66,13 +82,18 @@ export default async function PaymentReportPage({
         <div className="flex flex-wrap gap-2">
           <a className="btn-secondary" download="payment-report.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`}>
             <Download className="h-4 w-4" />
-            Export CSV
+            Export filtered CSV
           </a>
         </div>
       </div>
-      <form className="panel mb-5 grid gap-3 p-4 md:grid-cols-[1fr_1fr_180px_auto]">
-        <input className="input" defaultValue={filters.player ?? ""} name="player" placeholder="Filter by player" />
-        <select className="input" defaultValue={filters.sessionId ?? ""} name="sessionId">
+      <p className="mb-4 text-sm text-slate-600">Each record shows one player’s totals for one season. Charged includes posted upcoming session fees. Open details for sessions, waivers, refunds, and transfers.</p>
+      <form className="panel mb-5 grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+        <label className="text-sm">Season<select className="input mt-1" defaultValue={filters.season ?? ""} name="season">
+          <option value="">All seasons</option>
+          {seasons.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select></label>
+        <label className="text-sm">Player<input className="input mt-1" defaultValue={filters.player ?? ""} name="player" placeholder="Search player" /></label>
+        <label className="text-sm">Session<select className="input mt-1" defaultValue={filters.sessionId ?? ""} name="sessionId">
           <option value="">All sessions</option>
           {(sessions ?? []).map((session) => {
             const playgroundName = (session as any).playgrounds?.name ?? session.location;
@@ -82,35 +103,33 @@ export default async function PaymentReportPage({
               </option>
             );
           })}
-        </select>
-        <select className="input" defaultValue={filters.status ?? "all"} name="status">
+        </select></label>
+        <label className="text-sm">Status<select className="input mt-1" defaultValue={filters.status ?? "all"} name="status">
           <option value="all">All statuses</option>
           <option value="owes">Owes</option>
           <option value="credit">Has credit</option>
           <option value="settled">Settled</option>
           <option value="no_payment">No payment</option>
-        </select>
+        </select></label>
+        <label className="text-sm">Sort by<select className="input mt-1" name="sort" defaultValue={sortKey(filters.sort)}>
+          <option value="player">Player A–Z</option><option value="season">Season A–Z</option>
+          <option value="status">Status A–Z</option><option value="paid">Paid: highest first</option>
+          <option value="used">Charged: highest first</option><option value="balance">Balance: credit to owing</option>
+        </select></label>
+        <label className="text-sm">Records per page<select className="input mt-1" name="pageSize" defaultValue={pageSize}>
+          {[10, 25, 50].map(size => <option key={size} value={size}>{size}</option>)}
+        </select></label>
         <button className="btn-primary justify-center">Apply</button>
       </form>
-      <DataTable rows={filteredRows} columns={[
-        { header: "Player", cell: (row) => row.player_name ?? "-" },
-        { header: "Season", cell: (row) => row.season_name ?? "-" },
-        { header: "Status", cell: (row) => <BalanceBadge status={paymentStatus(row)} /> },
-        { header: "Amount paid", cell: (row) => money(row.total_paid_amount) },
-        { header: "Paid sessions", cell: (row) => row.total_paid_sessions ?? 0 },
-        { header: "Billable sessions", cell: (row) => row.total_played_sessions ?? 0 },
-        { header: "Remaining sessions", cell: (row) => row.remaining_sessions ?? 0 },
-        { header: "Used", cell: (row) => money(row.estimated_used_amount) },
-        { header: "Waived", cell: (row) => money(row.waived_amount) },
-        { header: "Refunded", cell: (row) => money(row.refund_paid_amount) },
-        { header: "Credit transfer in", cell: (row) => money(row.transfer_in_amount) },
-        { header: "Credit transfer out", cell: (row) => money(row.transfer_out_amount) },
-        { header: "Owing transfer in", cell: (row) => money(row.debt_transfer_in_amount) },
-        { header: "Owing transfer out", cell: (row) => money(row.debt_transfer_out_amount) },
-        { header: "Credit", cell: (row) => <MoneyPill amount={row.credit_amount} tone={Number(row.credit_amount ?? 0) > 0 ? "credit" : "neutral"} /> },
-        { header: "Refund due", cell: (row) => money(row.refund_due_amount) },
-        { header: "Owes", cell: (row) => <MoneyPill amount={row.owes_money} tone={Number(row.owes_money ?? 0) > 0 ? "owes" : "neutral"} /> }
-      ]} />
+      <PaymentReportTable rows={pageRows} />
+      <nav aria-label="Payment report pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <p>Showing {filteredRows.length ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, filteredRows.length)} of {filteredRows.length} records</p>
+        <div className="flex items-center gap-3">
+          {page > 1 ? <Link className="btn-secondary" href={pageHref(page - 1)}>Previous</Link> : <span aria-disabled="true" className="text-slate-400">Previous</span>}
+          <span>Page {page} of {totalPages}</span>
+          {page < totalPages ? <Link className="btn-secondary" href={pageHref(page + 1)}>Next</Link> : <span aria-disabled="true" className="text-slate-400">Next</span>}
+        </div>
+      </nav>
     </AppShell>
   );
 }
@@ -131,52 +150,23 @@ function paymentStatusLabel(status: string) {
 }
 
 function sortKey(value: string | undefined): SortKey {
-  if (value === "season" || value === "status" || value === "paid" || value === "played" || value === "remaining" || value === "used" || value === "waived" || value === "credit" || value === "owes") return value;
-  return "player";
+  return value === "season" || value === "status" || value === "paid" || value === "used" || value === "balance" ? value : "player";
 }
 
 function sortRows(rows: any[], key: SortKey) {
   return [...rows].sort((left, right) => {
-    if (key === "season") return compareText(left.season_name, right.season_name) || compareText(left.player_name, right.player_name);
-    if (key === "status") return compareText(paymentStatusLabel(paymentStatus(left)), paymentStatusLabel(paymentStatus(right))) || compareText(left.player_name, right.player_name);
-    if (key === "paid") return compareNumberDesc(left.total_paid_amount, right.total_paid_amount) || compareText(left.player_name, right.player_name);
-    if (key === "played") return compareNumberDesc(left.total_played_sessions, right.total_played_sessions) || compareText(left.player_name, right.player_name);
-    if (key === "remaining") return compareNumberDesc(left.remaining_sessions, right.remaining_sessions) || compareText(left.player_name, right.player_name);
-    if (key === "used") return compareNumberDesc(left.estimated_used_amount, right.estimated_used_amount) || compareText(left.player_name, right.player_name);
-    if (key === "waived") return compareNumberDesc(left.waived_amount, right.waived_amount) || compareText(left.player_name, right.player_name);
-    if (key === "credit") return compareNumberDesc(left.credit_amount, right.credit_amount) || compareText(left.player_name, right.player_name);
-    if (key === "owes") return compareNumberDesc(left.owes_money, right.owes_money) || compareText(left.player_name, right.player_name);
-    return compareText(left.player_name, right.player_name) || compareText(left.season_name, right.season_name);
+    let comparison = 0;
+    if (key === "season") comparison = compareText(left.season_name, right.season_name);
+    if (key === "status") comparison = compareText(paymentStatusLabel(paymentStatus(left)), paymentStatusLabel(paymentStatus(right)));
+    if (key === "paid") comparison = compareNumberDesc(left.total_paid_amount, right.total_paid_amount);
+    if (key === "used") comparison = compareNumberDesc(left.estimated_used_amount, right.estimated_used_amount);
+    if (key === "balance") comparison = compareNumberDesc(Number(left.credit_amount ?? 0) - Number(left.owes_money ?? 0), Number(right.credit_amount ?? 0) - Number(right.owes_money ?? 0));
+    return comparison || compareText(left.player_name, right.player_name) || compareText(left.season_name, right.season_name)
+      || compareText(left.player_id, right.player_id) || compareText(left.season_id, right.season_id);
   });
 }
 
-function BalanceBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
-        status === "owes" && "bg-rose-100 text-rose-800",
-        status === "credit" && "bg-emerald-100 text-emerald-800",
-        status === "settled" && "bg-slate-100 text-slate-700",
-        status === "no_payment" && "bg-amber-100 text-amber-800"
-      )}
-    >
-      {paymentStatusLabel(status)}
-    </span>
-  );
-}
-
-function MoneyPill({ amount, tone }: { amount: number | string | null | undefined; tone: "credit" | "owes" | "neutral" }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-md px-2.5 py-1 text-xs font-semibold",
-        tone === "credit" && "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-        tone === "owes" && "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
-        tone === "neutral" && "bg-slate-50 text-slate-600 ring-1 ring-slate-200"
-      )}
-    >
-      {money(Number(amount ?? 0))}
-    </span>
-  );
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '\"\"')}"` : text;
 }

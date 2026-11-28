@@ -39,6 +39,7 @@ beforeEach(() => {
     }, error: null };
     if (["scoped_public_player_report", "internal_scoped_player_report"].includes(name)) return { data: reportRows, error: null };
     if (name === "admin_dashboard_season_finance") return { data: [{ signup_collected: 120, drop_in_collected: 24, total_collected: 144, total_expenses: 20, total_refunded: 12, club_balance: 112, total_player_credit: 25, net_club_balance: 87, total_waived: args.p_season_id === "summer" ? 48 : 0, player_count: 2 }], error: null };
+    if (name === "admin_dashboard_current_club_balance") return { data: [{ current_club_balance: -11.74 }], error: null };
     if (name === "admin_club_transfer_summary") return { data: [{ season_result: 87, carried_in: 0, carried_out: 0, balance_remaining: 87 }], error: null };
     return { data: [], error: null };
   });
@@ -58,11 +59,18 @@ describe("dashboard season cards", () => {
     const html = renderToStaticMarkup(await Dashboard({ searchParams: Promise.resolve({}) }));
     expect(html).toContain("Net session charges");
     expect(html).toContain("$24.00");
-    expect(html).toContain("Net Club Balance"); expect(html).toContain("$87.00");
+    expect(html).toContain("Projected Club Surplus"); expect(html).toContain("$87.00");
     expect(html).toContain("Season result before transfers");
     expect(html).toContain("Carry club balance forward");
     expect(html).toContain("Total Waived"); expect(html).toContain("$48.00");
     expect(html).toContain("Summer (Active)");
+    expect(html).toContain("Current Club Balance");
+    expect(html).toContain("-$11.74");
+    expect(html).toContain("Shortfall");
+    expect(html).toContain("including posted upcoming fees");
+    expect(html).toContain("One player’s credit does not cancel another player’s debt.");
+    expect(html).toContain("this is not season profit");
+    expect(mocks.rpc).toHaveBeenCalledWith("admin_dashboard_current_club_balance", { p_season_id: "summer" });
     expect(mocks.rpc).toHaveBeenCalledWith("admin_dashboard_season_finance", { p_season_id: "summer" });
     expect(html).not.toContain("Total charged(used)");
   });

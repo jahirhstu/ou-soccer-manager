@@ -53,12 +53,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ? supabase.from("club_expenses").select("id", { count: "exact", head: true })
         .eq("organization_id", profile.organization_id).eq("program_id", activeSeason.program_id).is("season_id", null)
       : supabase.from("club_expenses").select("id", { count: "exact", head: true })
-        .eq("organization_id", profile.organization_id).is("program_id", null).is("season_id", null)
+        .eq("organization_id", profile.organization_id).is("program_id", null).is("season_id", null),
+    supabase.rpc("admin_dashboard_current_club_balance", { p_season_id: activeSeason.id })
   ]);
   for (const result of results) if (result.error) throw new Error(result.error.message);
-  const [{ data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financeRows }, { count: sessionCount }, { data: upcoming }, { data: transferSummaries }, { data: transferHistory }, { count: unassignedExpenses }] = results;
+  const [{ data: sessions }, { data: payments }, { data: stats }, { data: balances }, { data: summaries }, { data: financeRows }, { count: sessionCount }, { data: upcoming }, { data: transferSummaries }, { data: transferHistory }, { count: unassignedExpenses }, { data: currentBalanceRows }] = results;
   const finance = financeRows?.[0];
   if (!finance) throw new Error("Season financial summary is unavailable.");
+  const currentBalance = currentBalanceRows?.[0]?.current_club_balance;
+  if (currentBalance == null) throw new Error("Current club balance is unavailable.");
   const transferSummary = transferSummaries?.[0];
   if (!transferSummary) throw new Error("Club transfer summary is unavailable.");
   const destinations = (seasons ?? []).filter((season) => activeSeason.program_id && season.program_id === activeSeason.program_id
@@ -86,35 +89,36 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric icon={Users} label="Players" value={finance.player_count ?? 0} />
-          <Metric icon={CalendarClock} label="Sessions" value={sessionCount ?? 0} />
-          <Metric icon={Trophy} label="Upcoming session" value={upcoming?.[0]?.session_date ?? "-"} />
-          <Metric icon={CircleDollarSign} label="Price per session" value={money(activeSeason?.price_per_session)} />
-          <Metric icon={CreditCard} label="Signup collected" value={money(finance.signup_collected)} />
-          <Metric icon={CreditCard} label="Drop-in collected" value={money(finance.drop_in_collected)} />
-          <Metric icon={CreditCard} label="Total collected" value={money(finance.total_collected)} />
-          <Metric icon={ReceiptText} label="Total expenses" value={money(finance.total_expenses)} />
-          <Metric icon={ReceiptText} label="Total refunded" value={money(finance.total_refunded)} />
-          <Metric icon={CircleDollarSign} label="Club balance" value={money(finance.club_balance)} />
-          <Metric icon={CircleDollarSign} label="Net Club Balance" supportingText="Club balance after unused player credit" value={money(finance.net_club_balance)} />
-          <Metric icon={ReceiptText} label="Total Waived" supportingText="Session fees forgiven this season" value={money(finance.total_waived)} />
+          <Metric icon={Users} label="Players" supportingText="Active players with attendance, payments, or balance activity this season." value={finance.player_count ?? 0} />
+          <Metric icon={CalendarClock} label="Sessions" supportingText="All sessions recorded for this season, including upcoming sessions." value={sessionCount ?? 0} />
+          <Metric icon={Trophy} label="Upcoming session" supportingText="The date of the next scheduled session." value={upcoming?.[0]?.session_date ?? "-"} />
+          <Metric icon={CircleDollarSign} label="Price per session" supportingText="The standard fee for one session. Individual charges may differ." value={money(activeSeason?.price_per_session)} />
+          <Metric icon={CreditCard} label="Signup collected" supportingText="Payments recorded without a specific session attached." value={money(finance.signup_collected)} />
+          <Metric icon={CreditCard} label="Drop-in collected" supportingText="Payments recorded against a specific session." value={money(finance.drop_in_collected)} />
+          <Metric icon={CreditCard} label="Total collected" supportingText="All player payments received this season, before expenses and refunds." value={money(finance.total_collected)} />
+          <Metric icon={ReceiptText} label="Total expenses" supportingText="Recorded spending charged to this season, including applicable unassigned expenses." value={money(finance.total_expenses)} />
+          <Metric icon={ReceiptText} label="Total refunded" supportingText="Money already returned to players." value={money(finance.total_refunded)} />
+          <Metric icon={CircleDollarSign} label="Club balance" supportingText="Money collected plus transfers in, minus expenses, refunds, and transfers out. Includes money held for players." value={money(finance.club_balance)} />
+          <Metric icon={CircleDollarSign} label="Current Club Balance" supportingText="Money left after setting aside unused player funds, excluding advance charges for upcoming sessions. A negative amount means a shortfall." value={money(currentBalance)} status={Number(currentBalance) < 0 ? "Shortfall" : undefined} />
+          <Metric icon={CircleDollarSign} label="Projected Club Surplus" supportingText="Money left after setting aside player credit, including posted upcoming charges. Includes carried-forward money; this is not season profit." value={money(finance.net_club_balance)} />
+          <Metric icon={ReceiptText} label="Total Waived" supportingText="Session fees forgiven for players. This is not money collected or spent." value={money(finance.total_waived)} />
           <Metric
             icon={WalletCards}
             label="Total Player Credit Remaining"
-            supportingText="Unused player funds currently held by the club"
+            supportingText="Player funds left after recorded charges, including advance charges for upcoming sessions."
             tooltip="The sum of all positive player balances. Amounts owed by players do not reduce this total."
             value={money(finance.total_player_credit)}
           />
-          <Metric icon={TrendingDown} label="Net session charges" value={money(totalUsed)} />
-          <Metric icon={CircleDollarSign} label="Total owing" value={money(totalOwing)} />
+          <Metric icon={TrendingDown} label="Net session charges" supportingText="Session fees charged after waivers, including posted upcoming fees. This is not payments received." value={money(totalUsed)} />
+          <Metric icon={CircleDollarSign} label="Total owing" supportingText="Unpaid player charges, including posted upcoming fees. One player’s credit does not cancel another player’s debt." value={money(totalOwing)} />
         </div>
         <section className="grid gap-3">
           <h2 className="section-title">Club balance carry-forward</h2>
           <div className="grid gap-3 border-y border-line py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-            <div><span className="text-slate-500">Season result before transfers</span><div className="font-semibold text-ink">{money(transferSummary.season_result)}</div></div>
-            <div><span className="text-slate-500">Carried in</span><div className="font-semibold text-ink">{money(transferSummary.carried_in)}</div></div>
-            <div><span className="text-slate-500">Carried out</span><div className="font-semibold text-ink">{money(transferSummary.carried_out)}</div></div>
-            <div><span className="text-slate-500">Balance remaining</span><div className="font-semibold text-ink">{money(transferSummary.balance_remaining)}</div></div>
+            <div><span className="text-slate-500">Season result before transfers</span><div className="font-semibold text-ink">{money(transferSummary.season_result)}</div><p className="mt-1 text-xs text-slate-500">Season balance after player credit, before club transfers. Includes posted upcoming charges.</p></div>
+            <div><span className="text-slate-500">Carried in</span><div className="font-semibold text-ink">{money(transferSummary.carried_in)}</div><p className="mt-1 text-xs text-slate-500">Signed balance transferred into this season. A negative amount brings in a shortfall.</p></div>
+            <div><span className="text-slate-500">Carried out</span><div className="font-semibold text-ink">{money(transferSummary.carried_out)}</div><p className="mt-1 text-xs text-slate-500">Signed balance transferred out of this season. A negative amount moves out a shortfall.</p></div>
+            <div><span className="text-slate-500">Balance remaining</span><div className="font-semibold text-ink">{money(transferSummary.balance_remaining)}</div><p className="mt-1 text-xs text-slate-500">Season balance after player credit and transfers, including posted upcoming charges.</p></div>
           </div>
           {unassignedExpenses ? <p className="text-sm text-amber-800">
             {unassignedExpenses} unassigned expense{unassignedExpenses === 1 ? "" : "s"} must be <Link className="underline" href="/expenses">assigned to a season</Link> before a transfer.
@@ -185,12 +189,14 @@ function Metric({
   label,
   supportingText,
   tooltip,
+  status,
   value
 }: {
   icon: LucideIcon;
   label: string;
   supportingText?: string;
   tooltip?: string;
+  status?: string;
   value: string | number;
 }) {
   return (
@@ -202,6 +208,7 @@ function Metric({
         </span>
       </div>
       <div className="mt-3 break-words text-2xl font-semibold tracking-tight text-ink">{value}</div>
+      {status ? <p className="mt-1 text-sm font-medium text-amber-800">{status}</p> : null}
       {supportingText ? <p className="mt-1 text-xs leading-5 text-slate-500">{supportingText}</p> : null}
     </div>
   );

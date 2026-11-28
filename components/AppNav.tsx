@@ -65,6 +65,7 @@ const navSections: Array<{ label: string; items: NavItem[] }> = [
       { href: "/notifications", label: "Notifications", subLabel: "Payment alerts", icon: Bell, roles: ["admin"], requiresOrganizationAdmin: true },
       { href: "/expenses", label: "Expenses", subLabel: "Club spending", icon: ReceiptText, roles: ["admin"], moduleKey: "expenses", requiresOrganizationAdmin: true },
       { href: "/import-whatsapp", label: "WhatsApp", subLabel: "Parse group updates", icon: MessageSquareText, roles: ["admin"], moduleKey: "whatsapp_import", requiresOrganizationAdmin: true },
+      { href: "/reports/finances", label: "Financial report", subLabel: "Cash in, out and balance", icon: BarChart3, roles: ["admin"], moduleKey: "payments", requiresOrganizationAdmin: true },
       { href: "/reports/payments", label: "Payments report", subLabel: "Balances and usage", icon: BarChart3, roles: ["admin"], requiresOrganizationAdmin: true },
       { href: "/settings", label: "Settings", subLabel: "Roles and cleanup", icon: Settings, roles: ["admin"], scope: "organization", requiresOrganizationAdmin: true }
     ]
